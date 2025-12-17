@@ -333,7 +333,6 @@ export default function App() {
       return false;
     }
   }
-  
   async function connectWallet() {
     try {
       const { ethereum } = window;
@@ -342,20 +341,20 @@ export default function App() {
         return;
       }
   
-      // 🔒 Force ARC Testnet (auto-switch / auto-add)
-      const ok = await ensureArcNetwork();
-      if (!ok) {
-        setStatus("Please connect to Arc Testnet.");
-        return;
-      }
-  
-      // Request accounts AFTER correct chain
+      // ✅ STEP 1: request account access FIRST (required by Rabby)
       const accounts = await ethereum.request({
         method: "eth_requestAccounts",
       });
   
       if (!accounts || accounts.length === 0) {
-        setStatus("No account found. Please unlock your wallet and try again.");
+        setStatus("No account found. Please unlock your wallet.");
+        return;
+      }
+  
+      // ✅ STEP 2: NOW force ARC Testnet
+      const ok = await ensureArcNetwork();
+      if (!ok) {
+        setStatus("Please switch to Arc Testnet.");
         return;
       }
   
@@ -364,18 +363,16 @@ export default function App() {
       const net = await provider.getNetwork();
   
       setAddress(userAddress);
-      setNetwork(Number(net.chainId)); // always 5042002 now
+      setNetwork(Number(net.chainId)); // should be 5042002
       setStatus("Connected to Arc Testnet");
   
-      // ✅ Fetch balances ONLY on ARC
       await fetchBalances(userAddress, provider);
   
     } catch (err) {
-      console.error(err);
-      setStatus("Failed to connect wallet: " + (err.message || err));
+      console.error("connectWallet error:", err);
+      setStatus("Wallet connection failed");
     }
   }  
-
   async function disconnectWallet() {
     setAddress(null);
     setNetwork(null);
