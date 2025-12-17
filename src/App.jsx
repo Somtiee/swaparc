@@ -293,46 +293,49 @@ export default function App() {
   }, [swapAmount, swapFrom, swapTo, tokens]);
 
   async function ensureArcNetwork() {
-    if (!window.ethereum) return false;
+    const { ethereum } = window;
+    if (!ethereum) return false;
   
     try {
-      // Try to switch to ARC
-      await window.ethereum.request({
+      await ethereum.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: ARC_CHAIN_ID }],
       });
       return true;
     } catch (error) {
-      // If ARC is not added, add it
+      // Chain not added
       if (error.code === 4902) {
-        try {
-          await window.ethereum.request({
-            method: "wallet_addEthereumChain",
-            params: [
-              {
-                chainId: ARC_CHAIN_ID,
-                chainName: "Arc Testnet",
-                nativeCurrency: {
-                  name: "USDC",
-                  symbol: "USDC",
-                  decimals: 6,
-                },
-                rpcUrls: ["https://rpc.test.arc.market"],
-                blockExplorerUrls: ["https://testnet.arcscan.app"],
+        await ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [
+            {
+              chainId: ARC_CHAIN_ID,
+              chainName: "Arc Testnet",
+              nativeCurrency: {
+                name: "USDC",
+                symbol: "USDC",
+                decimals: 6,
               },
-            ],
-          });
-          return true;
-        } catch (addError) {
-          console.error("Failed to add ARC", addError);
-          return false;
-        }
+              rpcUrls: ["https://rpc.test.arc.market"],
+              blockExplorerUrls: ["https://testnet.arcscan.app"],
+            },
+          ],
+        });
+  
+        // 🔁 switch again after adding
+        await ethereum.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: ARC_CHAIN_ID }],
+        });
+  
+        return true;
       }
   
-      console.error("Failed to switch chain", error);
+      console.error("ARC switch failed:", error);
       return false;
     }
   }
+  
   async function connectWallet() {
     try {
       const { ethereum } = window;
@@ -357,10 +360,15 @@ export default function App() {
         setStatus("Please switch to Arc Testnet.");
         return;
       }
-  
-      const provider = new ethers.BrowserProvider(ethereum);
-      const userAddress = accounts[0];
-      const net = await provider.getNetwork();
+      const ok = await ensureArcNetwork();
+      if (!ok) {
+        setStatus("Please switch to Arc Testnet");
+        return;
+      }
+      
+      // ⚠️ recreate provider AFTER switching chains
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const net = await provider.getNetwork();      
   
       setAddress(userAddress);
       setNetwork(Number(net.chainId)); // should be 5042002
