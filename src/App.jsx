@@ -11,7 +11,7 @@ import { getPrices } from "./priceFetcher";
   - It adds a small estimate call (callStatic.swap) to show expected output when you type an amount.
   - Then it performs the real pool.swap on-chain when you press Swap.
 */
-
+const ARC_CHAIN_ID = "0x4D02F2"; // 5042002 (ARC Testnet)
 /* --- tokens unchanged --- */
 const DEFAULT_TOKENS = [
   { symbol: "USDC", name: "USD Coin", address: "0x3600000000000000000000000000000000000000" },
@@ -292,7 +292,48 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [swapAmount, swapFrom, swapTo, tokens]);
 
-
+  async function ensureArcNetwork() {
+    if (!window.ethereum) return false;
+  
+    try {
+      // Try to switch to ARC
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: ARC_CHAIN_ID }],
+      });
+      return true;
+    } catch (error) {
+      // If ARC is not added, add it
+      if (error.code === 4902) {
+        try {
+          await window.ethereum.request({
+            method: "wallet_addEthereumChain",
+            params: [
+              {
+                chainId: ARC_CHAIN_ID,
+                chainName: "Arc Testnet",
+                nativeCurrency: {
+                  name: "USDC",
+                  symbol: "USDC",
+                  decimals: 6,
+                },
+                rpcUrls: ["https://rpc.test.arc.market"],
+                blockExplorerUrls: ["https://testnet.arcscan.app"],
+              },
+            ],
+          });
+          return true;
+        } catch (addError) {
+          console.error("Failed to add ARC", addError);
+          return false;
+        }
+      }
+  
+      console.error("Failed to switch chain", error);
+      return false;
+    }
+  }
+  
   async function connectWallet() {
     try {
       const { ethereum } = window;
@@ -300,31 +341,40 @@ export default function App() {
         setStatus("No wallet found. Please install Rabby or MetaMask.");
         return;
       }
-
-      const accounts = await ethereum.request({ method: "eth_requestAccounts" });
+  
+      // 🔒 Force ARC Testnet (auto-switch / auto-add)
+      const ok = await ensureArcNetwork();
+      if (!ok) {
+        setStatus("Please connect to Arc Testnet.");
+        return;
+      }
+  
+      // Request accounts AFTER correct chain
+      const accounts = await ethereum.request({
+        method: "eth_requestAccounts",
+      });
+  
       if (!accounts || accounts.length === 0) {
         setStatus("No account found. Please unlock your wallet and try again.");
         return;
       }
-
+  
       const provider = new ethers.BrowserProvider(ethereum);
       const userAddress = accounts[0];
       const net = await provider.getNetwork();
-
+  
       setAddress(userAddress);
-      setNetwork(Number(net.chainId));
-      setStatus("Wallet connected!");
-
-      if (Number(net.chainId) !== 5042002) {
-        setStatus("Warning: You are not on Arc Testnet.");
-      }
-
+      setNetwork(Number(net.chainId)); // always 5042002 now
+      setStatus("Connected to Arc Testnet");
+  
+      // ✅ Fetch balances ONLY on ARC
       await fetchBalances(userAddress, provider);
+  
     } catch (err) {
       console.error(err);
       setStatus("Failed to connect wallet: " + (err.message || err));
     }
-  }
+  }  
 
   async function disconnectWallet() {
     setAddress(null);
@@ -551,8 +601,7 @@ export default function App() {
     <>
       <div className="walletCard small">
         <div className="walletNetwork">
-          {network === 5042002 ? "Arc Testnet" : `Chain ${network}`}
-        </div>
+          Arc Testnet        </div>
         <div className="walletAddress">{shortAddr(address)}</div>
       </div>
 
