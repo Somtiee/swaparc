@@ -267,10 +267,6 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
   .logoImg.big { width: 60px; height:60px; }
   .tokendropdown { left: 0; width: 100%; top: 56px; }
 }
-/* =========================
-   MOBILE RESPONSIVENESS FIX
-   (DOES NOT AFFECT DESKTOP)
-========================= */
 
 @media (max-width: 768px) {
 
@@ -278,51 +274,63 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
     overflow-x: hidden;
   }
 
-  /* Main app container */
-  .app,
-  .container,
-  .swap-container {
-    width: 100% !important;
-    max-width: 100% !important;
-    padding: 12px !important;
-    margin: 0 auto !important;
-  }
-
-  /* Swap card / panel */
-  .swap-card,
-  .card,
-  .swap-box {
-    width: 100% !important;
-    max-width: 420px;
-    margin: 0 auto;
-    padding: 14px;
-  }
-
-  /* Inputs & selectors */
-  input,
-  select {
-    width: 100%;
-    font-size: 16px; /* prevents iOS zoom */
-  }
-
-  /* Buttons */
-  button {
-    width: 100%;
-    font-size: 16px;
-  }
-
-  /* Token selector rows */
-  .token-row,
-  .token-select {
+  /* Header must wrap */
+  .headerRow.hybrid-header {
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 10px;
   }
 
-  /* Kill absolute centering on mobile */
-  .absolute,
-  .centered {
-    position: relative !important;
-    left: auto !important;
-    transform: none !important;
+  .brand {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .headerRight {
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  /* Main grid becomes vertical */
+  .topCards.hybrid-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Swap card */
+  .swapCardCentered {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* Swap input row stacks */
+  .swapBox {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .swapTokenBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .swapInput {
+    width: 100%;
+    text-align: left;
+    font-size: 18px;
+  }
+
+  /* Token dropdown full width */
+  .tokendropdown {
+    width: 100%;
+    left: 0;
+  }
+
+  /* Buttons full width */
+  button,
+  .primaryBtn,
+  .connectBtn {
+    width: 100%;
   }
 }
