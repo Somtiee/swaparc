@@ -11,7 +11,7 @@ import { getPrices } from "./priceFetcher";
   - It adds a small estimate call (callStatic.swap) to show expected output when you type an amount.
   - Then it performs the real pool.swap on-chain when you press Swap.
 */
-const ARC_CHAIN_ID = "0x4D02F2"; // 5042002 (ARC Testnet)
+const ARC_CHAIN_ID = "0x4CEF52"; // 5042002 (ARC Testnet)
 /* --- tokens unchanged --- */
 const DEFAULT_TOKENS = [
   { symbol: "USDC", name: "USD Coin", address: "0x3600000000000000000000000000000000000000" },
