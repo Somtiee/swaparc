@@ -334,3 +334,72 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
     width: 100%;
   }
 }
+/* =========================
+   MOBILE HARD FIX (FINAL)
+========================= */
+@media (max-width: 768px) {
+
+  /* Kill horizontal overflow */
+  html, body {
+    overflow-x: hidden;
+  }
+
+  /* 🔥 FIX 1: Disable fixed ticker on mobile */
+  .ticker-viewport {
+    position: relative;
+    top: 0;
+    width: 100%;
+    margin-bottom: 12px;
+  }
+
+  .ticker-track {
+    animation: none;
+    justify-content: flex-start;
+  }
+
+  /* 🔥 FIX 2: Remove fake spacing */
+  .main {
+    margin-top: 16px;
+  }
+
+  .app-page.hybrid-page {
+    padding: 12px 0 40px 0;
+  }
+
+  /* 🔥 FIX 3: Header must not overlap */
+  .headerRow.hybrid-header {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .brand,
+  .headerRight {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* 🔥 FIX 4: Stop width abuse */
+  .ticker-viewport,
+  .app-container.hybrid-center {
+    max-width: 100%;
+  }
+
+  /* Swap layout stacking */
+  .swapBox {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .swapInput {
+    text-align: left;
+    font-size: 18px;
+  }
+
+  button,
+  .connectBtn,
+  .primaryBtn {
+    width: 100%;
+  }
+}
+
