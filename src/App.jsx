@@ -15,15 +15,9 @@ import { getPrices } from "./priceFetcher";
 /* --- tokens unchanged --- */
 const DEFAULT_TOKENS = [
   { symbol: "USDC", name: "USD Coin", address: "0x3600000000000000000000000000000000000000" },
-  { symbol: "EURC", name: "Euro Coin", address: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a" },
-  { symbol: "USDG", name: "USD Gateway", address: "0x0000000000000000000000000000000000000001" },
-  { symbol: "ARCX", name: "ARCX Token", address: "0x0000000000000000000000000000000000000002" },
-  { symbol: "wETH", name: "Wrapped ETH", address: "0x0000000000000000000000000000000000000003" },
-  { symbol: "wBTC", name: "Wrapped BTC", address: "0x0000000000000000000000000000000000000004" },
-  { symbol: "SOL", name: "Solana (bridged)", address: "0x0000000000000000000000000000000000000005" },
-  { symbol: "BTC", name: "Bitcoin (bridged)", address: "0x0000000000000000000000000000000000000006" },
-  { symbol: "ETH", name: "Ethereum", address: "0x0000000000000000000000000000000000000007" }
+  { symbol: "EURC", name: "Euro Coin", address: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a" }
 ];
+
 
 /* --- Ticker (unchanged) --- */
 function Ticker({ tokens, prices }) {
@@ -585,7 +579,13 @@ export default function App() {
                 <p className="muted">No balances loaded — connect wallet & click Connect.</p>
               ) : (
                 <ul className="balancesList">
-                  {tokens.map(t => (
+                  {tokens
+  .filter(t => {
+    const bal = balances[t.symbol];
+    return bal && bal !== "n/a" && Number(bal) > 0;
+  })
+  .map(t => (
+
                     <li className="balanceItem" key={t.address}>
                       <div className="balanceLeft">
                         {tokenIcon(t.symbol)}
