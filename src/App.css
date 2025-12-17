@@ -267,3 +267,63 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
   .logoImg.big { width: 60px; height:60px; }
   .tokendropdown { left: 0; width: 100%; top: 56px; }
 }
+/* =========================
+   MOBILE RESPONSIVENESS FIX
+   (DOES NOT AFFECT DESKTOP)
+========================= */
+
+@media (max-width: 768px) {
+
+  body {
+    overflow-x: hidden;
+  }
+
+  /* Main app container */
+  .app,
+  .container,
+  .swap-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 12px !important;
+    margin: 0 auto !important;
+  }
+
+  /* Swap card / panel */
+  .swap-card,
+  .card,
+  .swap-box {
+    width: 100% !important;
+    max-width: 420px;
+    margin: 0 auto;
+    padding: 14px;
+  }
+
+  /* Inputs & selectors */
+  input,
+  select {
+    width: 100%;
+    font-size: 16px; /* prevents iOS zoom */
+  }
+
+  /* Buttons */
+  button {
+    width: 100%;
+    font-size: 16px;
+  }
+
+  /* Token selector rows */
+  .token-row,
+  .token-select {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* Kill absolute centering on mobile */
+  .absolute,
+  .centered {
+    position: relative !important;
+    left: auto !important;
+    transform: none !important;
+  }
+}
+
