@@ -344,7 +344,7 @@ export default function App() {
         return;
       }
   
-      // ✅ STEP 1: request account access FIRST (required by Rabby)
+      // 1️⃣ Request accounts
       const accounts = await ethereum.request({
         method: "eth_requestAccounts",
       });
@@ -354,33 +354,38 @@ export default function App() {
         return;
       }
   
-      // ✅ STEP 2: NOW force ARC Testnet
+      const userAddress = accounts[0];
+  
+      // 2️⃣ Force Arc Testnet
       const ok = await ensureArcNetwork();
       if (!ok) {
         setStatus("Please switch to Arc Testnet.");
         return;
       }
-      const ok = await ensureArcNetwork();
-      if (!ok) {
-        setStatus("Please switch to Arc Testnet");
+  
+      // 3️⃣ Recreate provider AFTER switching
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const net = await provider.getNetwork();
+  
+      if (Number(net.chainId) !== 5042002) {
+        setStatus("Failed to switch to Arc Testnet.");
         return;
       }
-      
-      // ⚠️ recreate provider AFTER switching chains
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const net = await provider.getNetwork();      
   
+      // 4️⃣ Set app state
       setAddress(userAddress);
-      setNetwork(Number(net.chainId)); // should be 5042002
+      setNetwork(Number(net.chainId));
       setStatus("Connected to Arc Testnet");
   
+      // 5️⃣ Load balances
       await fetchBalances(userAddress, provider);
   
     } catch (err) {
       console.error("connectWallet error:", err);
       setStatus("Wallet connection failed");
     }
-  }  
+  }
+  
   async function disconnectWallet() {
     setAddress(null);
     setNetwork(null);
@@ -394,28 +399,27 @@ export default function App() {
   async function fetchBalances(userAddress, provider) {
     try {
       const tokenBalances = {};
-      // note: your code previously used provider.getBalance(userAddress) as USDC
-      // keep same behavior to avoid changing UI logic
-      const rawUSDC = await provider.getBalance(userAddress);
-      tokenBalances["USDC"] = parseFloat(ethers.formatEther(rawUSDC)).toFixed(4);
-
+  
       for (const t of tokens) {
-        if (t.symbol === "USDC") continue;
         try {
           const tokenContract = new ethers.Contract(t.address, ERC20_ABI, provider);
           const rawBalance = await tokenContract.balanceOf(userAddress);
           const decimals = await tokenContract.decimals();
-          tokenBalances[t.symbol] = parseFloat(ethers.formatUnits(rawBalance, decimals)).toFixed(4);
+          const human = Number(ethers.formatUnits(rawBalance, decimals));
+  
+          if (human > 0) {
+            tokenBalances[t.symbol] = human.toFixed(4);
+          }
         } catch (e) {
-          tokenBalances[t.symbol] = "n/a";
+          // silently ignore broken tokens
         }
       }
-
+  
       setBalances(tokenBalances);
     } catch (err) {
       console.error("Failed to fetch balances:", err);
     }
-  }
+  }  
 
   function shortAddr(a) {
     if (!a) return "";
