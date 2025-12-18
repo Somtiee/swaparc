@@ -1,12 +1,8 @@
-// src/App.jsx
 import { useEffect, useState, useRef } from "react";
 import { ethers } from "ethers";
 import logo from "./assets/swaparc-logo.png";
 import "./App.css";
 import { getPrices } from "./priceFetcher";
-import EthereumProvider from "@walletconnect/ethereum-provider";
-import { WalletConnectModal } from "@walletconnect/modal";
-
 
 /*
   Notes:
@@ -15,15 +11,7 @@ import { WalletConnectModal } from "@walletconnect/modal";
   - Then it performs the real pool.swap on-chain when you press Swap.
 */
 const ARC_CHAIN_ID_DEC = 5042002;
-const ARC_CHAIN_ID_HEX = ethers.toBeHex(ARC_CHAIN_ID_DEC);
-// ✅ WalletConnect project ID (you MUST create this)
-const WALLETCONNECT_PROJECT_ID = "f28ff3384a9693db46073e4a0cb5b2fb";
-
-// ✅ WalletConnect modal (one-time setup)
-const wcModal = new WalletConnectModal({
-  projectId: WALLETCONNECT_PROJECT_ID,
-  themeMode: "dark",
-});
+const ARC_CHAIN_ID_HEX = "0x4CEF52"; // ✅ CORRECT
 /* --- tokens unchanged --- */
 const DEFAULT_TOKENS = [
   { symbol: "USDC", name: "USD Coin", address: "0x3600000000000000000000000000000000000000" },
@@ -177,50 +165,6 @@ export default function App() {
   const [customAddr, setCustomAddr] = useState("");
   const [estimatedTo, setEstimatedTo] = useState(""); // auto-calculated target amount shown in UI
 
-  async function connectSmart() {
-    if (window.ethereum) {
-      // 🦊 Rabby / MetaMask
-      await connectWallet();
-    } else {
-      // 📱 Mobile / QR wallets
-      await connectWithWalletConnect();
-    }
-  }
-  
-// ✅ NEW: WalletConnect v2 connection (BridgeKit-style)
-async function connectWithWalletConnect() {
-  try {
-    const provider = await EthereumProvider.init({
-      projectId: WALLETCONNECT_PROJECT_ID,
-    
-      // ✅ CORRECT OPTION
-      chains: [ARC_CHAIN_ID_DEC],
-    
-      rpcMap: {
-        [ARC_CHAIN_ID_DEC]: "https://rpc.testnet.arc.network",
-      },
-    
-      showQrModal: true,
-    });
-    
-    await provider.connect();
-
-    const ethersProvider = new ethers.BrowserProvider(provider);
-    const signer = await ethersProvider.getSigner();
-    const userAddress = await signer.getAddress();
-    const network = await ethersProvider.getNetwork();
-
-    setAddress(userAddress);
-    setNetwork(Number(network.chainId));
-    setStatus("Connected via WalletConnect (Arc Testnet)");
-
-    await fetchBalances(userAddress, ethersProvider);
-  } catch (err) {
-    console.error(err);
-    setStatus("WalletConnect failed or rejected");
-  }
-}
-
   // NEW: prices store
   const [prices, setPrices] = useState({}); // { SYMBOL: number | null }
 
@@ -351,73 +295,50 @@ async function connectWithWalletConnect() {
     const { ethereum } = window;
     if (!ethereum) return false;
   
-    const provider = new ethers.BrowserProvider(ethereum);
-    const network = await provider.getNetwork();
-  
-    // Already on Arc
-    if (Number(network.chainId) === ARC_CHAIN_ID_DEC) {
-      return true;
-    }
-  
     try {
-      // Try switch first
       await ethereum.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: ARC_CHAIN_ID_HEX }],
       });
       return true;
     } catch (err) {
-      // Chain not added
       if (err.code === 4902) {
-        try {
-          await ethereum.request({
-            method: "wallet_addEthereumChain",
-            params: [{
-              chainId: ARC_CHAIN_ID_HEX,
-              chainName: "Arc Testnet",
-              nativeCurrency: {
-                name: "ARC",
-                symbol: "ARC",
-                decimals: 18,
-              },
-              rpcUrls: ["https://rpc.testnet.arc.network"],
-              blockExplorerUrls: ["https://testnet.arcscan.app"],
-            }],
-          });
+        await ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: ARC_CHAIN_ID_HEX,
+            chainName: "Arc Testnet",
+            nativeCurrency: {
+              name: "ARC",
+              symbol: "ARC",
+              decimals: 18,
+            },
+            rpcUrls: ["https://rpc.testnet.arc.network"],
+            blockExplorerUrls: ["https://testnet.arcscan.app"],
+          }],
+        });
   
-          // Switch after adding
-          await ethereum.request({
-            method: "wallet_switchEthereumChain",
-            params: [{ chainId: ARC_CHAIN_ID_HEX }],
-          });
-  
-          return true;
-        } catch (addErr) {
-          console.error("User rejected Arc network add", addErr);
-          return false;
-        }
+        return true;
       }
-  
-      console.error("Network switch failed", err);
       return false;
     }
-  }
-  
+  }  
   async function connectWallet() {
     try {
       const { ethereum } = window;
       if (!ethereum) {
-        setStatus("No wallet found.");
+        setStatus("No wallet found. Please install MetaMask or Rabby.");
         return;
       }
   
-      // 🔑 THIS IS THE MISSING PIECE
+      // 1️⃣ Ensure Arc network FIRST
       const ok = await ensureArcNetwork();
       if (!ok) {
-        setStatus("Arc Testnet required");
+        setStatus("Please switch to Arc Testnet");
         return;
       }
   
+      // 2️⃣ Request accounts
       const accounts = await ethereum.request({
         method: "eth_requestAccounts",
       });
@@ -427,19 +348,28 @@ async function connectWithWalletConnect() {
         return;
       }
   
-      const provider = new ethers.BrowserProvider(ethereum);
-      const network = await provider.getNetwork();
-  
       const userAddress = accounts[0];
   
+      // 3️⃣ Confirm network
+      const provider = new ethers.BrowserProvider(ethereum);
+      const net = await provider.getNetwork();
+  
+      if (Number(net.chainId) !== ARC_CHAIN_ID_DEC) {
+        setStatus("Failed to switch to Arc Testnet");
+        return;
+      }
+  
+      // 4️⃣ Update app state
       setAddress(userAddress);
-      setNetwork(Number(network.chainId));
+      setNetwork(Number(net.chainId));
       setStatus("Connected to Arc Testnet");
   
+      // 5️⃣ Load balances
       await fetchBalances(userAddress, provider);
+  
     } catch (err) {
-      console.error(err);
-      setStatus("Wallet connection cancelled or failed");
+      console.error("connectWallet error:", err);
+      setStatus("Wallet connection failed");
     }
   }  
   
@@ -670,10 +600,9 @@ async function connectWithWalletConnect() {
   </button>
 
   {!address ? (
-  <button className="connectBtn" onClick={connectSmart}>
-  Connect Wallet
-</button>
- 
+    <button className="connectBtn" onClick={connectWallet}>
+      Connect Wallet
+    </button>
   ) : (
     <>
       <div className="walletCard small">
@@ -784,4 +713,4 @@ async function connectWithWalletConnect() {
       </div>
     </div>
   );
-}
+}   
