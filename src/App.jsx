@@ -11,7 +11,7 @@ import { getPrices } from "./priceFetcher";
   - It adds a small estimate call (callStatic.swap) to show expected output when you type an amount.
   - Then it performs the real pool.swap on-chain when you press Swap.
 */
-const ARC_CHAIN_ID = "0x4D02F2"; // 5042002
+const ARC_CHAIN_ID = "0x4CEF52"; // 5042002
 /* --- tokens unchanged --- */
 const DEFAULT_TOKENS = [
   { symbol: "USDC", name: "USD Coin", address: "0x3600000000000000000000000000000000000000" },
@@ -172,10 +172,9 @@ export default function App() {
   // your simple pool
   const POOL_ADDRESS = "0x5A30dE47f430dc820204Ce3E3419f013bfC6565F";
   const POOL_ABI = [
-    "function swap(address tokenIn, uint256 amountIn) returns (uint256 amountOut)",
+    "function swap(address tokenIn, uint256 amountIn)",
     "function getReserves() view returns (uint256 reserveA, uint256 reserveB)"
-  ];
-
+  ];  
   // ERC20 ABI used throughout (balanceOf, decimals, symbol; plus allowance/approve)
   const ERC20_ABI = [
     "function balanceOf(address owner) view returns (uint256)",
@@ -292,50 +291,46 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [swapAmount, swapFrom, swapTo, tokens]);
 
-  async function ensureArcNetwork() {
-    const { ethereum } = window;
-    if (!ethereum) return false;
-  
-    try {
+ async function ensureArcNetwork() {
+  const { ethereum } = window;
+  if (!ethereum) return false;
+
+  try {
+    await ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: ARC_CHAIN_ID }],
+    });
+    return true;
+  } catch (err) {
+    if (err.code === 4902) {
+      await ethereum.request({
+        method: "wallet_addEthereumChain",
+        params: [
+          {
+            chainId: ARC_CHAIN_ID,
+            chainName: "Arc Testnet",
+            nativeCurrency: {
+              name: "ARC",
+              symbol: "ARC",
+              decimals: 18,
+            },
+            rpcUrls: ["https://rpc.testnet.arc.network"],
+            blockExplorerUrls: ["https://testnet.arcscan.app"],
+          },
+        ],
+      });
+
       await ethereum.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: ARC_CHAIN_ID }],
       });
+
       return true;
-    } catch (error) {
-      // Chain not added yet
-      if (error.code === 4902) {
-        await ethereum.request({
-          method: "wallet_addEthereumChain",
-          params: [
-            {
-              chainId: ARC_CHAIN_ID,
-              chainName: "Arc Testnet",
-              nativeCurrency: {
-                name: "ARC",
-                symbol: "ARC",
-                decimals: 18,
-              },
-              rpcUrls: ["https://rpc.testnet.arc.network"],
-              blockExplorerUrls: ["https://testnet.arcscan.app"],
-            },
-          ],
-        });
-  
-        // switch again after adding
-        await ethereum.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: ARC_CHAIN_ID }],
-        });
-  
-        return true;
-      }
-  
-      console.error("ARC network switch failed:", error);
-      return false;
     }
-  }  
-  
+    return false;
+  }
+}
+
   async function connectWallet() {
     try {
       const { ethereum } = window;
@@ -359,18 +354,18 @@ export default function App() {
       // 2️⃣ Force Arc Testnet
       const ok = await ensureArcNetwork();
       if (!ok) {
-        setStatus("Please switch to Arc Testnet.");
+        setStatus("Please switch to Arc Testnet");
         return;
       }
-  
-      // 3️⃣ Recreate provider AFTER switching
+      
       const provider = new ethers.BrowserProvider(window.ethereum);
       const net = await provider.getNetwork();
-  
+      
       if (Number(net.chainId) !== 5042002) {
-        setStatus("Failed to switch to Arc Testnet.");
+        setStatus("Failed to switch to Arc Testnet");
         return;
       }
+      
   
       // 4️⃣ Set app state
       setAddress(userAddress);
@@ -405,17 +400,18 @@ export default function App() {
       tokenBalances["USDC"] = parseFloat(ethers.formatEther(rawUSDC)).toFixed(4);
 
       for (const t of tokens) {
-        if (t.symbol === "USDC") continue;
         try {
           const tokenContract = new ethers.Contract(t.address, ERC20_ABI, provider);
           const rawBalance = await tokenContract.balanceOf(userAddress);
           const decimals = await tokenContract.decimals();
-          tokenBalances[t.symbol] = parseFloat(ethers.formatUnits(rawBalance, decimals)).toFixed(4);
-        } catch (e) {
+          tokenBalances[t.symbol] = parseFloat(
+            ethers.formatUnits(rawBalance, decimals)
+          ).toFixed(4);
+        } catch {
           tokenBalances[t.symbol] = "n/a";
         }
       }
-
+      
       setBalances(tokenBalances);
     } catch (err) {
       console.error("Failed to fetch balances:", err);
@@ -461,6 +457,14 @@ export default function App() {
       alert("Choose different tokens to swap.");
       return;
     }
+
+    if (
+      !["USDC", "EURC"].includes(swapFrom) ||
+      !["USDC", "EURC"].includes(swapTo)
+    ) {
+      alert("This pool only supports USDC ↔ EURC swaps.");
+      return;
+    }    
 
     try {
       if (!window.ethereum) {
