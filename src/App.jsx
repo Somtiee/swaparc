@@ -12,7 +12,7 @@ import { getPrices } from "./priceFetcher";
   - Then it performs the real pool.swap on-chain when you press Swap.
 */
 const ARC_CHAIN_ID_DEC = 5042002;
-const ARC_CHAIN_ID_HEX = "0x4CEF52"; // ✅ CORRECT
+const ARC_CHAIN_ID_HEX = ethers.toBeHex(ARC_CHAIN_ID_DEC);
 /* --- tokens unchanged --- */
 const DEFAULT_TOKENS = [
   { symbol: "USDC", name: "USD Coin", address: "0x3600000000000000000000000000000000000000" },
@@ -296,16 +296,24 @@ export default function App() {
     const { ethereum } = window;
     if (!ethereum) return false;
   
+    const provider = new ethers.BrowserProvider(ethereum);
+    const network = await provider.getNetwork();
+  
+    // Already on Arc
+    if (Number(network.chainId) === ARC_CHAIN_ID_DEC) {
+      return true;
+    }
+  
     try {
-      // Try switching first
+      // Try switch first
       await ethereum.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: ARC_CHAIN_ID_HEX }],
       });
       return true;
-    } catch (switchError) {
-      if (switchError.code === 4902) {
-        // Chain not added, try adding it
+    } catch (err) {
+      // Chain not added
+      if (err.code === 4902) {
         try {
           await ethereum.request({
             method: "wallet_addEthereumChain",
@@ -318,24 +326,28 @@ export default function App() {
                 decimals: 18,
               },
               rpcUrls: ["https://rpc.testnet.arc.network"],
-              blockExplorerUrls: ["https://testnet.arcscan.app"]
-            }]
+              blockExplorerUrls: ["https://testnet.arcscan.app"],
+            }],
           });
-          // Retry switching after adding
+  
+          // Switch after adding
           await ethereum.request({
             method: "wallet_switchEthereumChain",
-            params: [{ chainId: ARC_CHAIN_ID_HEX }]
+            params: [{ chainId: ARC_CHAIN_ID_HEX }],
           });
+  
           return true;
-        } catch (addError) {
-          console.error("Failed to add Arc Testnet:", addError);
+        } catch (addErr) {
+          console.error("User rejected Arc network add", addErr);
           return false;
         }
       }
-      console.error("Failed to switch network:", switchError);
+  
+      console.error("Network switch failed", err);
       return false;
     }
   }
+  
   
   async function connectWallet() {
     try {
@@ -352,36 +364,24 @@ if (!ok) {
   return;
 }
 
-
   
-      // 2️⃣ Request accounts
-      const accounts = await ethereum.request({
-        method: "eth_requestAccounts",
-      });
+const accounts = await ethereum.request({
+  method: "eth_requestAccounts",
+});
+const userAddress = accounts[0];
   
       if (!accounts?.length) {
         setStatus("No account found.");
         return;
       }
-  
-      const userAddress = accounts[0];
-  
-      // 3️⃣ Confirm network
       const provider = new ethers.BrowserProvider(ethereum);
       const net = await provider.getNetwork();
-  
-      if (Number(net.chainId) !== ARC_CHAIN_ID_DEC) {
-        setStatus("Failed to switch to Arc Testnet");
-        return;
-      }
-  
-      // 4️⃣ Update app state
+      
       setAddress(userAddress);
       setNetwork(Number(net.chainId));
       setStatus("Connected to Arc Testnet");
-  
-      // 5️⃣ Load balances
-      await fetchBalances(userAddress, provider);
+      
+      await fetchBalances(userAddress, provider);      
   
     } catch (err) {
       console.error("connectWallet error:", err);
