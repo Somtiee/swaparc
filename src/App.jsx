@@ -11,7 +11,8 @@ import { getPrices } from "./priceFetcher";
   - It adds a small estimate call (callStatic.swap) to show expected output when you type an amount.
   - Then it performs the real pool.swap on-chain when you press Swap.
 */
-const ARC_CHAIN_ID = "0x4CEF52"; // 5042002
+const ARC_CHAIN_ID_DEC = 5042002;
+const ARC_CHAIN_ID_HEX = "0x4CEF52"; // ✅ CORRECT
 /* --- tokens unchanged --- */
 const DEFAULT_TOKENS = [
   { symbol: "USDC", name: "USD Coin", address: "0x3600000000000000000000000000000000000000" },
@@ -291,23 +292,22 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [swapAmount, swapFrom, swapTo, tokens]);
 
- async function ensureArcNetwork() {
-  const { ethereum } = window;
-  if (!ethereum) return false;
-
-  try {
-    await ethereum.request({
-      method: "wallet_switchEthereumChain",
-      params: [{ chainId: ARC_CHAIN_ID }],
-    });
-    return true;
-  } catch (err) {
-    if (err.code === 4902) {
+  async function ensureArcNetwork() {
+    const { ethereum } = window;
+    if (!ethereum) return false;
+  
+    try {
       await ethereum.request({
-        method: "wallet_addEthereumChain",
-        params: [
-          {
-            chainId: ARC_CHAIN_ID,
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: ARC_CHAIN_ID_HEX }],
+      });
+      return true;
+    } catch (err) {
+      if (err.code === 4902) {
+        await ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: ARC_CHAIN_ID_HEX,
             chainName: "Arc Testnet",
             nativeCurrency: {
               name: "ARC",
@@ -316,58 +316,51 @@ export default function App() {
             },
             rpcUrls: ["https://rpc.testnet.arc.network"],
             blockExplorerUrls: ["https://testnet.arcscan.app"],
-          },
-        ],
-      });
-
-      await ethereum.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: ARC_CHAIN_ID }],
-      });
-
-      return true;
+          }],
+        });
+  
+        return true;
+      }
+      return false;
     }
-    return false;
-  }
-}
-
+  }  
   async function connectWallet() {
     try {
       const { ethereum } = window;
       if (!ethereum) {
-        setStatus("No wallet found. Please install Rabby or MetaMask.");
+        setStatus("No wallet found. Please install MetaMask or Rabby.");
         return;
       }
   
-      // 1️⃣ Request accounts
-      const accounts = await ethereum.request({
-        method: "eth_requestAccounts",
-      });
-  
-      if (!accounts || accounts.length === 0) {
-        setStatus("No account found. Please unlock your wallet.");
-        return;
-      }
-  
-      const userAddress = accounts[0];
-  
-      // 2️⃣ Force Arc Testnet
+      // 1️⃣ Ensure Arc network FIRST
       const ok = await ensureArcNetwork();
       if (!ok) {
         setStatus("Please switch to Arc Testnet");
         return;
       }
-      
-      const provider = new ethers.BrowserProvider(window.ethereum);
+  
+      // 2️⃣ Request accounts
+      const accounts = await ethereum.request({
+        method: "eth_requestAccounts",
+      });
+  
+      if (!accounts?.length) {
+        setStatus("No account found.");
+        return;
+      }
+  
+      const userAddress = accounts[0];
+  
+      // 3️⃣ Confirm network
+      const provider = new ethers.BrowserProvider(ethereum);
       const net = await provider.getNetwork();
-      
-      if (Number(net.chainId) !== 5042002) {
+  
+      if (Number(net.chainId) !== ARC_CHAIN_ID_DEC) {
         setStatus("Failed to switch to Arc Testnet");
         return;
       }
-      
   
-      // 4️⃣ Set app state
+      // 4️⃣ Update app state
       setAddress(userAddress);
       setNetwork(Number(net.chainId));
       setStatus("Connected to Arc Testnet");
@@ -379,7 +372,7 @@ export default function App() {
       console.error("connectWallet error:", err);
       setStatus("Wallet connection failed");
     }
-  }
+  }  
   
   async function disconnectWallet() {
     setAddress(null);
