@@ -181,27 +181,17 @@ async function connectWithWalletConnect() {
   try {
     const provider = await EthereumProvider.init({
       projectId: WALLETCONNECT_PROJECT_ID,
-
-      // 🔑 THIS IS THE MAGIC
-      requiredChains: [ARC_CHAIN_ID_DEC],
-
-      optionalChains: [],
-      optionalMethods: [
-        "eth_sendTransaction",
-        "eth_signTransaction",
-        "eth_sign",
-        "personal_sign",
-        "eth_signTypedData",
-      ],
-      optionalEvents: ["chainChanged", "accountsChanged"],
-
+    
+      // ✅ CORRECT OPTION
+      chains: [ARC_CHAIN_ID_DEC],
+    
       rpcMap: {
         [ARC_CHAIN_ID_DEC]: "https://rpc.testnet.arc.network",
       },
-
+    
       showQrModal: true,
     });
-
+    
     await provider.connect();
 
     const ethersProvider = new ethers.BrowserProvider(provider);
