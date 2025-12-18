@@ -297,33 +297,46 @@ export default function App() {
     if (!ethereum) return false;
   
     try {
+      // Try switching first
       await ethereum.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: ARC_CHAIN_ID_HEX }],
       });
       return true;
-    } catch (err) {
-      if (err.code === 4902) {
-        await ethereum.request({
-          method: "wallet_addEthereumChain",
-          params: [{
-            chainId: ARC_CHAIN_ID_HEX,
-            chainName: "Arc Testnet",
-            nativeCurrency: {
-              name: "ARC",
-              symbol: "ARC",
-              decimals: 18,
-            },
-            rpcUrls: ["https://rpc.testnet.arc.network"],
-            blockExplorerUrls: ["https://testnet.arcscan.app"],
-          }],
-        });
-  
-        return true;
+    } catch (switchError) {
+      if (switchError.code === 4902) {
+        // Chain not added, try adding it
+        try {
+          await ethereum.request({
+            method: "wallet_addEthereumChain",
+            params: [{
+              chainId: ARC_CHAIN_ID_HEX,
+              chainName: "Arc Testnet",
+              nativeCurrency: {
+                name: "ARC",
+                symbol: "ARC",
+                decimals: 18,
+              },
+              rpcUrls: ["https://rpc.testnet.arc.network"],
+              blockExplorerUrls: ["https://testnet.arcscan.app"]
+            }]
+          });
+          // Retry switching after adding
+          await ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: ARC_CHAIN_ID_HEX }]
+          });
+          return true;
+        } catch (addError) {
+          console.error("Failed to add Arc Testnet:", addError);
+          return false;
+        }
       }
+      console.error("Failed to switch network:", switchError);
       return false;
     }
-  }  
+  }
+  
   async function connectWallet() {
     try {
       const { ethereum } = window;
@@ -334,10 +347,12 @@ export default function App() {
   
       // 1️⃣ Ensure Arc network FIRST
       const ok = await ensureArcNetwork();
-      if (!ok) {
-        setStatus("Please switch to Arc Testnet");
-        return;
-      }
+if (!ok) {
+  setStatus("Please approve adding Arc Testnet in your wallet");
+  alert("Your wallet needs permission to add Arc Testnet. Please approve the popup.");
+  return;
+}
+
   
       // 2️⃣ Request accounts
       const accounts = await ethereum.request({
