@@ -348,46 +348,49 @@ export default function App() {
     }
   }
   
-  
   async function connectWallet() {
     try {
       const { ethereum } = window;
       if (!ethereum) {
-        setStatus("No wallet found. Please install MetaMask or Rabby.");
+        setStatus("No wallet found.");
         return;
       }
   
-      // 1️⃣ Ensure Arc network FIRST
-      const ok = await ensureArcNetwork();
-if (!ok) {
-  setStatus("Arc Testnet not added. Please add it manually in your wallet.");
-  return;
-}
-
-  
-const accounts = await ethereum.request({
-  method: "eth_requestAccounts",
-});
-const userAddress = accounts[0];
+      // 🔑 Request accounts WITH chain requirement
+      const accounts = await ethereum.request({
+        method: "eth_requestAccounts",
+        params: [{
+          chainId: ARC_CHAIN_ID_HEX
+        }]
+      });
   
       if (!accounts?.length) {
         setStatus("No account found.");
         return;
       }
+  
       const provider = new ethers.BrowserProvider(ethereum);
-      const net = await provider.getNetwork();
-      
+      const network = await provider.getNetwork();
+  
+      if (Number(network.chainId) !== ARC_CHAIN_ID_DEC) {
+        setStatus("Please approve Arc Testnet in wallet");
+        return;
+      }
+  
+      const userAddress = accounts[0];
+  
       setAddress(userAddress);
-      setNetwork(Number(net.chainId));
+      setNetwork(Number(network.chainId));
       setStatus("Connected to Arc Testnet");
-      
-      await fetchBalances(userAddress, provider);      
+  
+      await fetchBalances(userAddress, provider);
   
     } catch (err) {
-      console.error("connectWallet error:", err);
-      setStatus("Wallet connection failed");
+      console.error(err);
+      setStatus("Wallet connection cancelled or failed");
     }
-  }  
+  }
+  
   
   async function disconnectWallet() {
     setAddress(null);
