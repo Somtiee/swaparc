@@ -411,12 +411,15 @@ async function connectWithWalletConnect() {
         return;
       }
   
-      // 🔑 Request accounts WITH chain requirement
+      // 🔑 THIS IS THE MISSING PIECE
+      const ok = await ensureArcNetwork();
+      if (!ok) {
+        setStatus("Arc Testnet required");
+        return;
+      }
+  
       const accounts = await ethereum.request({
         method: "eth_requestAccounts",
-        params: [{
-          chainId: ARC_CHAIN_ID_HEX
-        }]
       });
   
       if (!accounts?.length) {
@@ -427,11 +430,6 @@ async function connectWithWalletConnect() {
       const provider = new ethers.BrowserProvider(ethereum);
       const network = await provider.getNetwork();
   
-      if (Number(network.chainId) !== ARC_CHAIN_ID_DEC) {
-        setStatus("Please approve Arc Testnet in wallet");
-        return;
-      }
-  
       const userAddress = accounts[0];
   
       setAddress(userAddress);
@@ -439,13 +437,11 @@ async function connectWithWalletConnect() {
       setStatus("Connected to Arc Testnet");
   
       await fetchBalances(userAddress, provider);
-  
     } catch (err) {
       console.error(err);
       setStatus("Wallet connection cancelled or failed");
     }
-  }
-  
+  }  
   
   async function disconnectWallet() {
     setAddress(null);
