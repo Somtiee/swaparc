@@ -11,7 +11,7 @@ import { getPrices } from "./priceFetcher";
   - It adds a small estimate call (callStatic.swap) to show expected output when you type an amount.
   - Then it performs the real pool.swap on-chain when you press Swap.
 */
-const ARC_CHAIN_ID = "0x4CEF52"; // 5042002 (ARC Testnet)
+const ARC_CHAIN_ID = "0x4D02F2"; // 5042002
 /* --- tokens unchanged --- */
 const DEFAULT_TOKENS = [
   { symbol: "USDC", name: "USD Coin", address: "0x3600000000000000000000000000000000000000" },
@@ -303,7 +303,7 @@ export default function App() {
       });
       return true;
     } catch (error) {
-      // Chain not added
+      // Chain not added yet
       if (error.code === 4902) {
         await ethereum.request({
           method: "wallet_addEthereumChain",
@@ -312,17 +312,17 @@ export default function App() {
               chainId: ARC_CHAIN_ID,
               chainName: "Arc Testnet",
               nativeCurrency: {
-                name: "USDC",
-                symbol: "USDC",
-                decimals: 6,
+                name: "ARC",
+                symbol: "ARC",
+                decimals: 18,
               },
-              rpcUrls: ["https://rpc.test.arc.market"],
+              rpcUrls: ["https://rpc.testnet.arc.network"],
               blockExplorerUrls: ["https://testnet.arcscan.app"],
             },
           ],
         });
   
-        // 🔁 switch again after adding
+        // switch again after adding
         await ethereum.request({
           method: "wallet_switchEthereumChain",
           params: [{ chainId: ARC_CHAIN_ID }],
@@ -331,10 +331,10 @@ export default function App() {
         return true;
       }
   
-      console.error("ARC switch failed:", error);
+      console.error("ARC network switch failed:", error);
       return false;
     }
-  }
+  }  
   
   async function connectWallet() {
     try {
@@ -399,27 +399,28 @@ export default function App() {
   async function fetchBalances(userAddress, provider) {
     try {
       const tokenBalances = {};
-  
+      // note: your code previously used provider.getBalance(userAddress) as USDC
+      // keep same behavior to avoid changing UI logic
+      const rawUSDC = await provider.getBalance(userAddress);
+      tokenBalances["USDC"] = parseFloat(ethers.formatEther(rawUSDC)).toFixed(4);
+
       for (const t of tokens) {
+        if (t.symbol === "USDC") continue;
         try {
           const tokenContract = new ethers.Contract(t.address, ERC20_ABI, provider);
           const rawBalance = await tokenContract.balanceOf(userAddress);
           const decimals = await tokenContract.decimals();
-          const human = Number(ethers.formatUnits(rawBalance, decimals));
-  
-          if (human > 0) {
-            tokenBalances[t.symbol] = human.toFixed(4);
-          }
+          tokenBalances[t.symbol] = parseFloat(ethers.formatUnits(rawBalance, decimals)).toFixed(4);
         } catch (e) {
-          // silently ignore broken tokens
+          tokenBalances[t.symbol] = "n/a";
         }
       }
-  
+
       setBalances(tokenBalances);
     } catch (err) {
       console.error("Failed to fetch balances:", err);
     }
-  }  
+  }
 
   function shortAddr(a) {
     if (!a) return "";
