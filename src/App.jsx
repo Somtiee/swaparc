@@ -348,10 +348,10 @@ export default function App() {
       // 1️⃣ Ensure Arc network FIRST
       const ok = await ensureArcNetwork();
 if (!ok) {
-  setStatus("Please approve adding Arc Testnet in your wallet");
-  alert("Your wallet needs permission to add Arc Testnet. Please approve the popup.");
+  setStatus("Arc Testnet not added. Please add it manually in your wallet.");
   return;
 }
+
 
   
       // 2️⃣ Request accounts
