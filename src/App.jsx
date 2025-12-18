@@ -4,6 +4,9 @@ import { ethers } from "ethers";
 import logo from "./assets/swaparc-logo.png";
 import "./App.css";
 import { getPrices } from "./priceFetcher";
+import EthereumProvider from "@walletconnect/ethereum-provider";
+import { WalletConnectModal } from "@walletconnect/modal";
+
 
 /*
   Notes:
@@ -13,6 +16,14 @@ import { getPrices } from "./priceFetcher";
 */
 const ARC_CHAIN_ID_DEC = 5042002;
 const ARC_CHAIN_ID_HEX = ethers.toBeHex(ARC_CHAIN_ID_DEC);
+// ✅ WalletConnect project ID (you MUST create this)
+const WALLETCONNECT_PROJECT_ID = "f28ff3384a9693db46073e4a0cb5b2fb";
+
+// ✅ WalletConnect modal (one-time setup)
+const wcModal = new WalletConnectModal({
+  projectId: WALLETCONNECT_PROJECT_ID,
+  themeMode: "dark",
+});
 /* --- tokens unchanged --- */
 const DEFAULT_TOKENS = [
   { symbol: "USDC", name: "USD Coin", address: "0x3600000000000000000000000000000000000000" },
@@ -165,6 +176,49 @@ export default function App() {
   const [arrowSpin, setArrowSpin] = useState(false);
   const [customAddr, setCustomAddr] = useState("");
   const [estimatedTo, setEstimatedTo] = useState(""); // auto-calculated target amount shown in UI
+// ✅ NEW: WalletConnect v2 connection (BridgeKit-style)
+async function connectWithWalletConnect() {
+  try {
+    const provider = await EthereumProvider.init({
+      projectId: WALLETCONNECT_PROJECT_ID,
+
+      // 🔑 THIS IS THE MAGIC
+      requiredChains: [ARC_CHAIN_ID_DEC],
+
+      optionalChains: [],
+      optionalMethods: [
+        "eth_sendTransaction",
+        "eth_signTransaction",
+        "eth_sign",
+        "personal_sign",
+        "eth_signTypedData",
+      ],
+      optionalEvents: ["chainChanged", "accountsChanged"],
+
+      rpcMap: {
+        [ARC_CHAIN_ID_DEC]: "https://rpc.testnet.arc.network",
+      },
+
+      showQrModal: true,
+    });
+
+    await provider.connect();
+
+    const ethersProvider = new ethers.BrowserProvider(provider);
+    const signer = await ethersProvider.getSigner();
+    const userAddress = await signer.getAddress();
+    const network = await ethersProvider.getNetwork();
+
+    setAddress(userAddress);
+    setNetwork(Number(network.chainId));
+    setStatus("Connected via WalletConnect (Arc Testnet)");
+
+    await fetchBalances(userAddress, ethersProvider);
+  } catch (err) {
+    console.error(err);
+    setStatus("WalletConnect failed or rejected");
+  }
+}
 
   // NEW: prices store
   const [prices, setPrices] = useState({}); // { SYMBOL: number | null }
@@ -619,9 +673,10 @@ export default function App() {
   </button>
 
   {!address ? (
-    <button className="connectBtn" onClick={connectWallet}>
-      Connect Wallet
-    </button>
+   <button className="connectBtn" onClick={connectWithWalletConnect}>
+   Connect Wallet
+ </button>
+ 
   ) : (
     <>
       <div className="walletCard small">
