@@ -176,6 +176,17 @@ export default function App() {
   const [arrowSpin, setArrowSpin] = useState(false);
   const [customAddr, setCustomAddr] = useState("");
   const [estimatedTo, setEstimatedTo] = useState(""); // auto-calculated target amount shown in UI
+
+  async function connectSmart() {
+    if (window.ethereum) {
+      // 🦊 Rabby / MetaMask
+      await connectWallet();
+    } else {
+      // 📱 Mobile / QR wallets
+      await connectWithWalletConnect();
+    }
+  }
+  
 // ✅ NEW: WalletConnect v2 connection (BridgeKit-style)
 async function connectWithWalletConnect() {
   try {
@@ -663,9 +674,9 @@ async function connectWithWalletConnect() {
   </button>
 
   {!address ? (
-   <button className="connectBtn" onClick={connectWithWalletConnect}>
-   Connect Wallet
- </button>
+  <button className="connectBtn" onClick={connectSmart}>
+  Connect Wallet
+</button>
  
   ) : (
     <>
