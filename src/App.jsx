@@ -660,7 +660,7 @@ export default function App() {
 
             {/* SWAP CARD */}
             <div className="card controls neon-card swapCardCentered">
-              <h3>Swap — Quote</h3>
+              <h3>SWAP</h3>
 
               <div className="swapRowClean">
                 <div className="swapLabel">From</div>
