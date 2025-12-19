@@ -1,6 +1,3 @@
-/* FULL App.css - hybrid premium + ticker + token selector (A3) */
-
-/* Basic reset */
 :root {
   --bg-1: #07132a;
   --bg-2: #08223f;
@@ -13,7 +10,6 @@
 * { box-sizing: border-box; }
 html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
 
-/* Page background */
 .app-page.hybrid-page {
   min-height: 100vh;
   width: 100%;
@@ -28,7 +24,6 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
   color: #eaf2ff;
 }
 
-/* container */
 .app-container.hybrid-center {
   width: 100%;
   max-width: 1100px;
@@ -37,7 +32,6 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
   position: relative;
 }
 
-/* header */
 .headerRow.hybrid-header {
   display: flex;
   align-items: center;
@@ -47,14 +41,10 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
   padding: 6px 12px;
 }
 
-/* brand */
 .brand { display:flex; align-items:center; gap:12px; }
 .logoImg.big { width: 72px; height:72px; border-radius: 12px; box-shadow: 0 10px 30px rgba(46,110,246,0.12); }
 .title { font-size: 26px; font-weight: 700; color: #f6fbff; letter-spacing: 0.4px; }
 .subtitle { font-size: 13px; color: var(--muted); margin-top: -4px; }
-
-
-/* headerRight small wallet card */
 .headerRight { display:flex; align-items:center; gap:12px; }
 .connectBtn {
   padding: 10px 16px;
@@ -74,9 +64,6 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
   color: #eaf6ff;
 }
 
-/* -----------------------------------------
-   🔵 NEW: Disconnect Button
------------------------------------------ */
 .disconnectBtn {
   padding: 8px 12px;
   border-radius: 10px;
@@ -92,8 +79,6 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
   transform: translateY(-2px);
 }
 
-
-/* -------------------- FULL-WIDTH TICKER (W1) -------------------- */
 .ticker-viewport {
   position: fixed;
   left: 0;
@@ -163,7 +148,6 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
   .ticker-item { padding: 6px 10px; font-size: 13px; }
 }
 
-/* -------------------- MAIN LAYOUT -------------------- */
 .main { width: 100%; margin-top: 120px; }
 
 .topCards.hybrid-grid {
@@ -176,7 +160,6 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
   margin: 0 auto;
 }
 
-/* card base */
 .card {
   background: var(--glass);
   border-radius: 14px;
@@ -188,7 +171,6 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
 .card:hover { transform: translateY(-6px); box-shadow: 0 22px 60px rgba(2,10,30,0.75); }
 .neon-card { border: 1px solid rgba(120,160,255,0.08); }
 
-/* balances */
 .balancesList { list-style:none; padding:0; margin:0; }
 .balanceItem { display:flex; justify-content:space-between; align-items:center; padding: 12px 8px; border-radius:10px; transition: background 140ms; }
 .balanceItem + .balanceItem { margin-top: 8px; }
@@ -209,7 +191,6 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
   cursor: pointer;
 }
 
-/* -------------------- TOKEN SELECT (A3 small badge) -------------------- */
 .tokenselect { position: relative; display: inline-block; pointer-events: auto; }
 .tokenbtn { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.03); background: rgba(255,255,255,0.02); color: #f3fbff; cursor:pointer; min-width: 120px; }
 .tokenBadgeSmall { width:28px; height:28px; border-radius:50%; background: linear-gradient(180deg,#1b6ef6,#3bb5ff); display:inline-flex; align-items:center; justify-content:center; font-weight:700; color:white; font-size:12px; }
@@ -236,8 +217,6 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
 .tokenOptionBtn:hover { background: rgba(255,255,255,0.06); }
 .optSym { font-weight:700; }
 .optName { font-size:12px; color: var(--muted); }
-
-/* -------------------- SWAP UI -------------------- */
 .swapCardCentered { max-width: 520px; width: 100%; margin: 0 auto; }
 .swapRowClean { margin-bottom: 16px; }
 .swapLabel { color: #cce6ff; font-size: 14px; margin-bottom: 6px; }
@@ -274,8 +253,6 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
   body {
     overflow-x: hidden;
   }
-
-  /* Header must wrap */
   .headerRow.hybrid-header {
     flex-wrap: wrap;
     gap: 10px;
@@ -292,19 +269,14 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
     justify-content: center;
     flex-wrap: wrap;
   }
-
-  /* Main grid becomes vertical */
   .topCards.hybrid-grid {
     grid-template-columns: 1fr !important;
   }
-
-  /* Swap card */
   .swapCardCentered {
     width: 100%;
     max-width: 100%;
   }
 
-  /* Swap input row stacks */
   .swapBox {
     flex-direction: column;
     align-items: stretch;
@@ -321,31 +293,21 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
     text-align: left;
     font-size: 18px;
   }
-
-  /* Token dropdown full width */
   .tokendropdown {
     width: 100%;
     left: 0;
   }
 
-  /* Buttons full width */
   button,
   .primaryBtn,
   .connectBtn {
     width: 100%;
   }
 }
-/* =========================
-   MOBILE HARD FIX (FINAL)
-========================= */
 @media (max-width: 768px) {
-
-  /* Kill horizontal overflow */
   html, body {
     overflow-x: hidden;
   }
-
-  /* 🔥 FIX 1: Disable fixed ticker on mobile */
   .ticker-viewport {
     position: relative;
     top: 0;
@@ -358,7 +320,6 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
     justify-content: flex-start;
   }
 
-  /* 🔥 FIX 2: Remove fake spacing */
   .main {
     margin-top: 16px;
   }
@@ -367,7 +328,6 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
     padding: 12px 0 40px 0;
   }
 
-  /* 🔥 FIX 3: Header must not overlap */
   .headerRow.hybrid-header {
     flex-wrap: wrap;
     align-items: center;
@@ -380,13 +340,11 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
     justify-content: center;
   }
 
-  /* 🔥 FIX 4: Stop width abuse */
   .ticker-viewport,
   .app-container.hybrid-center {
     max-width: 100%;
   }
 
-  /* Swap layout stacking */
   .swapBox {
     flex-direction: column;
     align-items: stretch;

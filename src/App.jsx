@@ -4,22 +4,13 @@ import logo from "./assets/swaparc-logo.png";
 import "./App.css";
 import { getPrices } from "./priceFetcher";
 
-/*
-  Notes:
-  - This version keeps your UI/layout exactly.
-  - It adds a small estimate call (callStatic.swap) to show expected output when you type an amount.
-  - Then it performs the real pool.swap on-chain when you press Swap.
-*/
 const ARC_CHAIN_ID_DEC = 5042002;
-const ARC_CHAIN_ID_HEX = "0x4CEF52"; // ✅ CORRECT
-/* --- tokens unchanged --- */
+const ARC_CHAIN_ID_HEX = "0x4CEF52";
 const DEFAULT_TOKENS = [
   { symbol: "USDC", name: "USD Coin", address: "0x3600000000000000000000000000000000000000" },
   { symbol: "EURC", name: "Euro Coin", address: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a" }
 ];
 
-
-/* --- Ticker (unchanged) --- */
 function Ticker({ tokens, prices }) {
   const [items, setItems] = useState(() =>
     tokens.map(t => ({
@@ -47,7 +38,6 @@ function Ticker({ tokens, prices }) {
       );
     }, 6000);
     return () => clearInterval(iv);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prices]);
 
   const double = [...items, ...items];
@@ -84,7 +74,6 @@ function formatPriceMock(sym) {
   return Number(base).toFixed(base >= 100 ? 0 : base >= 10 ? 2 : 4);
 }
 
-/* --- TokenSelect (unchanged) --- */
 function TokenSelect({ tokens, value, onChange }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -147,7 +136,7 @@ function TokenSelect({ tokens, value, onChange }) {
   );
 }
 
-/* ------------------- MAIN APP ------------------- */
+
 export default function App() {
   function openFaucet() {
     window.open("https://faucet.circle.com/", "_blank");
@@ -165,11 +154,8 @@ export default function App() {
   const [customAddr, setCustomAddr] = useState("");
   const [estimatedTo, setEstimatedTo] = useState(""); // auto-calculated target amount shown in UI
 
-  // NEW: prices store
   const [prices, setPrices] = useState({}); // { SYMBOL: number | null }
 
-  // ---------------- POOL / ABI ----------------
-  // your simple pool
   const POOL_ADDRESS = "0x5A30dE47f430dc820204Ce3E3419f013bfC6565F";
   const POOL_ABI = [
     "function swap(address tokenIn, uint256 amountIn)",
