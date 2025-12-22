@@ -203,24 +203,40 @@ export default function App() {
       setEstimatedTo("");
       return;
     }
+  
     const amt = Number(swapAmount);
     const pFrom = prices[swapFrom];
     const pTo = prices[swapTo];
-
+  
     if (pFrom != null && pTo != null && Number(pFrom) > 0) {
-      // use a small default spread for estimate (0.3% here)
-      const spread = 0.003;
-      const rawRate = Number(pTo) / Number(pFrom);
-      const effectiveRate = rawRate * (1 - spread);
-      const received = Number(amt * effectiveRate);
-      // format nicely (up to 6 decimal places unless >1000)
-      const formatted = received >= 1000 ? received.toLocaleString(undefined, { maximumFractionDigits: 2 }) : received.toLocaleString(undefined, { maximumFractionDigits: 6 });
-      setEstimatedTo(formatted);
-    } else {
-      // fallback: if no prices, show '—' or use the previous mock random rate
-      setEstimatedTo("—");
+      const spread = 0.003; // 0.3%
+      const rate = (Number(pTo) / Number(pFrom)) * (1 - spread);
+      const received = amt * rate;
+  
+      setEstimatedTo(
+        received.toLocaleString(undefined, { maximumFractionDigits: 6 })
+      );
+      return;
     }
+  
+    if (
+      (swapFrom === "USDC" && swapTo === "EURC") ||
+      (swapFrom === "EURC" && swapTo === "USDC")
+    ) {
+      // simple FX assumption
+      const FX = swapFrom === "USDC" ? 0.93 : 1.075;
+      const received = amt * FX;
+  
+      setEstimatedTo(
+        received.toLocaleString(undefined, { maximumFractionDigits: 6 })
+      );
+      return;
+    }
+  
+    // ❌ Nothing else available
+    setEstimatedTo("—");
   }
+  
 
   // New: estimate using pool.callStatic.swap when possible, to show real on-chain approximation
   useEffect(() => {
