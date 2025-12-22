@@ -560,13 +560,17 @@ export default function App() {
       <div className="app-container hybrid-center">
         {/* HEADER */}
         <header className="headerRow hybrid-header">
-          <div className="brand">
-            <img src={logo} alt="SwapARC" className="logoImg big" />
-            <div>
-              <div className="title">SWAPARC</div>
-              <div className="subtitle">Stablecoin FX & Treasury tools</div>
-            </div>
-          </div>
+        <div
+  className="brand"
+  style={{ cursor: "pointer" }}
+  onClick={() => window.location.reload()}
+>
+  <img src={logo} alt="SwapARC" className="logoImg big" />
+  <div>
+    <div className="title">SWAPARC</div>
+    <div className="subtitle">Stablecoin FX & Treasury tools</div>
+  </div>
+</div>
           <div className="headerRight">
   <button
     className="faucetBtn"
