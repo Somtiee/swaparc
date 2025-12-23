@@ -327,6 +327,27 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [swapAmount, swapFrom, swapTo, tokens]);
 
+  function setPercentAmount(percent) {
+    const bal = balances[swapFrom];
+    if (!bal || bal === "n/a") return;
+
+    const amount =
+      percent === 100 ? Number(bal) : Number(bal) * (percent / 100);
+
+    setSwapAmount(amount.toFixed(2));
+  }
+
+  function onSliderChange(e) {
+    const bal = balances[swapFrom];
+    if (!bal || bal === "n/a") return;
+
+    const percent = Number(e.target.value);
+    const max = Number(bal);
+
+    const amount = Math.min(max, (max * percent) / 100);
+    setSwapAmount(amount.toFixed(2));
+  }
+
   async function ensureArcNetwork() {
     const { ethereum } = window;
     if (!ethereum) return false;
@@ -778,6 +799,42 @@ export default function App() {
                     onChange={(e) => setSwapAmount(e.target.value)}
                   />
                 </div>
+                <div className="percentRow">
+                  {[25, 50, 75].map((p) => (
+                    <button
+                      key={p}
+                      className="percentBtn"
+                      onClick={() => setPercentAmount(p)}
+                    >
+                      {p}%
+                    </button>
+                  ))}
+                  <button
+                    className="percentBtn"
+                    onClick={() => setPercentAmount(100)}
+                  >
+                    Max
+                  </button>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={
+                    balances[swapFrom] &&
+                    Number(balances[swapFrom]) > 0 &&
+                    Number(swapAmount) > 0
+                      ? Math.min(
+                          100,
+                          (Number(swapAmount) / Number(balances[swapFrom])) *
+                            100
+                        )
+                      : 0
+                  }
+                  onChange={onSliderChange}
+                  className="swapSlider"
+                />
               </div>
 
               <div className="swapCenter">
