@@ -337,17 +337,6 @@ export default function App() {
     setSwapAmount(amount.toFixed(2));
   }
 
-  function onSliderChange(e) {
-    const bal = balances[swapFrom];
-    if (!bal || bal === "n/a") return;
-
-    const percent = Number(e.target.value);
-    const max = Number(bal);
-
-    const amount = Math.min(max, (max * percent) / 100);
-    setSwapAmount(amount.toFixed(2));
-  }
-
   async function ensureArcNetwork() {
     const { ethereum } = window;
     if (!ethereum) return false;
@@ -816,25 +805,6 @@ export default function App() {
                     Max
                   </button>
                 </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={
-                    balances[swapFrom] &&
-                    Number(balances[swapFrom]) > 0 &&
-                    Number(swapAmount) > 0
-                      ? Math.min(
-                          100,
-                          (Number(swapAmount) / Number(balances[swapFrom])) *
-                            100
-                        )
-                      : 0
-                  }
-                  onChange={onSliderChange}
-                  className="swapSlider"
-                />
               </div>
 
               <div className="swapCenter">
