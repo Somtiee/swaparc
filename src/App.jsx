@@ -788,7 +788,7 @@ export default function App() {
                     onChange={(e) => setSwapAmount(e.target.value)}
                   />
                 </div>
-                <div className="percentRow">
+                <div className="percentRow relay-style">
                   {[25, 50, 75].map((p) => (
                     <button
                       key={p}
