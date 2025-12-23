@@ -7,29 +7,45 @@ import { getPrices } from "./priceFetcher";
 const ARC_CHAIN_ID_DEC = 5042002;
 const ARC_CHAIN_ID_HEX = "0x4CEF52";
 const DEFAULT_TOKENS = [
-  { symbol: "USDC", name: "USD Coin", address: "0x3600000000000000000000000000000000000000" },
-  { symbol: "EURC", name: "Euro Coin", address: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a" }
+  {
+    symbol: "USDC",
+    name: "USD Coin",
+    address: "0x3600000000000000000000000000000000000000",
+  },
+  {
+    symbol: "EURC",
+    name: "Euro Coin",
+    address: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
+  },
 ];
 
 function Ticker({ tokens, prices }) {
   const [items, setItems] = useState(() =>
-    tokens.map(t => ({
+    tokens.map((t) => ({
       ...t,
-      price: prices && prices[t.symbol] != null ? Number(prices[t.symbol]) : formatPriceMock(t.symbol)
+      price:
+        prices && prices[t.symbol] != null
+          ? Number(prices[t.symbol])
+          : formatPriceMock(t.symbol),
     }))
   );
 
   useEffect(() => {
-    setItems(tokens.map(t => ({
-      ...t,
-      price: prices && prices[t.symbol] != null ? Number(prices[t.symbol]) : formatPriceMock(t.symbol)
-    })));
+    setItems(
+      tokens.map((t) => ({
+        ...t,
+        price:
+          prices && prices[t.symbol] != null
+            ? Number(prices[t.symbol])
+            : formatPriceMock(t.symbol),
+      }))
+    );
   }, [tokens, prices]);
 
   useEffect(() => {
     const iv = setInterval(() => {
-      setItems(prev =>
-        prev.map(it => {
+      setItems((prev) =>
+        prev.map((it) => {
           if (prices && prices[it.symbol] != null) return it;
           const drift = (Math.random() * 0.3 - 0.15) / 100;
           const newPrice = Number(Number(it.price) * (1 + drift)).toFixed(4);
@@ -50,7 +66,11 @@ function Ticker({ tokens, prices }) {
             <div className="ticker-logo">{t.symbol.slice(0, 1)}</div>
             <div className="ticker-name">{t.symbol}</div>
             <div className="ticker-price">
-              {prices && prices[t.symbol] != null ? `$${Number(prices[t.symbol]).toLocaleString(undefined, { maximumFractionDigits: 6 })}` : `$${t.price}`}
+              {prices && prices[t.symbol] != null
+                ? `$${Number(prices[t.symbol]).toLocaleString(undefined, {
+                    maximumFractionDigits: 6,
+                  })}`
+                : `$${t.price}`}
             </div>
           </div>
         ))}
@@ -60,17 +80,18 @@ function Ticker({ tokens, prices }) {
 }
 
 function formatPriceMock(sym) {
-  const base = {
-    USDC: 1,
-    EURC: 1.07,
-    USDG: 1,
-    ARCX: 0.42,
-    wETH: 3475.12,
-    wBTC: 94000,
-    SOL: 180.4,
-    BTC: 94000,
-    ETH: 3475.12
-  }[sym] ?? 1;
+  const base =
+    {
+      USDC: 1,
+      EURC: 1.07,
+      USDG: 1,
+      ARCX: 0.42,
+      wETH: 3475.12,
+      wBTC: 94000,
+      SOL: 180.4,
+      BTC: 94000,
+      ETH: 3475.12,
+    }[sym] ?? 1;
   return Number(base).toFixed(base >= 100 ? 0 : base >= 10 ? 2 : 4);
 }
 
@@ -88,13 +109,13 @@ function TokenSelect({ tokens, value, onChange }) {
     return () => document.removeEventListener("click", docClick);
   }, []);
 
-  const options = tokens.filter(t =>
+  const options = tokens.filter((t) =>
     (t.symbol + " " + t.name).toLowerCase().includes(q.toLowerCase())
   );
 
   return (
     <div className="tokenselect" ref={ref}>
-      <button className="tokenbtn" onClick={() => setOpen(o => !o)}>
+      <button className="tokenbtn" onClick={() => setOpen((o) => !o)}>
         <span className="tokenBadgeSmall">{value.slice(0, 3)}</span>
         <span className="tokenLabel">{value}</span>
         <span className="caret">{open ? "▴" : "▾"}</span>
@@ -106,11 +127,11 @@ function TokenSelect({ tokens, value, onChange }) {
             className="tokensearch"
             placeholder="Search token..."
             value={q}
-            onChange={e => setQ(e.target.value)}
+            onChange={(e) => setQ(e.target.value)}
             autoFocus
           />
           <ul className="tokenoptions">
-            {options.map(t => (
+            {options.map((t) => (
               <li key={t.address}>
                 <button
                   className="tokenOptionBtn"
@@ -120,7 +141,9 @@ function TokenSelect({ tokens, value, onChange }) {
                     setQ("");
                   }}
                 >
-                  <span className="tokenBadgeSmall">{t.symbol.slice(0, 3)}</span>
+                  <span className="tokenBadgeSmall">
+                    {t.symbol.slice(0, 3)}
+                  </span>
                   <div style={{ textAlign: "left" }}>
                     <div className="optSym">{t.symbol}</div>
                     <div className="optName">{t.name}</div>
@@ -136,11 +159,10 @@ function TokenSelect({ tokens, value, onChange }) {
   );
 }
 
-
 export default function App() {
   function openFaucet() {
     window.open("https://faucet.circle.com/", "_blank");
-  }  
+  }
   const [address, setAddress] = useState(null);
   const [network, setNetwork] = useState(null);
   const [status, setStatus] = useState("Not connected");
@@ -159,26 +181,26 @@ export default function App() {
   const POOL_ADDRESS = "0x5A30dE47f430dc820204Ce3E3419f013bfC6565F";
   const POOL_ABI = [
     "function swap(address tokenIn, uint256 amountIn)",
-    "function getReserves() view returns (uint256 reserveA, uint256 reserveB)"
-  ];  
+    "function getReserves() view returns (uint256 reserveA, uint256 reserveB)",
+  ];
   // ERC20 ABI used throughout (balanceOf, decimals, symbol; plus allowance/approve)
   const ERC20_ABI = [
     "function balanceOf(address owner) view returns (uint256)",
     "function decimals() view returns (uint8)",
     "function symbol() view returns (string)",
     "function approve(address spender, uint256 amount) returns (bool)",
-    "function allowance(address owner, address spender) view returns (uint256)"
+    "function allowance(address owner, address spender) view returns (uint256)",
   ];
 
   // fetch prices on mount and every 10s
   useEffect(() => {
     let mounted = true;
     async function fetchAndSet() {
-      const syms = tokens.map(t => t.symbol);
+      const syms = tokens.map((t) => t.symbol);
       try {
         const result = await getPrices(syms);
         if (!mounted) return;
-        setPrices(prev => ({ ...prev, ...result }));
+        setPrices((prev) => ({ ...prev, ...result }));
       } catch (e) {
         console.warn("price refresh failed", e);
       }
@@ -203,22 +225,22 @@ export default function App() {
       setEstimatedTo("");
       return;
     }
-  
+
     const amt = Number(swapAmount);
     const pFrom = prices[swapFrom];
     const pTo = prices[swapTo];
-  
+
     if (pFrom != null && pTo != null && Number(pFrom) > 0) {
       const spread = 0.003; // 0.3%
       const rate = (Number(pTo) / Number(pFrom)) * (1 - spread);
       const received = amt * rate;
-  
+
       setEstimatedTo(
         received.toLocaleString(undefined, { maximumFractionDigits: 6 })
       );
       return;
     }
-  
+
     if (
       (swapFrom === "USDC" && swapTo === "EURC") ||
       (swapFrom === "EURC" && swapTo === "USDC")
@@ -226,17 +248,16 @@ export default function App() {
       // simple FX assumption
       const FX = swapFrom === "USDC" ? 0.93 : 1.075;
       const received = amt * FX;
-  
+
       setEstimatedTo(
         received.toLocaleString(undefined, { maximumFractionDigits: 6 })
       );
       return;
     }
-  
+
     // ❌ Nothing else available
     setEstimatedTo("—");
   }
-  
 
   // New: estimate using pool.callStatic.swap when possible, to show real on-chain approximation
   useEffect(() => {
@@ -252,12 +273,20 @@ export default function App() {
           return; // no wallet; keep previous estimate
         }
         const provider = new ethers.BrowserProvider(window.ethereum);
-        const tokenFrom = tokens.find(t => t.symbol === swapFrom);
-        const tokenTo = tokens.find(t => t.symbol === swapTo);
+        const tokenFrom = tokens.find((t) => t.symbol === swapFrom);
+        const tokenTo = tokens.find((t) => t.symbol === swapTo);
         if (!tokenFrom || !tokenTo) return;
 
-        const tokenIn = new ethers.Contract(tokenFrom.address, ERC20_ABI, provider);
-        const tokenOut = new ethers.Contract(tokenTo.address, ERC20_ABI, provider);
+        const tokenIn = new ethers.Contract(
+          tokenFrom.address,
+          ERC20_ABI,
+          provider
+        );
+        const tokenOut = new ethers.Contract(
+          tokenTo.address,
+          ERC20_ABI,
+          provider
+        );
         const decimalsIn = await tokenIn.decimals().catch(() => 18);
         const decimalsOut = await tokenOut.decimals().catch(() => 18);
 
@@ -279,7 +308,10 @@ export default function App() {
         if (expectedOut != null) {
           const human = Number(ethers.formatUnits(expectedOut, decimalsOut));
           // format and place in the same field used by UI
-          const formatted = human >= 1000 ? human.toLocaleString(undefined, { maximumFractionDigits: 2 }) : human.toLocaleString(undefined, { maximumFractionDigits: 6 });
+          const formatted =
+            human >= 1000
+              ? human.toLocaleString(undefined, { maximumFractionDigits: 2 })
+              : human.toLocaleString(undefined, { maximumFractionDigits: 6 });
           setEstimatedTo(formatted);
         }
       } catch (e) {
@@ -289,14 +321,16 @@ export default function App() {
     }
 
     estimateOut();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [swapAmount, swapFrom, swapTo, tokens]);
 
   async function ensureArcNetwork() {
     const { ethereum } = window;
     if (!ethereum) return false;
-  
+
     try {
       await ethereum.request({
         method: "wallet_switchEthereumChain",
@@ -307,24 +341,26 @@ export default function App() {
       if (err.code === 4902) {
         await ethereum.request({
           method: "wallet_addEthereumChain",
-          params: [{
-            chainId: ARC_CHAIN_ID_HEX,
-            chainName: "Arc Testnet",
-            nativeCurrency: {
-              name: "ARC",
-              symbol: "ARC",
-              decimals: 18,
+          params: [
+            {
+              chainId: ARC_CHAIN_ID_HEX,
+              chainName: "Arc Testnet",
+              nativeCurrency: {
+                name: "ARC",
+                symbol: "ARC",
+                decimals: 18,
+              },
+              rpcUrls: ["https://rpc.testnet.arc.network"],
+              blockExplorerUrls: ["https://testnet.arcscan.app"],
             },
-            rpcUrls: ["https://rpc.testnet.arc.network"],
-            blockExplorerUrls: ["https://testnet.arcscan.app"],
-          }],
+          ],
         });
-  
+
         return true;
       }
       return false;
     }
-  }  
+  }
   async function connectWallet() {
     try {
       const { ethereum } = window;
@@ -332,49 +368,48 @@ export default function App() {
         setStatus("No wallet found. Please install MetaMask or Rabby.");
         return;
       }
-  
+
       // 1️⃣ Ensure Arc network FIRST
       const ok = await ensureArcNetwork();
       if (!ok) {
         setStatus("Please switch to Arc Testnet");
         return;
       }
-  
+
       // 2️⃣ Request accounts
       const accounts = await ethereum.request({
         method: "eth_requestAccounts",
       });
-  
+
       if (!accounts?.length) {
         setStatus("No account found.");
         return;
       }
-  
+
       const userAddress = accounts[0];
-  
+
       // 3️⃣ Confirm network
       const provider = new ethers.BrowserProvider(ethereum);
       const net = await provider.getNetwork();
-  
+
       if (Number(net.chainId) !== ARC_CHAIN_ID_DEC) {
         setStatus("Failed to switch to Arc Testnet");
         return;
       }
-  
+
       // 4️⃣ Update app state
       setAddress(userAddress);
       setNetwork(Number(net.chainId));
       setStatus("Connected to Arc Testnet");
-  
+
       // 5️⃣ Load balances
       await fetchBalances(userAddress, provider);
-  
     } catch (err) {
       console.error("connectWallet error:", err);
       setStatus("Wallet connection failed");
     }
-  }  
-  
+  }
+
   async function disconnectWallet() {
     setAddress(null);
     setNetwork(null);
@@ -391,11 +426,17 @@ export default function App() {
       // note: your code previously used provider.getBalance(userAddress) as USDC
       // keep same behavior to avoid changing UI logic
       const rawUSDC = await provider.getBalance(userAddress);
-      tokenBalances["USDC"] = parseFloat(ethers.formatEther(rawUSDC)).toFixed(4);
+      tokenBalances["USDC"] = parseFloat(ethers.formatEther(rawUSDC)).toFixed(
+        4
+      );
 
       for (const t of tokens) {
         try {
-          const tokenContract = new ethers.Contract(t.address, ERC20_ABI, provider);
+          const tokenContract = new ethers.Contract(
+            t.address,
+            ERC20_ABI,
+            provider
+          );
           const rawBalance = await tokenContract.balanceOf(userAddress);
           const decimals = await tokenContract.decimals();
           tokenBalances[t.symbol] = parseFloat(
@@ -405,7 +446,7 @@ export default function App() {
           tokenBalances[t.symbol] = "n/a";
         }
       }
-      
+
       setBalances(tokenBalances);
     } catch (err) {
       console.error("Failed to fetch balances:", err);
@@ -433,7 +474,9 @@ export default function App() {
     setTimeout(() => {
       const rate = (Math.random() * (1.05 - 0.95) + 0.95).toFixed(4);
       const received = (Number(swapAmount) * Number(rate)).toFixed(4);
-      setQuote(`${swapAmount} ${swapFrom} → ~ ${received} ${swapTo} (rate ${rate})`);
+      setQuote(
+        `${swapAmount} ${swapFrom} → ~ ${received} ${swapTo} (rate ${rate})`
+      );
     }, 700);
   }
 
@@ -443,7 +486,11 @@ export default function App() {
       alert("Enter a valid amount to swap.");
       return;
     }
-    if (!balances[swapFrom] || balances[swapFrom] === "n/a" || Number(swapAmount) > Number(balances[swapFrom])) {
+    if (
+      !balances[swapFrom] ||
+      balances[swapFrom] === "n/a" ||
+      Number(swapAmount) > Number(balances[swapFrom])
+    ) {
       alert("Insufficient or unknown balance for " + swapFrom);
       return;
     }
@@ -458,7 +505,7 @@ export default function App() {
     ) {
       alert("This pool only supports USDC ↔ EURC swaps.");
       return;
-    }    
+    }
 
     try {
       if (!window.ethereum) {
@@ -469,8 +516,8 @@ export default function App() {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
 
-      const tokenFrom = tokens.find(t => t.symbol === swapFrom);
-      const tokenTo = tokens.find(t => t.symbol === swapTo);
+      const tokenFrom = tokens.find((t) => t.symbol === swapFrom);
+      const tokenTo = tokens.find((t) => t.symbol === swapTo);
 
       if (!tokenFrom || !tokenTo) {
         alert("Token not found");
@@ -481,7 +528,11 @@ export default function App() {
       const tokenOutAddress = tokenTo.address;
 
       const tokenIn = new ethers.Contract(tokenInAddress, ERC20_ABI, signer);
-      const tokenOut = new ethers.Contract(tokenOutAddress, ERC20_ABI, provider);
+      const tokenOut = new ethers.Contract(
+        tokenOutAddress,
+        ERC20_ABI,
+        provider
+      );
 
       const decimalsIn = await tokenIn.decimals().catch(() => 18);
       const decimalsOut = await tokenOut.decimals().catch(() => 18);
@@ -489,7 +540,10 @@ export default function App() {
       const amountIn = ethers.parseUnits(String(swapAmount), decimalsIn);
 
       // step 1: approve pool if required
-      const allowance = await tokenIn.allowance(await signer.getAddress(), POOL_ADDRESS);
+      const allowance = await tokenIn.allowance(
+        await signer.getAddress(),
+        POOL_ADDRESS
+      );
       if (BigInt(allowance) < BigInt(amountIn)) {
         setQuote("Approving token...");
         const txA = await tokenIn.approve(POOL_ADDRESS, amountIn);
@@ -514,7 +568,11 @@ export default function App() {
       }
 
       if (expectedOutHuman != null) {
-        setQuote(`Estimated receive: ~ ${expectedOutHuman.toFixed(decimalsOut >= 6 ? 6 : 4)} ${swapTo}. Sending swap...`);
+        setQuote(
+          `Estimated receive: ~ ${expectedOutHuman.toFixed(
+            decimalsOut >= 6 ? 6 : 4
+          )} ${swapTo}. Sending swap...`
+        );
       } else {
         setQuote("Sending swap (no on-chain estimate) — check wallet...");
       }
@@ -525,7 +583,11 @@ export default function App() {
       await tx.wait();
 
       if (expectedOutHuman != null) {
-        setQuote(`Swap succeeded: ~ ${expectedOutHuman.toFixed(decimalsOut >= 6 ? 6 : 4)} ${swapTo} — tx ${tx.hash}`);
+        setQuote(
+          `Swap succeeded: ~ ${expectedOutHuman.toFixed(
+            decimalsOut >= 6 ? 6 : 4
+          )} ${swapTo} — tx ${tx.hash}`
+        );
       } else {
         setQuote(`Swap succeeded — tx ${tx.hash}`);
       }
@@ -547,13 +609,15 @@ export default function App() {
       return;
     }
     const symbol = "TKN" + addr.slice(-3).toUpperCase();
-    const exists = tokens.some(t => t.address.toLowerCase() === addr.toLowerCase());
+    const exists = tokens.some(
+      (t) => t.address.toLowerCase() === addr.toLowerCase()
+    );
     if (exists) {
       alert("Token already in list.");
       return;
     }
     const newToken = { symbol, name: symbol + " (custom)", address: addr };
-    setTokens(prev => [newToken, ...prev]);
+    setTokens((prev) => [newToken, ...prev]);
     setCustomAddr("");
     alert(`Added ${symbol} — it appears at top of token list.`);
   }
@@ -576,54 +640,52 @@ export default function App() {
       <div className="app-container hybrid-center">
         {/* HEADER */}
         <header className="headerRow hybrid-header">
-        <div
-  className="brand"
-  style={{ cursor: "pointer" }}
-  onClick={() => window.location.reload()}
->
-  <img src={logo} alt="SwapARC" className="logoImg big" />
-  <div>
-    <div className="title">SWAPARC</div>
-    <div className="subtitle">Stablecoin FX & Treasury tools</div>
-  </div>
-</div>
+          <div
+            className="brand"
+            style={{ cursor: "pointer" }}
+            onClick={() => window.location.reload()}
+          >
+            <img src={logo} alt="SwapARC" className="logoImg big" />
+            <div>
+              <div className="title">SWAPARC</div>
+              <div className="subtitle">Stablecoin FX & Treasury tools</div>
+            </div>
+          </div>
           <div className="headerRight">
-  <button
-    className="faucetBtn"
-    onClick={openFaucet}
-    style={{
-      marginRight: "12px",
-      padding: "8px 14px",
-      borderRadius: "10px",
-      background: "rgba(0, 200, 255, 0.15)",
-      border: "1px solid rgba(0, 200, 255, 0.35)",
-      color: "#9fe8ff",
-      fontWeight: 600,
-      cursor: "pointer"
-    }}
-  >
-    💧 Get Faucet
-  </button>
+            <button
+              className="faucetBtn"
+              onClick={openFaucet}
+              style={{
+                marginRight: "12px",
+                padding: "8px 14px",
+                borderRadius: "10px",
+                background: "rgba(0, 200, 255, 0.15)",
+                border: "1px solid rgba(0, 200, 255, 0.35)",
+                color: "#9fe8ff",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              💧 Get Faucet
+            </button>
 
-  {!address ? (
-    <button className="connectBtn" onClick={connectWallet}>
-      Connect Wallet
-    </button>
-  ) : (
-    <>
-      <div className="walletCard small">
-        <div className="walletNetwork">
-          Arc Testnet        </div>
-        <div className="walletAddress">{shortAddr(address)}</div>
-      </div>
+            {!address ? (
+              <button className="connectBtn" onClick={connectWallet}>
+                Connect Wallet
+              </button>
+            ) : (
+              <>
+                <div className="walletCard small">
+                  <div className="walletNetwork">Arc Testnet </div>
+                  <div className="walletAddress">{shortAddr(address)}</div>
+                </div>
 
-      <button className="disconnectBtn" onClick={disconnectWallet}>
-        Disconnect
-      </button>
-    </>
-  )}
-</div>
-
+                <button className="disconnectBtn" onClick={disconnectWallet}>
+                  Disconnect
+                </button>
+              </>
+            )}
+          </div>
         </header>
 
         {/* TICKER */}
@@ -637,29 +699,39 @@ export default function App() {
               <h3>Token Balances</h3>
 
               {Object.keys(balances).length === 0 ? (
-                <p className="muted">No balances loaded — connect wallet & click Connect.</p>
+                <p className="muted">
+                  No balances loaded — connect wallet & click Connect.
+                </p>
               ) : (
                 <ul className="balancesList">
                   {tokens
-  .filter(t => {
-    const bal = balances[t.symbol];
-    return bal && bal !== "n/a" && Number(bal) > 0;
-  })
-  .map(t => (
-
-                    <li className="balanceItem" key={t.address}>
-                      <div className="balanceLeft">
-                        {tokenIcon(t.symbol)}
-                        <div className="balanceSymbol">{t.symbol}</div>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div className="balanceRight">{balances[t.symbol] ?? "—"}</div>
-                        <div style={{ fontSize: 12, opacity: 0.8 }}>
-                          {usdValueFor(t.symbol) != null ? `$${usdValueFor(t.symbol).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : (prices[t.symbol] == null ? "price n/a" : "")}
+                    .filter((t) => {
+                      const bal = balances[t.symbol];
+                      return bal && bal !== "n/a" && Number(bal) > 0;
+                    })
+                    .map((t) => (
+                      <li className="balanceItem" key={t.address}>
+                        <div className="balanceLeft">
+                          {tokenIcon(t.symbol)}
+                          <div className="balanceSymbol">{t.symbol}</div>
                         </div>
-                      </div>
-                    </li>
-                  ))}
+                        <div style={{ textAlign: "right" }}>
+                          <div className="balanceRight">
+                            {balances[t.symbol] ?? "—"}
+                          </div>
+                          <div style={{ fontSize: 12, opacity: 0.8 }}>
+                            {usdValueFor(t.symbol) != null
+                              ? `$${usdValueFor(t.symbol).toLocaleString(
+                                  undefined,
+                                  { maximumFractionDigits: 2 }
+                                )}`
+                              : prices[t.symbol] == null
+                              ? "price n/a"
+                              : ""}
+                          </div>
+                        </div>
+                      </li>
+                    ))}
                 </ul>
               )}
 
@@ -667,14 +739,20 @@ export default function App() {
                 <input
                   placeholder="Paste token address (0x...)"
                   value={customAddr}
-                  onChange={e => setCustomAddr(e.target.value)}
+                  onChange={(e) => setCustomAddr(e.target.value)}
                   style={{
-                    width: "100%", padding: 8, borderRadius: 8,
+                    width: "100%",
+                    padding: 8,
+                    borderRadius: 8,
                     border: "1px solid rgba(255,255,255,0.06)",
-                    marginBottom: 8, background: "transparent", color: "#eaf6ff"
+                    marginBottom: 8,
+                    background: "transparent",
+                    color: "#eaf6ff",
                   }}
                 />
-                <button onClick={addCustomToken} className="smallAddBtn">Add Token</button>
+                <button onClick={addCustomToken} className="smallAddBtn">
+                  Add Token
+                </button>
               </div>
             </div>
 
@@ -685,10 +763,16 @@ export default function App() {
               <div className="swapRowClean">
                 <div className="swapLabel">From</div>
                 <div className="swapBox">
-                  <TokenSelect tokens={tokens} value={swapFrom} onChange={setSwapFrom} />
+                  <TokenSelect
+                    tokens={tokens}
+                    value={swapFrom}
+                    onChange={setSwapFrom}
+                  />
                   <input
                     className="swapInput"
                     type="number"
+                    step="0.01"
+                    min="0"
                     placeholder="0.00"
                     value={swapAmount}
                     onChange={(e) => setSwapAmount(e.target.value)}
@@ -697,26 +781,43 @@ export default function App() {
               </div>
 
               <div className="swapCenter">
-                <button className={`swapArrow ${arrowSpin ? "spin" : ""}`} onClick={onSwapArrowClick}>⇅</button>
+                <button
+                  className={`swapArrow ${arrowSpin ? "spin" : ""}`}
+                  onClick={onSwapArrowClick}
+                >
+                  ⇅
+                </button>
               </div>
 
               <div className="swapRowClean">
                 <div className="swapLabel">To (estimated)</div>
                 <div className="swapBox">
-                  <TokenSelect tokens={tokens} value={swapTo} onChange={setSwapTo} />
-                  <div className="swapInput readOnly">{estimatedTo || (quote ? "…" : "—")}</div>
+                  <TokenSelect
+                    tokens={tokens}
+                    value={swapTo}
+                    onChange={setSwapTo}
+                  />
+                  <div className="swapInput readOnly">
+                    {estimatedTo || (quote ? "…" : "—")}
+                  </div>
                 </div>
               </div>
 
               <div style={{ marginTop: 12 }}>
-                <button className="primaryBtn neon-btn" onClick={performSwap}>Swap</button>
+                <button className="primaryBtn neon-btn" onClick={performSwap}>
+                  Swap
+                </button>
               </div>
 
-              {quote && <p className="quote"><strong>Quote:</strong> {quote}</p>}
+              {quote && (
+                <p className="quote">
+                  <strong>Quote:</strong> {quote}
+                </p>
+              )}
             </div>
           </section>
         </main>
       </div>
     </div>
   );
-}   
+}
