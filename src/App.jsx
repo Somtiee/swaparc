@@ -169,6 +169,9 @@ export default function App() {
   const [balances, setBalances] = useState({});
   const [tokens, setTokens] = useState(DEFAULT_TOKENS);
   const [swapFrom, setSwapFrom] = useState("USDC");
+  const [activeTab, setActiveTab] = useState("swap");
+  const [swapHistory, setSwapHistory] = useState([]);
+  const [txModal, setTxModal] = useState(null);
   const [swapTo, setSwapTo] = useState("EURC");
   const [swapAmount, setSwapAmount] = useState("");
   const [quote, setQuote] = useState(null); // textual quote when user triggers swap or fallback
@@ -591,6 +594,28 @@ export default function App() {
       const tx = await pool.swap(tokenInAddress, amountIn);
       setQuote(`Swap submitted: tx ${tx.hash} — waiting for confirmation...`);
       await tx.wait();
+      const txUrl = `https://testnet.arcscan.app/tx/${tx.hash}`;
+
+setSwapHistory((prev) => [
+  {
+    fromToken: swapFrom,
+    fromAmount: swapAmount,
+    toToken: swapTo,
+    toAmount: expectedOutHuman?.toFixed(6) || "—",
+    txUrl,
+    status: "success",
+  },
+  ...prev,
+]);
+
+setTxModal({
+  status: "success",
+  fromToken: swapFrom,
+  fromAmount: swapAmount,
+  toToken: swapTo,
+  toAmount: expectedOutHuman?.toFixed(6) || "—",
+  txHash: tx.hash,
+});
 
       if (expectedOutHuman != null) {
         setQuote(
@@ -608,7 +633,14 @@ export default function App() {
       console.error(err);
       const m = err && err.message ? err.message : String(err);
       setQuote("Swap failed: " + m);
-      alert("Swap failed: " + m);
+      setTxModal({
+        status: "failed",
+        fromToken: swapFrom,
+        fromAmount: swapAmount,
+        toToken: swapTo,
+        toAmount: "—",
+        txHash: null,
+      });      
     }
   }
 
@@ -765,11 +797,23 @@ export default function App() {
                 </button>
               </div>
             </div>
-
-            {/* SWAP CARD */}
-            <div className="card controls neon-card swapCardCentered">
-              <h2>SWAP</h2>
-
+<div className="card controls neon-card swapCardCentered">
+  <div className="tabHeader">
+    <button
+      className={`tabBtn ${activeTab === "swap" ? "active" : ""}`}
+      onClick={() => setActiveTab("swap")}
+    >
+      Swap
+    </button>
+    <button
+      className={`tabBtn ${activeTab === "history" ? "active" : ""}`}
+      onClick={() => setActiveTab("history")}
+    >
+      History
+    </button>
+  </div>
+  {activeTab === "swap" && (
+  <>
               <div className="swapRowClean">
                 <div className="swapLabel">From</div>
                 <div className="swapBox">
@@ -841,10 +885,85 @@ export default function App() {
                   <strong>Quote:</strong> {quote}
                 </p>
               )}
+                </>
+              )}
+              {activeTab === "history" && (
+  <div className="historyBox">
+    {swapHistory.length === 0 ? (
+      <p className="muted">No swaps yet.</p>
+    ) : (
+      <ul className="historyList">
+        {swapHistory.map((tx, i) => (
+          <li key={i} className="historyItem">
+            <div>
+              <strong>From:</strong> {tx.fromAmount} {tx.fromToken}
+            </div>
+            <div>
+              <strong>To:</strong> {tx.toAmount} {tx.toToken}
+            </div>
+            <div className="historyMeta">
+              <a href={tx.txUrl} target="_blank" rel="noreferrer">
+                View Tx
+              </a>
+              <span className={`status ${tx.status}`}>
+                {tx.status.toUpperCase()}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+    )}
+  </div>
+)}
+
             </div>
           </section>
         </main>
       </div>
+      {txModal && (
+  <div className="modalOverlay">
+    <div className="txModal">
+      <h3>
+        {txModal.status === "success"
+          ? "Transaction Completed"
+          : "Swap Failed"}
+      </h3>
+
+      <div className="txRow">
+        <span>Sent</span>
+        <strong>
+          {txModal.fromAmount} {txModal.fromToken}
+        </strong>
+      </div>
+
+      <div className="txRow">
+        <span>Received</span>
+        <strong>
+          {txModal.toAmount} {txModal.toToken}
+        </strong>
+      </div>
+
+      <div className="txActions">
+        {txModal.txHash && (
+          <a
+            href={`https://testnet.arcscan.app/tx/${txModal.txHash}`}
+            target="_blank"
+            rel="noreferrer"
+            className="secondaryBtn"
+          >
+            View details
+          </a>
+        )}
+        <button
+          className="primaryBtn"
+          onClick={() => setTxModal(null)}
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 }
