@@ -414,3 +414,81 @@ html,body,#root { height: 100%; margin: 0; font-family: Inter, system-ui, -apple
     padding: 6px 0;
   }
 }
+
+.tabHeader {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.tabBtn {
+  flex: 1;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.03);
+  color: #cfe7ff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tabBtn.active {
+  background: linear-gradient(90deg,#2e6ef6,#1b4fd8);
+  color: white;
+}
+
+
+.historyList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.historyItem {
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.03);
+  margin-bottom: 10px;
+}
+
+.historyMeta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.status.success { color: #6cffb3; }
+.status.failed { color: #ff6c6c; }
+
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.txModal {
+  background: #0b1f3b;
+  padding: 20px;
+  border-radius: 16px;
+  width: 92%;
+  max-width: 420px;
+  text-align: center;
+}
+
+.txRow {
+  display: flex;
+  justify-content: space-between;
+  margin: 10px 0;
+}
+
+.txActions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
