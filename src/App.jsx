@@ -55,13 +55,6 @@ function Ticker({ tokens, prices }) {
     }, 6000);
     return () => clearInterval(iv);
   }, [prices]);
-  useEffect(() => {
-    try {
-      localStorage.setItem("swaparc_history", JSON.stringify(swapHistory));
-    } catch (e) {
-      console.warn("Failed to persist history", e);
-    }
-  }, [swapHistory]);
   const double = [...items, ...items];
 
   return (
@@ -274,7 +267,16 @@ export default function App() {
     // ❌ Nothing else available
     setEstimatedTo("—");
   }
-
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "swaparc_history",
+        JSON.stringify(swapHistory)
+      );
+    } catch (e) {
+      console.warn("Failed to persist history", e);
+    }
+  }, [swapHistory]);  
   // New: estimate using pool.callStatic.swap when possible, to show real on-chain approximation
   useEffect(() => {
     // estimateOut updates estimatedTo with the on-chain estimate (preferred)
