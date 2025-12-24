@@ -601,7 +601,10 @@ setSwapHistory((prev) => [
     fromToken: swapFrom,
     fromAmount: swapAmount,
     toToken: swapTo,
-    toAmount: expectedOutHuman?.toFixed(6) || "—",
+    toAmount:
+  expectedOutHuman != null
+    ? expectedOutHuman.toFixed(6)
+    : estimatedTo || "0.000000",
     txUrl,
     status: "success",
   },
@@ -613,7 +616,10 @@ setTxModal({
   fromToken: swapFrom,
   fromAmount: swapAmount,
   toToken: swapTo,
-  toAmount: expectedOutHuman?.toFixed(6) || "—",
+  toAmount:
+  expectedOutHuman != null
+    ? expectedOutHuman.toFixed(6)
+    : estimatedTo || "0.000000",
   txHash: tx.hash,
 });
 
