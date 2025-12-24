@@ -55,7 +55,13 @@ function Ticker({ tokens, prices }) {
     }, 6000);
     return () => clearInterval(iv);
   }, [prices]);
-
+  useEffect(() => {
+    try {
+      localStorage.setItem("swaparc_history", JSON.stringify(swapHistory));
+    } catch (e) {
+      console.warn("Failed to persist history", e);
+    }
+  }, [swapHistory]);
   const double = [...items, ...items];
 
   return (
@@ -170,7 +176,14 @@ export default function App() {
   const [tokens, setTokens] = useState(DEFAULT_TOKENS);
   const [swapFrom, setSwapFrom] = useState("USDC");
   const [activeTab, setActiveTab] = useState("swap");
-  const [swapHistory, setSwapHistory] = useState([]);
+  const [swapHistory, setSwapHistory] = useState(() => {
+    try {
+      const saved = localStorage.getItem("swaparc_history");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [txModal, setTxModal] = useState(null);
   const [swapTo, setSwapTo] = useState("EURC");
   const [swapAmount, setSwapAmount] = useState("");
@@ -596,32 +609,32 @@ export default function App() {
       await tx.wait();
       const txUrl = `https://testnet.arcscan.app/tx/${tx.hash}`;
 
-setSwapHistory((prev) => [
-  {
-    fromToken: swapFrom,
-    fromAmount: swapAmount,
-    toToken: swapTo,
-    toAmount:
-  expectedOutHuman != null
-    ? expectedOutHuman.toFixed(6)
-    : estimatedTo || "0.000000",
-    txUrl,
-    status: "success",
-  },
-  ...prev,
-]);
+      setSwapHistory((prev) => [
+        {
+          fromToken: swapFrom,
+          fromAmount: swapAmount,
+          toToken: swapTo,
+          toAmount:
+            expectedOutHuman != null
+              ? expectedOutHuman.toFixed(6)
+              : estimatedTo || "0.000000",
+          txUrl,
+          status: "success",
+        },
+        ...prev,
+      ]);
 
-setTxModal({
-  status: "success",
-  fromToken: swapFrom,
-  fromAmount: swapAmount,
-  toToken: swapTo,
-  toAmount:
-  expectedOutHuman != null
-    ? expectedOutHuman.toFixed(6)
-    : estimatedTo || "0.000000",
-  txHash: tx.hash,
-});
+      setTxModal({
+        status: "success",
+        fromToken: swapFrom,
+        fromAmount: swapAmount,
+        toToken: swapTo,
+        toAmount:
+          expectedOutHuman != null
+            ? expectedOutHuman.toFixed(6)
+            : estimatedTo || "0.000000",
+        txHash: tx.hash,
+      });
 
       if (expectedOutHuman != null) {
         setQuote(
@@ -646,7 +659,7 @@ setTxModal({
         toToken: swapTo,
         toAmount: "—",
         txHash: null,
-      });      
+      });
     }
   }
 
@@ -803,173 +816,175 @@ setTxModal({
                 </button>
               </div>
             </div>
-<div className="card controls neon-card swapCardCentered">
-  <div className="tabHeader">
-    <button
-      className={`tabBtn ${activeTab === "swap" ? "active" : ""}`}
-      onClick={() => setActiveTab("swap")}
-    >
-      Swap
-    </button>
-    <button
-      className={`tabBtn ${activeTab === "history" ? "active" : ""}`}
-      onClick={() => setActiveTab("history")}
-    >
-      History
-    </button>
-  </div>
-  {activeTab === "swap" && (
-  <>
-              <div className="swapRowClean">
-                <div className="swapLabel">From</div>
-                <div className="swapBox">
-                  <TokenSelect
-                    tokens={tokens}
-                    value={swapFrom}
-                    onChange={setSwapFrom}
-                  />
-                  <input
-                    className="swapInput"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="0.00"
-                    value={swapAmount}
-                    onChange={(e) => setSwapAmount(e.target.value)}
-                  />
-                </div>
-                <div className="percentRow relay-style">
-                  {[25, 50, 75].map((p) => (
-                    <button
-                      key={p}
-                      className="percentBtn"
-                      onClick={() => setPercentAmount(p)}
-                    >
-                      {p}%
-                    </button>
-                  ))}
-                  <button
-                    className="percentBtn"
-                    onClick={() => setPercentAmount(100)}
-                  >
-                    Max
-                  </button>
-                </div>
-              </div>
-
-              <div className="swapCenter">
+            <div className="card controls neon-card swapCardCentered">
+              <div className="tabHeader">
                 <button
-                  className={`swapArrow ${arrowSpin ? "spin" : ""}`}
-                  onClick={onSwapArrowClick}
+                  className={`tabBtn ${activeTab === "swap" ? "active" : ""}`}
+                  onClick={() => setActiveTab("swap")}
                 >
-                  ⇅
-                </button>
-              </div>
-
-              <div className="swapRowClean">
-                <div className="swapLabel">To (estimated)</div>
-                <div className="swapBox">
-                  <TokenSelect
-                    tokens={tokens}
-                    value={swapTo}
-                    onChange={setSwapTo}
-                  />
-                  <div className="swapInput readOnly">
-                    {estimatedTo || (quote ? "…" : "—")}
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ marginTop: 12 }}>
-                <button className="primaryBtn neon-btn" onClick={performSwap}>
                   Swap
                 </button>
+                <button
+                  className={`tabBtn ${
+                    activeTab === "history" ? "active" : ""
+                  }`}
+                  onClick={() => setActiveTab("history")}
+                >
+                  History
+                </button>
               </div>
+              {activeTab === "swap" && (
+                <>
+                  <div className="swapRowClean">
+                    <div className="swapLabel">From</div>
+                    <div className="swapBox">
+                      <TokenSelect
+                        tokens={tokens}
+                        value={swapFrom}
+                        onChange={setSwapFrom}
+                      />
+                      <input
+                        className="swapInput"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        value={swapAmount}
+                        onChange={(e) => setSwapAmount(e.target.value)}
+                      />
+                    </div>
+                    <div className="percentRow relay-style">
+                      {[25, 50, 75].map((p) => (
+                        <button
+                          key={p}
+                          className="percentBtn"
+                          onClick={() => setPercentAmount(p)}
+                        >
+                          {p}%
+                        </button>
+                      ))}
+                      <button
+                        className="percentBtn"
+                        onClick={() => setPercentAmount(100)}
+                      >
+                        Max
+                      </button>
+                    </div>
+                  </div>
 
-              {quote && (
-                <p className="quote">
-                  <strong>Quote:</strong> {quote}
-                </p>
-              )}
+                  <div className="swapCenter">
+                    <button
+                      className={`swapArrow ${arrowSpin ? "spin" : ""}`}
+                      onClick={onSwapArrowClick}
+                    >
+                      ⇅
+                    </button>
+                  </div>
+
+                  <div className="swapRowClean">
+                    <div className="swapLabel">To (estimated)</div>
+                    <div className="swapBox">
+                      <TokenSelect
+                        tokens={tokens}
+                        value={swapTo}
+                        onChange={setSwapTo}
+                      />
+                      <div className="swapInput readOnly">
+                        {estimatedTo || (quote ? "…" : "—")}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    <button
+                      className="primaryBtn neon-btn"
+                      onClick={performSwap}
+                    >
+                      Swap
+                    </button>
+                  </div>
+
+                  {quote && (
+                    <p className="quote">
+                      <strong>Quote:</strong> {quote}
+                    </p>
+                  )}
                 </>
               )}
               {activeTab === "history" && (
-  <div className="historyBox">
-    {swapHistory.length === 0 ? (
-      <p className="muted">No swaps yet.</p>
-    ) : (
-      <ul className="historyList">
-        {swapHistory.map((tx, i) => (
-          <li key={i} className="historyItem">
-            <div>
-              <strong>From:</strong> {tx.fromAmount} {tx.fromToken}
-            </div>
-            <div>
-              <strong>To:</strong> {tx.toAmount} {tx.toToken}
-            </div>
-            <div className="historyMeta">
-              <a href={tx.txUrl} target="_blank" rel="noreferrer">
-                View Tx
-              </a>
-              <span className={`status ${tx.status}`}>
-                {tx.status.toUpperCase()}
-              </span>
-            </div>
-          </li>
-        ))}
-      </ul>
-    )}
-  </div>
-)}
-
+                <div className="historyBox">
+                  {swapHistory.length === 0 ? (
+                    <p className="muted">No swaps yet.</p>
+                  ) : (
+                    <ul className="historyList">
+                      {swapHistory.map((tx, i) => (
+                        <li key={i} className="historyItem">
+                          <div>
+                            <strong>From:</strong> {tx.fromAmount}{" "}
+                            {tx.fromToken}
+                          </div>
+                          <div>
+                            <strong>To:</strong> {tx.toAmount} {tx.toToken}
+                          </div>
+                          <div className="historyMeta">
+                            <a href={tx.txUrl} target="_blank" rel="noreferrer">
+                              View Tx
+                            </a>
+                            <span className={`status ${tx.status}`}>
+                              {tx.status.toUpperCase()}
+                            </span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </div>
           </section>
         </main>
       </div>
       {txModal && (
-  <div className="modalOverlay">
-    <div className="txModal">
-      <h3>
-        {txModal.status === "success"
-          ? "Transaction Completed"
-          : "Swap Failed"}
-      </h3>
+        <div className="modalOverlay">
+          <div className="txModal">
+            <h3>
+              {txModal.status === "success"
+                ? "Transaction Completed"
+                : "Swap Failed"}
+            </h3>
 
-      <div className="txRow">
-        <span>Sent</span>
-        <strong>
-          {txModal.fromAmount} {txModal.fromToken}
-        </strong>
-      </div>
+            <div className="txRow">
+              <span>Sent</span>
+              <strong>
+                {txModal.fromAmount} {txModal.fromToken}
+              </strong>
+            </div>
 
-      <div className="txRow">
-        <span>Received</span>
-        <strong>
-          {txModal.toAmount} {txModal.toToken}
-        </strong>
-      </div>
+            <div className="txRow">
+              <span>Received</span>
+              <strong>
+                {txModal.toAmount} {txModal.toToken}
+              </strong>
+            </div>
 
-      <div className="txActions">
-        {txModal.txHash && (
-          <a
-            href={`https://testnet.arcscan.app/tx/${txModal.txHash}`}
-            target="_blank"
-            rel="noreferrer"
-            className="secondaryBtn"
-          >
-            View details
-          </a>
-        )}
-        <button
-          className="primaryBtn"
-          onClick={() => setTxModal(null)}
-        >
-          Done
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+            <div className="txActions">
+              {txModal.txHash && (
+                <a
+                  href={`https://testnet.arcscan.app/tx/${txModal.txHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="secondaryBtn"
+                >
+                  View details
+                </a>
+              )}
+              <button className="primaryBtn" onClick={() => setTxModal(null)}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
