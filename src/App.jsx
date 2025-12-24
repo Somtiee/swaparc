@@ -269,14 +269,11 @@ export default function App() {
   }
   useEffect(() => {
     try {
-      localStorage.setItem(
-        "swaparc_history",
-        JSON.stringify(swapHistory)
-      );
+      localStorage.setItem("swaparc_history", JSON.stringify(swapHistory));
     } catch (e) {
       console.warn("Failed to persist history", e);
     }
-  }, [swapHistory]);  
+  }, [swapHistory]);
   // New: estimate using pool.callStatic.swap when possible, to show real on-chain approximation
   useEffect(() => {
     // estimateOut updates estimatedTo with the on-chain estimate (preferred)
@@ -949,6 +946,15 @@ export default function App() {
       {txModal && (
         <div className="modalOverlay">
           <div className="txModal">
+            {/* 🎉 CONFETTI – only shows on success */}
+            {txModal.status === "success" && (
+              <div className="confetti">
+                {Array.from({ length: 24 }).map((_, i) => (
+                  <span key={i} />
+                ))}
+              </div>
+            )}
+
             <h3>
               {txModal.status === "success"
                 ? "Transaction Completed"
