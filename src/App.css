@@ -808,6 +808,8 @@ body,
   width: 92%;
   max-width: 420px;
   text-align: center;
+  position: relative;
+  overflow: hidden;
 }
 
 .txRow {
