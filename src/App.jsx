@@ -238,9 +238,10 @@ export default function App() {
 
   const POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
   const POOL_ABI = [
-    "function exchange(int128 i, int128 j, uint256 dx) payable",
+    "function exchange(int128 i, int128 j, uint256 dx, uint256 min_dy) payable",
     "function get_dy(int128 i, int128 j, uint256 dx) view returns (uint256)",
-  ];  
+  ];
+  
   // ERC20 ABI used throughout (balanceOf, decimals, symbol; plus allowance/approve)
   const ERC20_ABI = [
     "function balanceOf(address owner) view returns (uint256)",
@@ -593,14 +594,16 @@ if (tokenFrom.symbol === "USDC") {
     tokenFrom.index,
     tokenTo.index,
     amountIn,
+    0,
     { value: amountIn }
-  );
+  );  
 } else {
   tx = await pool.exchange(
     tokenFrom.index,
     tokenTo.index,
-    amountIn
-  );
+    amountIn,
+    0 // no slippage protection for now
+  );  
 }
 
 await tx.wait();
