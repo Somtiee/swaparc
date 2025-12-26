@@ -11,13 +11,22 @@ const DEFAULT_TOKENS = [
     symbol: "USDC",
     name: "USD Coin",
     address: "0x3600000000000000000000000000000000000000",
+    index: 0,
   },
   {
     symbol: "EURC",
     name: "Euro Coin",
     address: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
+    index: 1,
+  },
+  {
+    symbol: "SWPRC",
+    name: "SwapARC Token",
+    address: "0xBE7477BF91526FC9988C8f33e91B6db687119D45",
+    index: 2,
   },
 ];
+
 
 function Ticker({ tokens, prices }) {
   const [items, setItems] = useState(() =>
@@ -187,11 +196,11 @@ export default function App() {
 
   const [prices, setPrices] = useState({}); // { SYMBOL: number | null }
 
-  const POOL_ADDRESS = "0x5A30dE47f430dc820204Ce3E3419f013bfC6565F";
+  const POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
   const POOL_ABI = [
-    "function swap(address tokenIn, uint256 amountIn)",
-    "function getReserves() view returns (uint256 reserveA, uint256 reserveB)",
-  ];
+    "function get_dy(uint256 i, uint256 j, uint256 dx) view returns (uint256)",
+    "function exchange(uint256 i, uint256 j, uint256 dx)",
+  ];  
   // ERC20 ABI used throughout (balanceOf, decimals, symbol; plus allowance/approve)
   const ERC20_ABI = [
     "function balanceOf(address owner) view returns (uint256)",
@@ -235,39 +244,62 @@ export default function App() {
       return;
     }
 
-    const amt = Number(swapAmount);
-    const pFrom = prices[swapFrom];
-    const pTo = prices[swapTo];
-
-    if (pFrom != null && pTo != null && Number(pFrom) > 0) {
-      const spread = 0.003; // 0.3%
-      const rate = (Number(pTo) / Number(pFrom)) * (1 - spread);
-      const received = amt * rate;
-
-      setEstimatedTo(
-        received.toLocaleString(undefined, { maximumFractionDigits: 6 })
-      );
-      return;
+    function computeEstimateAuto() {
+      if (!swapAmount || Number(swapAmount) <= 0) {
+        setEstimatedTo("");
+        return;
+      }
+    
+      (async () => {
+        try {
+          if (!window.ethereum) return;
+    
+          const provider = new ethers.BrowserProvider(window.ethereum);
+    
+          const fromToken = tokens.find(t => t.symbol === swapFrom);
+          const toToken = tokens.find(t => t.symbol === swapTo);
+          if (!fromToken || !toToken) return;
+    
+          const tokenIn = new ethers.Contract(
+            fromToken.address,
+            ERC20_ABI,
+            provider
+          );
+          const decimalsIn = await tokenIn.decimals();
+          const dx = ethers.parseUnits(String(swapAmount), decimalsIn);
+    
+          const pool = new ethers.Contract(
+            POOL_ADDRESS,
+            POOL_ABI,
+            provider
+          );
+    
+          const dy = await pool.get_dy(
+            fromToken.index,
+            toToken.index,
+            dx
+          );
+    
+          const tokenOut = new ethers.Contract(
+            toToken.address,
+            ERC20_ABI,
+            provider
+          );
+          const decimalsOut = await tokenOut.decimals();
+    
+          const human = ethers.formatUnits(dy, decimalsOut);
+    
+          setEstimatedTo(
+            Number(human).toLocaleString(undefined, {
+              maximumFractionDigits: 6,
+            })
+          );
+        } catch {
+          setEstimatedTo("—");
+        }
+      })();
     }
-
-    if (
-      (swapFrom === "USDC" && swapTo === "EURC") ||
-      (swapFrom === "EURC" && swapTo === "USDC")
-    ) {
-      // simple FX assumption
-      const FX = swapFrom === "USDC" ? 0.93 : 1.075;
-      const received = amt * FX;
-
-      setEstimatedTo(
-        received.toLocaleString(undefined, { maximumFractionDigits: 6 })
-      );
-      return;
-    }
-
-    // ❌ Nothing else available
-    setEstimatedTo("—");
-  }
-  useEffect(() => {
+      useEffect(() => {
     try {
       localStorage.setItem("swaparc_history", JSON.stringify(swapHistory));
     } catch (e) {
@@ -524,14 +556,6 @@ export default function App() {
       return;
     }
 
-    if (
-      !["USDC", "EURC"].includes(swapFrom) ||
-      !["USDC", "EURC"].includes(swapTo)
-    ) {
-      alert("This pool only supports USDC ↔ EURC swaps.");
-      return;
-    }
-
     try {
       if (!window.ethereum) {
         alert("Wallet not available in browser.");
@@ -603,7 +627,11 @@ export default function App() {
       }
 
       // step 3: perform pool swap (on-chain)
-      const tx = await pool.swap(tokenInAddress, amountIn);
+      const tx = await pool.exchange(
+        tokenFrom.index,
+        tokenTo.index,
+        amountIn
+      );      
       setQuote(`Swap submitted: tx ${tx.hash} — waiting for confirmation...`);
       await tx.wait();
       const txUrl = `https://testnet.arcscan.app/tx/${tx.hash}`;
