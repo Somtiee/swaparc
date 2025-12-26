@@ -562,7 +562,19 @@ export default function App() {
       }
       
       
-      // step 2: create pool contract ONCE
+     // determine decimals & amountIn
+let decimalsIn;
+
+if (tokenFrom.symbol === "USDC") {
+  decimalsIn = 18; // ARC native gas token
+} else {
+  decimalsIn = await tokenIn.decimals();
+}
+
+const amountIn = ethers.parseUnits(
+  String(swapAmount),
+  decimalsIn
+);
 const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, signer);
 
 // optional on-chain estimate (safe)
