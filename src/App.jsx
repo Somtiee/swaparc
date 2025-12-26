@@ -195,6 +195,45 @@ export default function App() {
   const [estimatedTo, setEstimatedTo] = useState(""); // auto-calculated target amount shown in UI
 
   const [prices, setPrices] = useState({}); // { SYMBOL: number | null }
+  function computeEstimateAuto() {
+    if (!swapAmount || Number(swapAmount) <= 0) {
+      setEstimatedTo("");
+      return;
+    }
+  
+    const amt = Number(swapAmount);
+    const pFrom = prices[swapFrom];
+    const pTo = prices[swapTo];
+  
+    if (pFrom != null && pTo != null && Number(pFrom) > 0) {
+      const spread = 0.003; // 0.3%
+      const rate = (Number(pTo) / Number(pFrom)) * (1 - spread);
+      const received = amt * rate;
+  
+      setEstimatedTo(
+        received.toLocaleString(undefined, { maximumFractionDigits: 6 })
+      );
+      return;
+    }
+  
+    if (
+      (swapFrom === "USDC" && swapTo === "EURC") ||
+      (swapFrom === "EURC" && swapTo === "USDC")
+    ) {
+      const FX = swapFrom === "USDC" ? 0.93 : 1.075;
+      const received = amt * FX;
+  
+      setEstimatedTo(
+        received.toLocaleString(undefined, { maximumFractionDigits: 6 })
+      );
+      return;
+    }
+  
+    setEstimatedTo("—");
+  }
+  useEffect(() => {
+    computeEstimateAuto();
+  }, [swapAmount, swapFrom, swapTo, prices]);  
 
   const POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
   const POOL_ABI = [
@@ -210,9 +249,9 @@ export default function App() {
     "function allowance(address owner, address spender) view returns (uint256)",
   ];
 
-  // fetch prices on mount and every 10s
   useEffect(() => {
     let mounted = true;
+  
     async function fetchAndSet() {
       const syms = tokens.map((t) => t.symbol);
       try {
@@ -223,47 +262,16 @@ export default function App() {
         console.warn("price refresh failed", e);
       }
     }
-
+  
     fetchAndSet();
     const iv = setInterval(fetchAndSet, 10000);
+  
     return () => {
       mounted = false;
       clearInterval(iv);
     };
   }, [tokens]);
-
-    const amt = Number(swapAmount);
-    const pFrom = prices[swapFrom];
-    const pTo = prices[swapTo];
-
-    if (pFrom != null && pTo != null && Number(pFrom) > 0) {
-      const spread = 0.003; // 0.3%
-      const rate = (Number(pTo) / Number(pFrom)) * (1 - spread);
-      const received = amt * rate;
-
-      setEstimatedTo(
-        received.toLocaleString(undefined, { maximumFractionDigits: 6 })
-      );
-      return;
-    }
-
-    if (
-      (swapFrom === "USDC" && swapTo === "EURC") ||
-      (swapFrom === "EURC" && swapTo === "USDC")
-    ) {
-      // simple FX assumption
-      const FX = swapFrom === "USDC" ? 0.93 : 1.075;
-      const received = amt * FX;
-
-      setEstimatedTo(
-        received.toLocaleString(undefined, { maximumFractionDigits: 6 })
-      );
-      return;
-    }
-
-    // ❌ Nothing else available
-    setEstimatedTo("—");
-  }
+  
   useEffect(() => {
     try {
       localStorage.setItem("swaparc_history", JSON.stringify(swapHistory));
@@ -538,10 +546,8 @@ export default function App() {
         await txA.wait();
       }
 
-      // step 2: estimate output using callStatic (read-only)
-      const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, signer);
-
-      const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, signer);
+      // step 2: create pool contract ONCE
+const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, signer);
 
 // optional on-chain estimate (safe)
 let expectedOutHuman = null;
@@ -554,7 +560,9 @@ try {
   expectedOutHuman = Number(
     ethers.formatUnits(dy, decimalsIn)
   );
-} catch {}
+} catch {
+  // ignore estimation failure
+}
 
 setQuote("Sending swap — confirm in wallet...");
 
@@ -600,10 +608,8 @@ await tx.wait();
 
       if (expectedOutHuman != null) {
         setQuote(
-          `Swap succeeded: ~ ${expectedOutHuman.toFixed(
-            decimalsOut >= 6 ? 6 : 4
-          )} ${swapTo} — tx ${tx.hash}`
-        );
+          `Swap succeeded: ~ ${expectedOutHuman.toFixed(6)} ${swapTo} — tx ${tx.hash}`
+        );        
       } else {
         setQuote(`Swap succeeded — tx ${tx.hash}`);
       }
