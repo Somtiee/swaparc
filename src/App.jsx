@@ -91,7 +91,8 @@ function formatPriceMock(sym) {
   const base =
     {
       USDC: 1,
-      EURC: 1.07,
+      EURC: 1.063,
+      SWPRC: 0.71,
       USDG: 1,
       ARCX: 0.42,
       wETH: 3475.12,
@@ -320,7 +321,7 @@ export default function App() {
         }
         
         const outHuman = Number(
-          ethers.formatUnits(dy, decimalsOut)
+          ethers.formatUnits(dy, 18)
         );        
         setEstimatedTo(outHuman.toLocaleString(undefined, {
           maximumFractionDigits: 6,
@@ -542,23 +543,24 @@ export default function App() {
         ERC20_ABI,
         provider
       );
-
-      const decimalsIn = tokenFrom.symbol === "USDC" ? 18 : await tokenIn.decimals();      
-
-      const amountIn = ethers.parseUnits(String(swapAmount), decimalsIn);
-
       if (tokenFrom.symbol !== "USDC") {
+        const tokenDecimals = await tokenIn.decimals();
+        const approveAmount = ethers.parseUnits(
+          String(swapAmount),
+          tokenDecimals
+        );
+      
         const allowance = await tokenIn.allowance(
           await signer.getAddress(),
           POOL_ADDRESS
         );
       
-        if (BigInt(allowance) < BigInt(amountIn)) {
-          setQuote("Approving token...");
-          const txA = await tokenIn.approve(POOL_ADDRESS, amountIn);
+        if (BigInt(allowance) < BigInt(approveAmount)) {
+          const txA = await tokenIn.approve(POOL_ADDRESS, approveAmount);
           await txA.wait();
         }
       }
+      
       
       // step 2: create pool contract ONCE
 const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, signer);
@@ -599,7 +601,6 @@ if (tokenFrom.symbol === "USDC") {
 await tx.wait();
 
       setQuote(`Swap submitted: tx ${tx.hash} — waiting for confirmation...`);
-      await tx.wait();
       const txUrl = `https://testnet.arcscan.app/tx/${tx.hash}`;
 
       setSwapHistory((prev) => [
