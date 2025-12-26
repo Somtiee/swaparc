@@ -559,22 +559,15 @@ export default function App() {
           const txA = await tokenIn.approve(POOL_ADDRESS, approveAmount);
           await txA.wait();
         }
-      }
+      }      
       
       
-     // determine decimals & amountIn
-let decimalsIn;
-
-if (tokenFrom.symbol === "USDC") {
-  decimalsIn = 18; // ARC native gas token
-} else {
-  decimalsIn = await tokenIn.decimals();
-}
-
+// 🔥 POOL INPUT MUST ALWAYS BE 18 DECIMALS
 const amountIn = ethers.parseUnits(
   String(swapAmount),
-  decimalsIn
+  18
 );
+
 const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, signer);
 
 // optional on-chain estimate (safe)
@@ -586,8 +579,8 @@ try {
     amountIn
   );
   expectedOutHuman = Number(
-    ethers.formatUnits(dy, decimalsIn)
-  );
+    ethers.formatUnits(dy, 18)
+  );  
 } catch {
   // ignore estimation failure
 }
