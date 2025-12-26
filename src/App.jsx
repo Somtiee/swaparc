@@ -544,30 +544,31 @@ export default function App() {
         ERC20_ABI,
         provider
       );
-      if (tokenFrom.symbol !== "USDC") {
-        const tokenDecimals = await tokenIn.decimals();
-        const approveAmount = ethers.parseUnits(
-          String(swapAmount),
-          tokenDecimals
-        );
       
-        const allowance = await tokenIn.allowance(
-          await signer.getAddress(),
-          POOL_ADDRESS
-        );
+      const tokenDecimals = await tokenIn.decimals();
+      const approveAmount = ethers.parseUnits(
+        String(swapAmount),
+        tokenDecimals
+      );
       
-        if (BigInt(allowance) < BigInt(approveAmount)) {
-          const txA = await tokenIn.approve(POOL_ADDRESS, approveAmount);
-          await txA.wait();
-        }
-      }      
+      const allowance = await tokenIn.allowance(
+        await signer.getAddress(),
+        POOL_ADDRESS
+      );
+      
+      if (BigInt(allowance) < BigInt(approveAmount)) {
+        const txA = await tokenIn.approve(POOL_ADDRESS, approveAmount);
+        await txA.wait();
+      }
       
       
-// 🔥 POOL INPUT MUST ALWAYS BE 18 DECIMALS
-const amountIn = ethers.parseUnits(
-  String(swapAmount),
-  18
-);
+      
+      const tokenDecimals = await tokenIn.decimals();
+      const amountIn = ethers.parseUnits(
+        String(swapAmount),
+        tokenDecimals
+      );
+      
 
 const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, signer);
 
@@ -588,23 +589,12 @@ try {
 
 setQuote("Sending swap — confirm in wallet...");
 let tx;
-
-if (tokenFrom.symbol === "USDC") {
-  tx = await pool.exchange(
-    tokenFrom.index,
-    tokenTo.index,
-    amountIn,
-    0,
-    { value: amountIn }
-  );  
-} else {
-  tx = await pool.exchange(
-    tokenFrom.index,
-    tokenTo.index,
-    amountIn,
-    0 // no slippage protection for now
-  );  
-}
+tx = await pool.exchange(
+  tokenFrom.index,
+  tokenTo.index,
+  amountIn,
+  0
+);
 
 await tx.wait();
 
