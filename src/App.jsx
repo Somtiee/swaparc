@@ -7,13 +7,12 @@ import { getPrices } from "./priceFetcher";
 const ARC_CHAIN_ID_DEC = 5042002;
 const ARC_CHAIN_ID_HEX = "0x4CEF52";
 
-// New 3-token Curve-style pool
 const POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
 
 const POOL_ABI = [
   "function get_dy(uint256 i, uint256 j, uint256 dx) view returns (uint256)",
-  "function exchange(uint256 i, uint256 j, uint256 dx, uint256 min_dy) returns (uint256)",
-  "function coins(uint256 index) view returns (address)",
+  "function exchange(uint256 i, uint256 j, uint256 dx, uint256 min_dy) payable returns (uint256)",
+  "function coins(uint256 arg) view returns (address)",
 ];
 
 const ERC20_ABI = [
@@ -24,7 +23,6 @@ const ERC20_ABI = [
   "function allowance(address owner, address spender) view returns (uint256)",
 ];
 
-// Initial known tokens – order will be corrected by pool
 const INITIAL_TOKENS = [
   {
     symbol: "USDC",
@@ -79,7 +77,6 @@ function Ticker({ tokens, prices }) {
     }, 6000);
     return () => clearInterval(iv);
   }, [prices]);
-
   const double = [...items, ...items];
 
   return (
@@ -106,8 +103,8 @@ function Ticker({ tokens, prices }) {
 function formatPriceMock(sym) {
   const base = {
     USDC: 1,
-    EURC: 1.063,    // updated to match your funding ratio
-    SWPRC: 0.71,    // your stated price
+    EURC: 1.063,
+    SWPRC: 0.71,
     USDG: 1,
     ARCX: 0.42,
     wETH: 3475.12,
@@ -187,21 +184,13 @@ export default function App() {
   function openFaucet() {
     window.open("https://faucet.circle.com/", "_blank");
   }
-
   const [address, setAddress] = useState(null);
   const [network, setNetwork] = useState(null);
   const [status, setStatus] = useState("Not connected");
   const [balances, setBalances] = useState({});
   const [tokens, setTokens] = useState(INITIAL_TOKENS);
-  const [tokenIndices, setTokenIndices] = useState({}); // symbol => pool index
+  const [tokenIndices, setTokenIndices] = useState({});
   const [swapFrom, setSwapFrom] = useState("USDC");
-  const [swapTo, setSwapTo] = useState("EURC");
-  const [swapAmount, setSwapAmount] = useState("");
-  const [estimatedTo, setEstimatedTo] = useState("");
-  const [quote, setQuote] = useState(null);
-  const [arrowSpin, setArrowSpin] = useState(false);
-  const [customAddr, setCustomAddr] = useState("");
-  const [prices, setPrices] = useState({});
   const [activeTab, setActiveTab] = useState("swap");
   const [swapHistory, setSwapHistory] = useState(() => {
     try {
@@ -212,26 +201,35 @@ export default function App() {
     }
   });
   const [txModal, setTxModal] = useState(null);
+  const [swapTo, setSwapTo] = useState("EURC");
+  const [swapAmount, setSwapAmount] = useState("");
+  const [quote, setQuote] = useState(null);
+  const [arrowSpin, setArrowSpin] = useState(false);
+  const [customAddr, setCustomAddr] = useState("");
+  const [estimatedTo, setEstimatedTo] = useState("");
 
-  // Load pool token order and build index map
+  const [prices, setPrices] = useState({});
+
   async function loadPoolTokens(provider) {
     try {
       const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, provider);
-      const [c0, c1, c2] = await Promise.all([
+      const coinAddresses = await Promise.all([
         pool.coins(0),
         pool.coins(1),
         pool.coins(2),
       ]);
 
-      const addresses = [c0, c1, c2].map(a => ethers.getAddress(a));
+      const addresses = coinAddresses.map(a => ethers.getAddress(a));
       const orderedTokens = [];
       const indices = {};
 
-      for (let i = 0; i < addresses.length; i++) {
+      for (let i = 0; i < 3; i++) {
         const addr = addresses[i];
-        let token = INITIAL_TOKENS.find(t => ethers.getAddress(t.address) === addr);
+        let token = INITIAL_TOKENS.find(
+          (t) => ethers.getAddress(t.address) === addr
+        );
         if (!token) {
-          token = { symbol: "UNKNOWN", name: "Unknown", address: addr };
+          token = { symbol: "UNKNOWN" + i, name: "Unknown Token", address: addr };
         }
         orderedTokens.push(token);
         indices[token.symbol] = i;
@@ -240,17 +238,18 @@ export default function App() {
       setTokens(orderedTokens);
       setTokenIndices(indices);
 
-      // Default selection after load
       if (orderedTokens.length >= 2) {
         setSwapFrom(orderedTokens[0].symbol);
         setSwapTo(orderedTokens[1].symbol);
       }
+
+      console.log("Pool tokens loaded:", orderedTokens.map(t => t.symbol));
     } catch (e) {
-      console.warn("Failed to load pool tokens, using defaults", e);
+      console.error("Failed to load pool tokens – falling back to defaults", e);
+      setTokenIndices({ USDC: 0, EURC: 1, SWPRC: 2 });
     }
   }
 
-  // Price fetching
   useEffect(() => {
     let mounted = true;
     async function fetchAndSet() {
@@ -272,26 +271,22 @@ export default function App() {
     };
   }, [tokens]);
 
-  // On-chain estimate using get_dy
   useEffect(() => {
     let mounted = true;
     async function estimateOut() {
-      if (!swapAmount || Number(swapAmount) <= 0 || swapFrom === swapTo) {
+      if (!swapAmount || Number(swapAmount) <= 0 || swapFrom === swapTo || Object.keys(tokenIndices).length === 0) {
         setEstimatedTo("");
         return;
       }
 
-      if (!window.ethereum || Object.keys(tokenIndices).length === 0) return;
-
       try {
         const provider = new ethers.BrowserProvider(window.ethereum);
-        const fromToken = tokens.find(t => t.symbol === swapFrom);
-        const toToken = tokens.find(t => t.symbol === swapTo);
+        const fromToken = tokens.find((t) => t.symbol === swapFrom);
+        const toToken = tokens.find((t) => t.symbol === swapTo);
         if (!fromToken || !toToken) return;
 
         const i = tokenIndices[swapFrom];
         const j = tokenIndices[swapTo];
-        if (i === undefined || j === undefined) return;
 
         const tokenIn = new ethers.Contract(fromToken.address, ERC20_ABI, provider);
         const decimalsIn = await tokenIn.decimals().catch(() => 6);
@@ -300,22 +295,25 @@ export default function App() {
         const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, provider);
         const dy = await pool.get_dy(i, j, amountIn);
 
-        const decimalsOut = await new ethers.Contract(toToken.address, ERC20_ABI, provider)
-          .decimals().catch(() => 6);
-
+        const decimalsOut = await new ethers.Contract(toToken.address, ERC20_ABI, provider).decimals().catch(() => 6);
         const human = Number(ethers.formatUnits(dy, decimalsOut));
-        const formatted = human >= 1000
-          ? human.toLocaleString(undefined, { maximumFractionDigits: 2 })
-          : human.toLocaleString(undefined, { maximumFractionDigits: 6 });
+
+        const formatted =
+          human >= 1000
+            ? human.toLocaleString(undefined, { maximumFractionDigits: 2 })
+            : human.toLocaleString(undefined, { maximumFractionDigits: 6 });
 
         if (mounted) setEstimatedTo(formatted);
       } catch (e) {
-        // Silent fallback to price-based or "—"
+        console.warn("On-chain estimate failed", e);
+        setEstimatedTo("—");
       }
     }
 
     estimateOut();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [swapAmount, swapFrom, swapTo, tokens, tokenIndices]);
 
   useEffect(() => {
@@ -329,7 +327,10 @@ export default function App() {
   function setPercentAmount(percent) {
     const bal = balances[swapFrom];
     if (!bal || bal === "n/a") return;
-    const amount = percent === 100 ? Number(bal) : Number(bal) * (percent / 100);
+
+    const amount =
+      percent === 100 ? Number(bal) : Number(bal) * (percent / 100);
+
     setSwapAmount(amount.toFixed(6));
   }
 
@@ -347,14 +348,21 @@ export default function App() {
       if (err.code === 4902) {
         await ethereum.request({
           method: "wallet_addEthereumChain",
-          params: [{
-            chainId: ARC_CHAIN_ID_HEX,
-            chainName: "Arc Testnet",
-            nativeCurrency: { name: "ARC", symbol: "ARC", decimals: 18 },
-            rpcUrls: ["https://rpc.testnet.arc.network"],
-            blockExplorerUrls: ["https://testnet.arcscan.app"],
-          }],
+          params: [
+            {
+              chainId: ARC_CHAIN_ID_HEX,
+              chainName: "Arc Testnet",
+              nativeCurrency: {
+                name: "ARC",
+                symbol: "ARC",
+                decimals: 18,
+              },
+              rpcUrls: ["https://rpc.testnet.arc.network"],
+              blockExplorerUrls: ["https://testnet.arcscan.app"],
+            },
+          ],
         });
+
         return true;
       }
       return false;
@@ -375,13 +383,17 @@ export default function App() {
         return;
       }
 
-      const accounts = await ethereum.request({ method: "eth_requestAccounts" });
+      const accounts = await ethereum.request({
+        method: "eth_requestAccounts",
+      });
+
       if (!accounts?.length) {
         setStatus("No account found.");
         return;
       }
 
       const userAddress = accounts[0];
+
       const provider = new ethers.BrowserProvider(ethereum);
       const net = await provider.getNetwork();
 
@@ -395,7 +407,7 @@ export default function App() {
       setStatus("Connected to Arc Testnet");
 
       await fetchBalances(userAddress, provider);
-      await loadPoolTokens(provider); // Load correct token order
+      await loadPoolTokens(provider);
     } catch (err) {
       console.error("connectWallet error:", err);
       setStatus("Wallet connection failed");
@@ -416,14 +428,22 @@ export default function App() {
     try {
       const tokenBalances = {};
       const rawUSDC = await provider.getBalance(userAddress);
-      tokenBalances["USDC"] = parseFloat(ethers.formatEther(rawUSDC)).toFixed(4);
+      tokenBalances["USDC"] = parseFloat(ethers.formatEther(rawUSDC)).toFixed(
+        4
+      );
 
       for (const t of tokens) {
         try {
-          const tokenContract = new ethers.Contract(t.address, ERC20_ABI, provider);
+          const tokenContract = new ethers.Contract(
+            t.address,
+            ERC20_ABI,
+            provider
+          );
           const rawBalance = await tokenContract.balanceOf(userAddress);
           const decimals = await tokenContract.decimals();
-          tokenBalances[t.symbol] = parseFloat(ethers.formatUnits(rawBalance, decimals)).toFixed(4);
+          tokenBalances[t.symbol] = parseFloat(
+            ethers.formatUnits(rawBalance, decimals)
+          ).toFixed(4);
         } catch {
           tokenBalances[t.symbol] = "n/a";
         }
@@ -460,10 +480,14 @@ export default function App() {
       return;
     }
     if (Object.keys(tokenIndices).length === 0) {
-      alert("Pool not loaded yet – reconnect wallet.");
+      alert("Pool not loaded – please reconnect wallet.");
       return;
     }
-    if (!balances[swapFrom] || balances[swapFrom] === "n/a" || Number(swapAmount) > Number(balances[swapFrom])) {
+    if (
+      !balances[swapFrom] ||
+      balances[swapFrom] === "n/a" ||
+      Number(swapAmount) > Number(balances[swapFrom])
+    ) {
       alert("Insufficient balance for " + swapFrom);
       return;
     }
@@ -472,8 +496,8 @@ export default function App() {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
 
-      const fromToken = tokens.find(t => t.symbol === swapFrom);
-      const toToken = tokens.find(t => t.symbol === swapTo);
+      const fromToken = tokens.find((t) => t.symbol === swapFrom);
+      const toToken = tokens.find((t) => t.symbol === swapTo);
       if (!fromToken || !toToken) throw new Error("Token not found");
 
       const i = tokenIndices[swapFrom];
@@ -483,8 +507,10 @@ export default function App() {
       const decimalsIn = await tokenIn.decimals().catch(() => 6);
       const amountIn = ethers.parseUnits(swapAmount, decimalsIn);
 
-      // Approve
-      const allowance = await tokenIn.allowance(await signer.getAddress(), POOL_ADDRESS);
+      const allowance = await tokenIn.allowance(
+        await signer.getAddress(),
+        POOL_ADDRESS
+      );
       if (BigInt(allowance) < BigInt(amountIn)) {
         setQuote("Approving token...");
         const txA = await tokenIn.approve(POOL_ADDRESS, amountIn);
@@ -493,7 +519,6 @@ export default function App() {
 
       const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, signer);
 
-      // Estimate for quote & slippage
       let expectedOut = null;
       try {
         expectedOut = await pool.get_dy(i, j, amountIn);
@@ -505,38 +530,42 @@ export default function App() {
         expectedHuman = Number(ethers.formatUnits(expectedOut, decOut));
       }
 
-      setQuote(expectedHuman
-        ? `Estimated: ~${expectedHuman.toFixed(6)} ${swapTo}. Sending...`
-        : "Sending swap...");
+      setQuote(
+        expectedHuman
+          ? `Estimated: ~${expectedHuman.toFixed(6)} ${swapTo}. Sending...`
+          : "Sending swap..."
+      );
 
-      // 0.5% slippage tolerance
-      const min_dy = expectedOut ? expectedOut * 995n / 1000n : 0;
+      const min_dy = expectedOut ? (expectedOut * 995n) / 1000n : 0;
 
       const tx = await pool.exchange(i, j, amountIn, min_dy);
       setQuote(`Submitted: ${tx.hash} – waiting confirmation...`);
       await tx.wait();
-
       const txUrl = `https://testnet.arcscan.app/tx/${tx.hash}`;
 
-      setSwapHistory(prev => [{
-        fromToken: swapFrom,
-        fromAmount: swapAmount,
-        toToken: swapTo,
-        toAmount: expectedHuman ? expectedHuman.toFixed(6) : estimatedTo || "0.000000",
-        txUrl,
-        status: "success",
-      }, ...prev]);
+      setSwapHistory((prev) => [
+        {
+          fromToken: swapFrom,
+          fromAmount: swapAmount,
+          toToken: swapTo,
+          toAmount: expectedHuman ? expectedHuman.toFixed(6) : estimatedTo || "0",
+          txUrl,
+          status: "success",
+        },
+        ...prev,
+      ]);
 
       setTxModal({
         status: "success",
         fromToken: swapFrom,
         fromAmount: swapAmount,
         toToken: swapTo,
-        toAmount: expectedHuman ? expectedHuman.toFixed(6) : estimatedTo || "0.000000",
+        toAmount: expectedHuman ? expectedHuman.toFixed(6) : estimatedTo || "0",
         txHash: tx.hash,
       });
 
       setQuote(`Swap succeeded — tx ${tx.hash}`);
+
       await fetchBalances(await signer.getAddress(), provider);
     } catch (err) {
       console.error(err);
@@ -560,13 +589,15 @@ export default function App() {
       return;
     }
     const symbol = "TKN" + addr.slice(-3).toUpperCase();
-    const exists = tokens.some(t => t.address.toLowerCase() === addr.toLowerCase());
+    const exists = tokens.some(
+      (t) => t.address.toLowerCase() === addr.toLowerCase()
+    );
     if (exists) {
       alert("Token already in list.");
       return;
     }
     const newToken = { symbol, name: symbol + " (custom)", address: addr };
-    setTokens(prev => [newToken, ...prev]);
+    setTokens((prev) => [newToken, ...prev]);
     setCustomAddr("");
     alert(`Added ${symbol} — it appears at top of token list.`);
   }
@@ -588,7 +619,11 @@ export default function App() {
     <div className="app-page hybrid-page">
       <div className="app-container hybrid-center">
         <header className="headerRow hybrid-header">
-          <div className="brand" style={{ cursor: "pointer" }} onClick={() => window.location.reload()}>
+          <div
+            className="brand"
+            style={{ cursor: "pointer" }}
+            onClick={() => window.location.reload()}
+          >
             <img src={logo} alt="SwapARC" className="logoImg big" />
             <div>
               <div className="title">SWAPARC</div>
@@ -596,11 +631,20 @@ export default function App() {
             </div>
           </div>
           <div className="headerRight">
-            <button className="faucetBtn" onClick={openFaucet} style={{
-              marginRight: "12px", padding: "8px 14px", borderRadius: "10px",
-              background: "rgba(0, 200, 255, 0.15)", border: "1px solid rgba(0, 200, 255, 0.35)",
-              color: "#9fe8ff", fontWeight: 600, cursor: "pointer",
-            }}>
+            <button
+              className="faucetBtn"
+              onClick={openFaucet}
+              style={{
+                marginRight: "12px",
+                padding: "8px 14px",
+                borderRadius: "10px",
+                background: "rgba(0, 200, 255, 0.15)",
+                border: "1px solid rgba(0, 200, 255, 0.35)",
+                color: "#9fe8ff",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
               💧 Get Faucet
             </button>
 
@@ -614,6 +658,7 @@ export default function App() {
                   <div className="walletNetwork">Arc Testnet </div>
                   <div className="walletAddress">{shortAddr(address)}</div>
                 </div>
+
                 <button className="disconnectBtn" onClick={disconnectWallet}>
                   Disconnect
                 </button>
@@ -628,8 +673,11 @@ export default function App() {
           <section className="topCards hybrid-grid">
             <div className="card balancesBox neon-card">
               <h3>Token Balances</h3>
+
               {Object.keys(balances).length === 0 ? (
-                <p className="muted">No balances loaded — connect wallet & click Connect.</p>
+                <p className="muted">
+                  No balances loaded — connect wallet & click Connect.
+                </p>
               ) : (
                 <ul className="balancesList">
                   {tokens
@@ -644,11 +692,18 @@ export default function App() {
                           <div className="balanceSymbol">{t.symbol}</div>
                         </div>
                         <div style={{ textAlign: "right" }}>
-                          <div className="balanceRight">{balances[t.symbol] ?? "—"}</div>
+                          <div className="balanceRight">
+                            {balances[t.symbol] ?? "—"}
+                          </div>
                           <div style={{ fontSize: 12, opacity: 0.8 }}>
                             {usdValueFor(t.symbol) != null
-                              ? `$${usdValueFor(t.symbol).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-                              : prices[t.symbol] == null ? "price n/a" : ""}
+                              ? `$${usdValueFor(t.symbol).toLocaleString(
+                                  undefined,
+                                  { maximumFractionDigits: 2 }
+                                )}`
+                              : prices[t.symbol] == null
+                              ? "price n/a"
+                              : ""}
                           </div>
                         </div>
                       </li>
@@ -662,9 +717,13 @@ export default function App() {
                   value={customAddr}
                   onChange={(e) => setCustomAddr(e.target.value)}
                   style={{
-                    width: "100%", padding: 8, borderRadius: 8,
-                    border: "1px solid rgba(255,255,255,0.06)", marginBottom: 8,
-                    background: "transparent", color: "#eaf6ff",
+                    width: "100%",
+                    padding: 8,
+                    borderRadius: 8,
+                    border: "1px solid rgba(255,255,255,0.06)",
+                    marginBottom: 8,
+                    background: "transparent",
+                    color: "#eaf6ff",
                   }}
                 />
                 <button onClick={addCustomToken} className="smallAddBtn">
@@ -672,23 +731,33 @@ export default function App() {
                 </button>
               </div>
             </div>
-
             <div className="card controls neon-card swapCardCentered">
               <div className="tabHeader">
-                <button className={`tabBtn ${activeTab === "swap" ? "active" : ""}`} onClick={() => setActiveTab("swap")}>
+                <button
+                  className={`tabBtn ${activeTab === "swap" ? "active" : ""}`}
+                  onClick={() => setActiveTab("swap")}
+                >
                   Swap
                 </button>
-                <button className={`tabBtn ${activeTab === "history" ? "active" : ""}`} onClick={() => setActiveTab("history")}>
+                <button
+                  className={`tabBtn ${
+                    activeTab === "history" ? "active" : ""
+                  }`}
+                  onClick={() => setActiveTab("history")}
+                >
                   History
                 </button>
               </div>
-
               {activeTab === "swap" && (
                 <>
                   <div className="swapRowClean">
                     <div className="swapLabel">From</div>
                     <div className="swapBox">
-                      <TokenSelect tokens={tokens} value={swapFrom} onChange={setSwapFrom} />
+                      <TokenSelect
+                        tokens={tokens}
+                        value={swapFrom}
+                        onChange={setSwapFrom}
+                      />
                       <input
                         className="swapInput"
                         type="number"
@@ -701,18 +770,28 @@ export default function App() {
                     </div>
                     <div className="percentRow relay-style">
                       {[25, 50, 75].map((p) => (
-                        <button key={p} className="percentBtn" onClick={() => setPercentAmount(p)}>
+                        <button
+                          key={p}
+                          className="percentBtn"
+                          onClick={() => setPercentAmount(p)}
+                        >
                           {p}%
                         </button>
                       ))}
-                      <button className="percentBtn" onClick={() => setPercentAmount(100)}>
+                      <button
+                        className="percentBtn"
+                        onClick={() => setPercentAmount(100)}
+                      >
                         Max
                       </button>
                     </div>
                   </div>
 
                   <div className="swapCenter">
-                    <button className={`swapArrow ${arrowSpin ? "spin" : ""}`} onClick={onSwapArrowClick}>
+                    <button
+                      className={`swapArrow ${arrowSpin ? "spin" : ""}`}
+                      onClick={onSwapArrowClick}
+                    >
                       ⇅
                     </button>
                   </div>
@@ -720,7 +799,11 @@ export default function App() {
                   <div className="swapRowClean">
                     <div className="swapLabel">To (estimated)</div>
                     <div className="swapBox">
-                      <TokenSelect tokens={tokens} value={swapTo} onChange={setSwapTo} />
+                      <TokenSelect
+                        tokens={tokens}
+                        value={swapTo}
+                        onChange={setSwapTo}
+                      />
                       <div className="swapInput readOnly">
                         {estimatedTo || (quote ? "…" : "—")}
                       </div>
@@ -728,7 +811,10 @@ export default function App() {
                   </div>
 
                   <div style={{ marginTop: 12 }}>
-                    <button className="primaryBtn neon-btn" onClick={performSwap}>
+                    <button
+                      className="primaryBtn neon-btn"
+                      onClick={performSwap}
+                    >
                       Swap
                     </button>
                   </div>
@@ -740,7 +826,6 @@ export default function App() {
                   )}
                 </>
               )}
-
               {activeTab === "history" && (
                 <div className="historyBox">
                   {swapHistory.length === 0 ? (
@@ -749,11 +834,20 @@ export default function App() {
                     <ul className="historyList">
                       {swapHistory.map((tx, i) => (
                         <li key={i} className="historyItem">
-                          <div><strong>From:</strong> {tx.fromAmount} {tx.fromToken}</div>
-                          <div><strong>To:</strong> {tx.toAmount} {tx.toToken}</div>
+                          <div>
+                            <strong>From:</strong> {tx.fromAmount}{" "}
+                            {tx.fromToken}
+                          </div>
+                          <div>
+                            <strong>To:</strong> {tx.toAmount} {tx.toToken}
+                          </div>
                           <div className="historyMeta">
-                            <a href={tx.txUrl} target="_blank" rel="noreferrer">View Tx</a>
-                            <span className={`status ${tx.status}`}>{tx.status.toUpperCase()}</span>
+                            <a href={tx.txUrl} target="_blank" rel="noreferrer">
+                              View Tx
+                            </a>
+                            <span className={`status ${tx.status}`}>
+                              {tx.status.toUpperCase()}
+                            </span>
                           </div>
                         </li>
                       ))}
@@ -765,7 +859,6 @@ export default function App() {
           </section>
         </main>
       </div>
-
       {txModal && (
         <div className="modalOverlay">
           <div className="txModal">
@@ -777,21 +870,34 @@ export default function App() {
               </div>
             )}
 
-            <h3>{txModal.status === "success" ? "Transaction Completed" : "Swap Failed"}</h3>
+            <h3>
+              {txModal.status === "success"
+                ? "Transaction Completed"
+                : "Swap Failed"}
+            </h3>
 
             <div className="txRow">
               <span>Sent</span>
-              <strong>{txModal.fromAmount} {txModal.fromToken}</strong>
+              <strong>
+                {txModal.fromAmount} {txModal.fromToken}
+              </strong>
             </div>
 
             <div className="txRow">
               <span>Received</span>
-              <strong>{txModal.toAmount} {txModal.toToken}</strong>
+              <strong>
+                {txModal.toAmount} {txModal.toToken}
+              </strong>
             </div>
 
             <div className="txActions">
               {txModal.txHash && (
-                <a href={`https://testnet.arcscan.app/tx/${txModal.txHash}`} target="_blank" rel="noreferrer" className="secondaryBtn">
+                <a
+                  href={`https://testnet.arcscan.app/tx/${txModal.txHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="secondaryBtn"
+                >
                   View details
                 </a>
               )}
