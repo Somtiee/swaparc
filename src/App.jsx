@@ -237,7 +237,7 @@ export default function App() {
 
   const POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
   const POOL_ABI = [
-    "function exchange(int128 i, int128 j, uint256 dx) returns (uint256)",
+    "function exchange(int128 i, int128 j, uint256 dx) payable",
     "function get_dy(int128 i, int128 j, uint256 dx) view returns (uint256)",
   ];  
   // ERC20 ABI used throughout (balanceOf, decimals, symbol; plus allowance/approve)
@@ -294,10 +294,15 @@ export default function App() {
         const toToken = tokens.find(t => t.symbol === swapTo);
         if (!fromToken || !toToken) return;
   
-        const tokenIn = new ethers.Contract(fromToken.address, ERC20_ABI, provider);
-        const decimals = await tokenIn.decimals();
-  
-        const dx = ethers.parseUnits(swapAmount, decimals);
+        let decimalsIn;
+        if (fromToken.symbol === "USDC") {
+          decimalsIn = 18;
+        } else {
+          const tokenIn = new ethers.Contract(fromToken.address, ERC20_ABI, provider);
+          decimalsIn = await tokenIn.decimals();
+        }
+        
+        const dx = ethers.parseUnits(swapAmount, decimalsIn);        
   
         const dy = await pool.get_dy(
           fromToken.index,
@@ -306,8 +311,17 @@ export default function App() {
         );
   
         if (!mounted) return;
-  
-        const outHuman = Number(ethers.formatUnits(dy, decimals));
+        let decimalsOut;
+        if (toToken.symbol === "USDC") {
+          decimalsOut = 18;
+        } else {
+          const tokenOut = new ethers.Contract(toToken.address, ERC20_ABI, provider);
+          decimalsOut = await tokenOut.decimals();
+        }
+        
+        const outHuman = Number(
+          ethers.formatUnits(dy, decimalsOut)
+        );        
         setEstimatedTo(outHuman.toLocaleString(undefined, {
           maximumFractionDigits: 6,
         }));
@@ -529,23 +543,23 @@ export default function App() {
         provider
       );
 
-      const decimalsIn = await tokenIn.decimals().catch(() => 18);
-      
+      const decimalsIn = tokenFrom.symbol === "USDC" ? 18 : await tokenIn.decimals();      
 
       const amountIn = ethers.parseUnits(String(swapAmount), decimalsIn);
 
-      // step 1: approve pool if required
-      const allowance = await tokenIn.allowance(
-        await signer.getAddress(),
-        POOL_ADDRESS
-      );
-      if (BigInt(allowance) < BigInt(amountIn)) {
-        setQuote("Approving token...");
-        const txA = await tokenIn.approve(POOL_ADDRESS, amountIn);
-        setQuote("Waiting approval confirmation...");
-        await txA.wait();
+      if (tokenFrom.symbol !== "USDC") {
+        const allowance = await tokenIn.allowance(
+          await signer.getAddress(),
+          POOL_ADDRESS
+        );
+      
+        if (BigInt(allowance) < BigInt(amountIn)) {
+          setQuote("Approving token...");
+          const txA = await tokenIn.approve(POOL_ADDRESS, amountIn);
+          await txA.wait();
+        }
       }
-
+      
       // step 2: create pool contract ONCE
 const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, signer);
 
@@ -565,13 +579,22 @@ try {
 }
 
 setQuote("Sending swap — confirm in wallet...");
+let tx;
 
-// 🔥 REAL CURVE SWAP
-const tx = await pool.exchange(
-  tokenFrom.index,
-  tokenTo.index,
-  amountIn
-);
+if (tokenFrom.symbol === "USDC") {
+  tx = await pool.exchange(
+    tokenFrom.index,
+    tokenTo.index,
+    amountIn,
+    { value: amountIn }
+  );
+} else {
+  tx = await pool.exchange(
+    tokenFrom.index,
+    tokenTo.index,
+    amountIn
+  );
+}
 
 await tx.wait();
 
