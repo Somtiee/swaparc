@@ -7,35 +7,16 @@ import { getPrices } from "./priceFetcher";
 const ARC_CHAIN_ID_DEC = 5042002;
 const ARC_CHAIN_ID_HEX = "0x4CEF52";
 const DEFAULT_TOKENS = [
-  {
-    symbol: "USDC",
-    name: "USD Coin",
-    address: "0x3600000000000000000000000000000000000000",
-    index: 0,
-  },
-  {
-    symbol: "EURC",
-    name: "Euro Coin",
-    address: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
-    index: 1,
-  },
-  {
-    symbol: "SWPRC",
-    name: "SwapARC Coin",
-    address: "0xBE7477BF91526FC9988C8f33e91B6db687119D45",
-    index: 2,
-  },
+  { symbol: "USDC", name: "USD Coin", address: "0x3600000000000000000000000000000000000000", index: 0 },
+  { symbol: "EURC", name: "Euro Coin", address: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a", index: 1 },
+  { symbol: "SWPRC", name: "SwapARC Coin", address: "0xBE7477BF91526FC9988C8f33e91B6db687119D45", index: 2 },
 ];
-
 
 function Ticker({ tokens, prices }) {
   const [items, setItems] = useState(() =>
     tokens.map((t) => ({
       ...t,
-      price:
-        prices && prices[t.symbol] != null
-          ? Number(prices[t.symbol])
-          : formatPriceMock(t.symbol),
+      price: prices && prices[t.symbol] != null ? Number(prices[t.symbol]) : formatPriceMock(t.symbol),
     }))
   );
 
@@ -43,10 +24,7 @@ function Ticker({ tokens, prices }) {
     setItems(
       tokens.map((t) => ({
         ...t,
-        price:
-          prices && prices[t.symbol] != null
-            ? Number(prices[t.symbol])
-            : formatPriceMock(t.symbol),
+        price: prices && prices[t.symbol] != null ? Number(prices[t.symbol]) : formatPriceMock(t.symbol),
       }))
     );
   }, [tokens, prices]);
@@ -64,6 +42,7 @@ function Ticker({ tokens, prices }) {
     }, 6000);
     return () => clearInterval(iv);
   }, [prices]);
+
   const double = [...items, ...items];
 
   return (
@@ -75,9 +54,7 @@ function Ticker({ tokens, prices }) {
             <div className="ticker-name">{t.symbol}</div>
             <div className="ticker-price">
               {prices && prices[t.symbol] != null
-                ? `$${Number(prices[t.symbol]).toLocaleString(undefined, {
-                    maximumFractionDigits: 6,
-                  })}`
+                ? `$${Number(prices[t.symbol]).toLocaleString(undefined, { maximumFractionDigits: 6 })}`
                 : `$${t.price}`}
             </div>
           </div>
@@ -88,19 +65,18 @@ function Ticker({ tokens, prices }) {
 }
 
 function formatPriceMock(sym) {
-  const base =
-    {
-      USDC: 1,
-      EURC: 1.063,
-      SWPRC: 0.71,
-      USDG: 1,
-      ARCX: 0.42,
-      wETH: 3475.12,
-      wBTC: 94000,
-      SOL: 180.4,
-      BTC: 94000,
-      ETH: 3475.12,
-    }[sym] ?? 1;
+  const base = {
+    USDC: 1,
+    EURC: 1.063,
+    SWPRC: 0.71,
+    USDG: 1,
+    ARCX: 0.42,
+    wETH: 3475.12,
+    wBTC: 94000,
+    SOL: 180.4,
+    BTC: 94000,
+    ETH: 3475.12,
+  }[sym] ?? 1;
   return Number(base).toFixed(base >= 100 ? 0 : base >= 10 ? 2 : 4);
 }
 
@@ -150,9 +126,7 @@ function TokenSelect({ tokens, value, onChange }) {
                     setQ("");
                   }}
                 >
-                  <span className="tokenBadgeSmall">
-                    {t.symbol.slice(0, 3)}
-                  </span>
+                  <span className="tokenBadgeSmall">{t.symbol.slice(0, 3)}</span>
                   <div style={{ textAlign: "left" }}>
                     <div className="optSym">{t.symbol}</div>
                     <div className="optName">{t.name}</div>
@@ -172,12 +146,19 @@ export default function App() {
   function openFaucet() {
     window.open("https://faucet.circle.com/", "_blank");
   }
+
   const [address, setAddress] = useState(null);
   const [network, setNetwork] = useState(null);
   const [status, setStatus] = useState("Not connected");
   const [balances, setBalances] = useState({});
   const [tokens, setTokens] = useState(DEFAULT_TOKENS);
   const [swapFrom, setSwapFrom] = useState("USDC");
+  const [swapTo, setSwapTo] = useState("EURC");
+  const [swapAmount, setSwapAmount] = useState("");
+  const [estimatedTo, setEstimatedTo] = useState("");
+  const [quote, setQuote] = useState(null);
+  const [arrowSpin, setArrowSpin] = useState(false);
+  const [customAddr, setCustomAddr] = useState("");
   const [activeTab, setActiveTab] = useState("swap");
   const [swapHistory, setSwapHistory] = useState(() => {
     try {
@@ -188,60 +169,13 @@ export default function App() {
     }
   });
   const [txModal, setTxModal] = useState(null);
-  const [swapTo, setSwapTo] = useState("EURC");
-  const [swapAmount, setSwapAmount] = useState("");
-  const [quote, setQuote] = useState(null); // textual quote when user triggers swap or fallback
-  const [arrowSpin, setArrowSpin] = useState(false);
-  const [customAddr, setCustomAddr] = useState("");
-  const [estimatedTo, setEstimatedTo] = useState(""); // auto-calculated target amount shown in UI
-
-  const [prices, setPrices] = useState({}); // { SYMBOL: number | null }
-  function computeEstimateAuto() {
-    if (!swapAmount || Number(swapAmount) <= 0) {
-      setEstimatedTo("");
-      return;
-    }
-  
-    const amt = Number(swapAmount);
-    const pFrom = prices[swapFrom];
-    const pTo = prices[swapTo];
-  
-    if (pFrom != null && pTo != null && Number(pFrom) > 0) {
-      const spread = 0.003; // 0.3%
-      const rate = (Number(pTo) / Number(pFrom)) * (1 - spread);
-      const received = amt * rate;
-  
-      setEstimatedTo(
-        received.toLocaleString(undefined, { maximumFractionDigits: 6 })
-      );
-      return;
-    }
-  
-    if (
-      (swapFrom === "USDC" && swapTo === "EURC") ||
-      (swapFrom === "EURC" && swapTo === "USDC")
-    ) {
-      const FX = swapFrom === "USDC" ? 0.93 : 1.075;
-      const received = amt * FX;
-  
-      setEstimatedTo(
-        received.toLocaleString(undefined, { maximumFractionDigits: 6 })
-      );
-      return;
-    }
-  
-    setEstimatedTo("—");
-  }
-  useEffect(() => {
-    computeEstimateAuto();
-  }, [swapAmount, swapFrom, swapTo, prices]);  
+  const [prices, setPrices] = useState({});
 
   const POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
   const POOL_ABI = [
-    "function exchange(int128 i, int128 j, uint256 dx) payable",
-    "function get_dy(int128 i, int128 j, uint256 dx) view returns (uint256)",
-  ];  
-  // ERC20 ABI used throughout (balanceOf, decimals, symbol; plus allowance/approve)
+    "function swap(uint256 i, uint256 j, uint256 dx) returns (uint256 dy)",
+    "function get_dy(uint256 i, uint256 j, uint256 dx) view returns (uint256)",
+  ];
   const ERC20_ABI = [
     "function balanceOf(address owner) view returns (uint256)",
     "function decimals() view returns (uint8)",
@@ -252,7 +186,7 @@ export default function App() {
 
   useEffect(() => {
     let mounted = true;
-  
+
     async function fetchAndSet() {
       const syms = tokens.map((t) => t.symbol);
       try {
@@ -263,16 +197,15 @@ export default function App() {
         console.warn("price refresh failed", e);
       }
     }
-  
+
     fetchAndSet();
     const iv = setInterval(fetchAndSet, 10000);
-  
     return () => {
       mounted = false;
       clearInterval(iv);
     };
   }, [tokens]);
-  
+
   useEffect(() => {
     try {
       localStorage.setItem("swaparc_history", JSON.stringify(swapHistory));
@@ -280,68 +213,79 @@ export default function App() {
       console.warn("Failed to persist history", e);
     }
   }, [swapHistory]);
-  // New: estimate using pool.callStatic.swap when possible, to show real on-chain approximation
+
   useEffect(() => {
     let mounted = true;
-  
+
     async function estimateOut() {
       if (!swapAmount || Number(swapAmount) <= 0) return;
-  
+
+      const fromToken = tokens.find((t) => t.symbol === swapFrom);
+      const toToken = tokens.find((t) => t.symbol === swapTo);
+      if (!fromToken || !toToken) return;
+
       try {
         const provider = new ethers.BrowserProvider(window.ethereum);
         const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, provider);
-  
-        const fromToken = tokens.find(t => t.symbol === swapFrom);
-        const toToken = tokens.find(t => t.symbol === swapTo);
-        if (!fromToken || !toToken) return;
-  
-        let decimalsIn;
-        if (fromToken.symbol === "USDC") {
-          decimalsIn = 18;
-        } else {
-          const tokenIn = new ethers.Contract(fromToken.address, ERC20_ABI, provider);
-          decimalsIn = await tokenIn.decimals();
-        }
-        
-        const dx = ethers.parseUnits(swapAmount, decimalsIn);        
-  
-        const dy = await pool.get_dy(
-          fromToken.index,
-          toToken.index,
-          dx
-        );
-  
+
+        const tokenIn = new ethers.Contract(fromToken.address, ERC20_ABI, provider);
+        const decimalsIn = await tokenIn.decimals();
+        const dx = ethers.parseUnits(swapAmount, decimalsIn);
+
+        const dy = await pool.get_dy(fromToken.index, toToken.index, dx);
+
+        const tokenOut = new ethers.Contract(toToken.address, ERC20_ABI, provider);
+        const decimalsOut = await tokenOut.decimals();
+
+        const outHuman = Number(ethers.formatUnits(dy, decimalsOut));
         if (!mounted) return;
-        let decimalsOut;
-        if (toToken.symbol === "USDC") {
-          decimalsOut = 18;
-        } else {
-          const tokenOut = new ethers.Contract(toToken.address, ERC20_ABI, provider);
-          decimalsOut = await tokenOut.decimals();
-        }
-        
-        const outHuman = Number(
-          ethers.formatUnits(dy, 18)
-        );        
-        setEstimatedTo(outHuman.toLocaleString(undefined, {
-          maximumFractionDigits: 6,
-        }));
+        setEstimatedTo(outHuman.toFixed(6));
       } catch {
-        // fallback keeps UI alive
+        setEstimatedTo("—");
       }
     }
-  
+
     estimateOut();
     return () => (mounted = false);
-  }, [swapAmount, swapFrom, swapTo, tokens]);  
+  }, [swapAmount, swapFrom, swapTo, tokens]);
+
+  function computeEstimateAuto() {
+    if (!swapAmount || Number(swapAmount) <= 0) {
+      setEstimatedTo("");
+      return;
+    }
+
+    const amt = Number(swapAmount);
+    const pFrom = prices[swapFrom];
+    const pTo = prices[swapTo];
+
+    if (pFrom != null && pTo != null && Number(pFrom) > 0) {
+      const spread = 0.003;
+      const rate = (Number(pTo) / Number(pFrom)) * (1 - spread);
+      const received = amt * rate;
+
+      setEstimatedTo(received.toLocaleString(undefined, { maximumFractionDigits: 6 }));
+      return;
+    }
+
+    if ((swapFrom === "USDC" && swapTo === "EURC") || (swapFrom === "EURC" && swapTo === "USDC")) {
+      const FX = swapFrom === "USDC" ? 0.93 : 1.075;
+      const received = amt * FX;
+      setEstimatedTo(received.toLocaleString(undefined, { maximumFractionDigits: 6 }));
+      return;
+    }
+
+    setEstimatedTo("—");
+  }
+
+  useEffect(() => {
+    computeEstimateAuto();
+  }, [swapAmount, swapFrom, swapTo, prices]);
 
   function setPercentAmount(percent) {
     const bal = balances[swapFrom];
     if (!bal || bal === "n/a") return;
-
-    const amount =
-      percent === 100 ? Number(bal) : Number(bal) * (percent / 100);
-
+    const amount = percent === 100 ? Number(bal) : Number(bal) * (percent / 100);
     setSwapAmount(amount.toFixed(2));
   }
 
@@ -363,22 +307,18 @@ export default function App() {
             {
               chainId: ARC_CHAIN_ID_HEX,
               chainName: "Arc Testnet",
-              nativeCurrency: {
-                name: "ARC",
-                symbol: "ARC",
-                decimals: 18,
-              },
+              nativeCurrency: { name: "ARC", symbol: "ARC", decimals: 18 },
               rpcUrls: ["https://rpc.testnet.arc.network"],
               blockExplorerUrls: ["https://testnet.arcscan.app"],
             },
           ],
         });
-
         return true;
       }
       return false;
     }
   }
+
   async function connectWallet() {
     try {
       const { ethereum } = window;
@@ -387,40 +327,30 @@ export default function App() {
         return;
       }
 
-      // 1️⃣ Ensure Arc network FIRST
       const ok = await ensureArcNetwork();
       if (!ok) {
         setStatus("Please switch to Arc Testnet");
         return;
       }
 
-      // 2️⃣ Request accounts
-      const accounts = await ethereum.request({
-        method: "eth_requestAccounts",
-      });
-
+      const accounts = await ethereum.request({ method: "eth_requestAccounts" });
       if (!accounts?.length) {
         setStatus("No account found.");
         return;
       }
 
       const userAddress = accounts[0];
-
-      // 3️⃣ Confirm network
       const provider = new ethers.BrowserProvider(ethereum);
       const net = await provider.getNetwork();
-
       if (Number(net.chainId) !== ARC_CHAIN_ID_DEC) {
         setStatus("Failed to switch to Arc Testnet");
         return;
       }
 
-      // 4️⃣ Update app state
       setAddress(userAddress);
       setNetwork(Number(net.chainId));
       setStatus("Connected to Arc Testnet");
 
-      // 5️⃣ Load balances
       await fetchBalances(userAddress, provider);
     } catch (err) {
       console.error("connectWallet error:", err);
@@ -441,30 +371,19 @@ export default function App() {
   async function fetchBalances(userAddress, provider) {
     try {
       const tokenBalances = {};
-      // note: your code previously used provider.getBalance(userAddress) as USDC
-      // keep same behavior to avoid changing UI logic
       const rawUSDC = await provider.getBalance(userAddress);
-      tokenBalances["USDC"] = parseFloat(ethers.formatEther(rawUSDC)).toFixed(
-        4
-      );
+      tokenBalances["USDC"] = parseFloat(ethers.formatEther(rawUSDC)).toFixed(4);
 
       for (const t of tokens) {
         try {
-          const tokenContract = new ethers.Contract(
-            t.address,
-            ERC20_ABI,
-            provider
-          );
+          const tokenContract = new ethers.Contract(t.address, ERC20_ABI, provider);
           const rawBalance = await tokenContract.balanceOf(userAddress);
           const decimals = await tokenContract.decimals();
-          tokenBalances[t.symbol] = parseFloat(
-            ethers.formatUnits(rawBalance, decimals)
-          ).toFixed(4);
+          tokenBalances[t.symbol] = parseFloat(ethers.formatUnits(rawBalance, decimals)).toFixed(4);
         } catch {
           tokenBalances[t.symbol] = "n/a";
         }
       }
-
       setBalances(tokenBalances);
     } catch (err) {
       console.error("Failed to fetch balances:", err);
@@ -486,30 +405,13 @@ export default function App() {
     setEstimatedTo("");
   }
 
-  async function requestQuoteFallback() {
-    // legacy fallback if prices not available
-    setQuote("Loading quote...");
-    setTimeout(() => {
-      const rate = (Math.random() * (1.05 - 0.95) + 0.95).toFixed(4);
-      const received = (Number(swapAmount) * Number(rate)).toFixed(4);
-      setQuote(
-        `${swapAmount} ${swapFrom} → ~ ${received} ${swapTo} (rate ${rate})`
-      );
-    }, 700);
-  }
-
   async function performSwap() {
-    // Single button behaviour:
     if (!swapAmount || Number(swapAmount) <= 0) {
       alert("Enter a valid amount to swap.");
       return;
     }
-    if (
-      !balances[swapFrom] ||
-      balances[swapFrom] === "n/a" ||
-      Number(swapAmount) > Number(balances[swapFrom])
-    ) {
-      alert("Insufficient or unknown balance for " + swapFrom);
+    if (!balances[swapFrom] || balances[swapFrom] === "n/a" || Number(swapAmount) > Number(balances[swapFrom])) {
+      alert("Insufficient balance for " + swapFrom);
       return;
     }
     if (swapFrom === swapTo) {
@@ -528,124 +430,59 @@ export default function App() {
 
       const tokenFrom = tokens.find((t) => t.symbol === swapFrom);
       const tokenTo = tokens.find((t) => t.symbol === swapTo);
-
       if (!tokenFrom || !tokenTo) {
         alert("Token not found");
         return;
       }
 
-      const tokenInAddress = tokenFrom.address;
-      const tokenOutAddress = tokenTo.address;
+      const tokenIn = new ethers.Contract(tokenFrom.address, ERC20_ABI, signer);
+      const tokenOut = new ethers.Contract(tokenTo.address, ERC20_ABI, provider);
 
-      const tokenIn = new ethers.Contract(tokenInAddress, ERC20_ABI, signer);
-      const tokenOut = new ethers.Contract(
-        tokenOutAddress,
-        ERC20_ABI,
-        provider
-      );
+      const decimalsIn = await tokenIn.decimals();
+      const amountRaw = ethers.parseUnits(String(swapAmount), decimalsIn);
+      const amountIn = amountRaw * BigInt(10 ** (18 - decimalsIn));
+
       if (tokenFrom.symbol !== "USDC") {
-        const tokenDecimals = await tokenIn.decimals();
-        const approveAmount = ethers.parseUnits(
-          String(swapAmount),
-          tokenDecimals
-        );
-      
-        const allowance = await tokenIn.allowance(
-          await signer.getAddress(),
-          POOL_ADDRESS
-        );
-      
-        if (BigInt(allowance) < BigInt(approveAmount)) {
-          const txA = await tokenIn.approve(POOL_ADDRESS, approveAmount);
+        const allowance = await tokenIn.allowance(await signer.getAddress(), POOL_ADDRESS);
+        if (BigInt(allowance) < BigInt(amountIn)) {
+          const txA = await tokenIn.approve(POOL_ADDRESS, amountIn);
           await txA.wait();
         }
-      }      
-      
-      
-// 🔥 POOL INPUT MUST ALWAYS BE 18 DECIMALS
-const amountIn = ethers.parseUnits(
-  String(swapAmount),
-  18
-);
+      }
 
-const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, signer);
+      let expectedOutHuman = null;
+      try {
+        const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, provider);
+        const dy = await pool.get_dy(tokenFrom.index, tokenTo.index, amountIn);
+        const decimalsOut = await tokenOut.decimals();
+        expectedOutHuman = Number(ethers.formatUnits(dy, decimalsOut));
+      } catch {}
 
-// optional on-chain estimate (safe)
-let expectedOutHuman = null;
-try {
-  const dy = await pool.get_dy(
-    tokenFrom.index,
-    tokenTo.index,
-    amountIn
-  );
+      const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, signer);
+      const tx = await pool.swap(tokenFrom.index, tokenTo.index, amountIn);
+      await tx.wait();
 
-} catch {
-  // ignore estimation failure
-}
-
-setQuote("Sending swap — confirm in wallet...");
-let tx;
-
-if (tokenFrom.symbol === "USDC") {
-  tx = await pool.exchange(
-    tokenFrom.index,
-    tokenTo.index,
-    amountIn,
-    { value: amountIn }
-  );
-} else {
-  tx = await pool.exchange(
-    tokenFrom.index,
-    tokenTo.index,
-    amountIn
-  );
-}
-
-await tx.wait();
-
-      setQuote(`Swap submitted: tx ${tx.hash} — waiting for confirmation...`);
+      setQuote(`Swap succeeded: ~${expectedOutHuman?.toFixed(6) || "—"} ${swapTo} — tx ${tx.hash}`);
       const txUrl = `https://testnet.arcscan.app/tx/${tx.hash}`;
-
       setSwapHistory((prev) => [
-        {
-          fromToken: swapFrom,
-          fromAmount: swapAmount,
-          toToken: swapTo,
-          toAmount:
-            expectedOutHuman != null
-              ? expectedOutHuman.toFixed(6)
-              : estimatedTo || "0.000000",
-          txUrl,
-          status: "success",
-        },
+        { fromToken: swapFrom, fromAmount: swapAmount, toToken: swapTo, toAmount: expectedOutHuman?.toFixed(6) || estimatedTo || "0.000000", txUrl, status: "success" },
         ...prev,
       ]);
+
+      await fetchBalances(await signer.getAddress(), provider);
 
       setTxModal({
         status: "success",
         fromToken: swapFrom,
         fromAmount: swapAmount,
         toToken: swapTo,
-        toAmount:
-          expectedOutHuman != null
-            ? expectedOutHuman.toFixed(6)
-            : estimatedTo || "0.000000",
+        toAmount: expectedOutHuman?.toFixed(6) || estimatedTo || "0.000000",
         txHash: tx.hash,
       });
 
-      if (expectedOutHuman != null) {
-        setQuote(
-          `Swap succeeded: ~ ${expectedOutHuman.toFixed(6)} ${swapTo} — tx ${tx.hash}`
-        );        
-      } else {
-        setQuote(`Swap succeeded — tx ${tx.hash}`);
-      }
-
-      // refresh balances
-      await fetchBalances(await signer.getAddress(), provider);
     } catch (err) {
       console.error(err);
-      const m = err && err.message ? err.message : String(err);
+      const m = err?.message || String(err);
       setQuote("Swap failed: " + m);
       setTxModal({
         status: "failed",
@@ -665,9 +502,7 @@ await tx.wait();
       return;
     }
     const symbol = "TKN" + addr.slice(-3).toUpperCase();
-    const exists = tokens.some(
-      (t) => t.address.toLowerCase() === addr.toLowerCase()
-    );
+    const exists = tokens.some((t) => t.address.toLowerCase() === addr.toLowerCase());
     if (exists) {
       alert("Token already in list.");
       return;
@@ -691,16 +526,13 @@ await tx.wait();
     return numericBal * Number(p);
   }
 
+  // ---------------------- JSX ----------------------
   return (
     <div className="app-page hybrid-page">
       <div className="app-container hybrid-center">
         {/* HEADER */}
         <header className="headerRow hybrid-header">
-          <div
-            className="brand"
-            style={{ cursor: "pointer" }}
-            onClick={() => window.location.reload()}
-          >
+          <div className="brand" style={{ cursor: "pointer" }} onClick={() => window.location.reload()}>
             <img src={logo} alt="SwapARC" className="logoImg big" />
             <div>
               <div className="title">SWAPARC</div>
@@ -711,34 +543,20 @@ await tx.wait();
             <button
               className="faucetBtn"
               onClick={openFaucet}
-              style={{
-                marginRight: "12px",
-                padding: "8px 14px",
-                borderRadius: "10px",
-                background: "rgba(0, 200, 255, 0.15)",
-                border: "1px solid rgba(0, 200, 255, 0.35)",
-                color: "#9fe8ff",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
+              style={{ marginRight: "12px", padding: "8px 14px", borderRadius: "10px", background: "rgba(0, 200, 255, 0.15)", border: "1px solid rgba(0, 200, 255, 0.35)", color: "#9fe8ff", fontWeight: 600, cursor: "pointer" }}
             >
               💧 Get Faucet
             </button>
 
             {!address ? (
-              <button className="connectBtn" onClick={connectWallet}>
-                Connect Wallet
-              </button>
+              <button className="connectBtn" onClick={connectWallet}>Connect Wallet</button>
             ) : (
               <>
                 <div className="walletCard small">
                   <div className="walletNetwork">Arc Testnet </div>
                   <div className="walletAddress">{shortAddr(address)}</div>
                 </div>
-
-                <button className="disconnectBtn" onClick={disconnectWallet}>
-                  Disconnect
-                </button>
+                <button className="disconnectBtn" onClick={disconnectWallet}>Disconnect</button>
               </>
             )}
           </div>
@@ -753,11 +571,8 @@ await tx.wait();
             {/* BALANCES */}
             <div className="card balancesBox neon-card">
               <h3>Token Balances</h3>
-
               {Object.keys(balances).length === 0 ? (
-                <p className="muted">
-                  No balances loaded — connect wallet & click Connect.
-                </p>
+                <p className="muted">No balances loaded — connect wallet & click Connect.</p>
               ) : (
                 <ul className="balancesList">
                   {tokens
@@ -772,15 +587,10 @@ await tx.wait();
                           <div className="balanceSymbol">{t.symbol}</div>
                         </div>
                         <div style={{ textAlign: "right" }}>
-                          <div className="balanceRight">
-                            {balances[t.symbol] ?? "—"}
-                          </div>
+                          <div className="balanceRight">{balances[t.symbol] ?? "—"}</div>
                           <div style={{ fontSize: 12, opacity: 0.8 }}>
                             {usdValueFor(t.symbol) != null
-                              ? `$${usdValueFor(t.symbol).toLocaleString(
-                                  undefined,
-                                  { maximumFractionDigits: 2 }
-                                )}`
+                              ? `$${usdValueFor(t.symbol).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
                               : prices[t.symbol] == null
                               ? "price n/a"
                               : ""}
@@ -796,116 +606,55 @@ await tx.wait();
                   placeholder="Paste token address (0x...)"
                   value={customAddr}
                   onChange={(e) => setCustomAddr(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: 8,
-                    borderRadius: 8,
-                    border: "1px solid rgba(255,255,255,0.06)",
-                    marginBottom: 8,
-                    background: "transparent",
-                    color: "#eaf6ff",
-                  }}
+                  style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)", marginBottom: 8, background: "transparent", color: "#eaf6ff" }}
                 />
-                <button onClick={addCustomToken} className="smallAddBtn">
-                  Add Token
-                </button>
+                <button onClick={addCustomToken} className="smallAddBtn">Add Token</button>
               </div>
             </div>
+
+            {/* SWAP CARD */}
             <div className="card controls neon-card swapCardCentered">
               <div className="tabHeader">
-                <button
-                  className={`tabBtn ${activeTab === "swap" ? "active" : ""}`}
-                  onClick={() => setActiveTab("swap")}
-                >
-                  Swap
-                </button>
-                <button
-                  className={`tabBtn ${
-                    activeTab === "history" ? "active" : ""
-                  }`}
-                  onClick={() => setActiveTab("history")}
-                >
-                  History
-                </button>
+                <button className={`tabBtn ${activeTab === "swap" ? "active" : ""}`} onClick={() => setActiveTab("swap")}>Swap</button>
+                <button className={`tabBtn ${activeTab === "history" ? "active" : ""}`} onClick={() => setActiveTab("history")}>History</button>
               </div>
+
               {activeTab === "swap" && (
                 <>
                   <div className="swapRowClean">
                     <div className="swapLabel">From</div>
                     <div className="swapBox">
-                      <TokenSelect
-                        tokens={tokens}
-                        value={swapFrom}
-                        onChange={setSwapFrom}
-                      />
-                      <input
-                        className="swapInput"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        placeholder="0.00"
-                        value={swapAmount}
-                        onChange={(e) => setSwapAmount(e.target.value)}
-                      />
+                      <TokenSelect tokens={tokens} value={swapFrom} onChange={setSwapFrom} />
+                      <input className="swapInput" type="number" step="0.01" min="0" placeholder="0.00" value={swapAmount} onChange={(e) => setSwapAmount(e.target.value)} />
                     </div>
                     <div className="percentRow relay-style">
                       {[25, 50, 75].map((p) => (
-                        <button
-                          key={p}
-                          className="percentBtn"
-                          onClick={() => setPercentAmount(p)}
-                        >
-                          {p}%
-                        </button>
+                        <button key={p} className="percentBtn" onClick={() => setPercentAmount(p)}>{p}%</button>
                       ))}
-                      <button
-                        className="percentBtn"
-                        onClick={() => setPercentAmount(100)}
-                      >
-                        Max
-                      </button>
+                      <button className="percentBtn" onClick={() => setPercentAmount(100)}>Max</button>
                     </div>
                   </div>
 
                   <div className="swapCenter">
-                    <button
-                      className={`swapArrow ${arrowSpin ? "spin" : ""}`}
-                      onClick={onSwapArrowClick}
-                    >
-                      ⇅
-                    </button>
+                    <button className={`swapArrow ${arrowSpin ? "spin" : ""}`} onClick={onSwapArrowClick}>⇅</button>
                   </div>
 
                   <div className="swapRowClean">
                     <div className="swapLabel">To (estimated)</div>
                     <div className="swapBox">
-                      <TokenSelect
-                        tokens={tokens}
-                        value={swapTo}
-                        onChange={setSwapTo}
-                      />
-                      <div className="swapInput readOnly">
-                        {estimatedTo || (quote ? "…" : "—")}
-                      </div>
+                      <TokenSelect tokens={tokens} value={swapTo} onChange={setSwapTo} />
+                      <div className="swapInput readOnly">{estimatedTo || (quote ? "…" : "—")}</div>
                     </div>
                   </div>
 
                   <div style={{ marginTop: 12 }}>
-                    <button
-                      className="primaryBtn neon-btn"
-                      onClick={performSwap}
-                    >
-                      Swap
-                    </button>
+                    <button className="primaryBtn neon-btn" onClick={performSwap}>Swap</button>
                   </div>
 
-                  {quote && (
-                    <p className="quote">
-                      <strong>Quote:</strong> {quote}
-                    </p>
-                  )}
+                  {quote && <p className="quote"><strong>Quote:</strong> {quote}</p>}
                 </>
               )}
+
               {activeTab === "history" && (
                 <div className="historyBox">
                   {swapHistory.length === 0 ? (
@@ -914,20 +663,11 @@ await tx.wait();
                     <ul className="historyList">
                       {swapHistory.map((tx, i) => (
                         <li key={i} className="historyItem">
-                          <div>
-                            <strong>From:</strong> {tx.fromAmount}{" "}
-                            {tx.fromToken}
-                          </div>
-                          <div>
-                            <strong>To:</strong> {tx.toAmount} {tx.toToken}
-                          </div>
+                          <div><strong>From:</strong> {tx.fromAmount} {tx.fromToken}</div>
+                          <div><strong>To:</strong> {tx.toAmount} {tx.toToken}</div>
                           <div className="historyMeta">
-                            <a href={tx.txUrl} target="_blank" rel="noreferrer">
-                              View Tx
-                            </a>
-                            <span className={`status ${tx.status}`}>
-                              {tx.status.toUpperCase()}
-                            </span>
+                            <a href={tx.txUrl} target="_blank" rel="noreferrer">View Tx</a>
+                            <span className={`status ${tx.status}`}>{tx.status.toUpperCase()}</span>
                           </div>
                         </li>
                       ))}
@@ -939,52 +679,19 @@ await tx.wait();
           </section>
         </main>
       </div>
+
       {txModal && (
         <div className="modalOverlay">
           <div className="txModal">
-            {/* 🎉 CONFETTI – only shows on success */}
             {txModal.status === "success" && (
-              <div className="confetti">
-                {Array.from({ length: 24 }).map((_, i) => (
-                  <span key={i} />
-                ))}
-              </div>
+              <div className="confetti">{Array.from({ length: 24 }).map((_, i) => <span key={i} />)}</div>
             )}
-
-            <h3>
-              {txModal.status === "success"
-                ? "Transaction Completed"
-                : "Swap Failed"}
-            </h3>
-
-            <div className="txRow">
-              <span>Sent</span>
-              <strong>
-                {txModal.fromAmount} {txModal.fromToken}
-              </strong>
-            </div>
-
-            <div className="txRow">
-              <span>Received</span>
-              <strong>
-                {txModal.toAmount} {txModal.toToken}
-              </strong>
-            </div>
-
+            <h3>{txModal.status === "success" ? "Transaction Completed" : "Swap Failed"}</h3>
+            <div className="txRow"><span>Sent</span><strong>{txModal.fromAmount} {txModal.fromToken}</strong></div>
+            <div className="txRow"><span>Received</span><strong>{txModal.toAmount} {txModal.toToken}</strong></div>
             <div className="txActions">
-              {txModal.txHash && (
-                <a
-                  href={`https://testnet.arcscan.app/tx/${txModal.txHash}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="secondaryBtn"
-                >
-                  View details
-                </a>
-              )}
-              <button className="primaryBtn" onClick={() => setTxModal(null)}>
-                Done
-              </button>
+              {txModal.txHash && <a href={`https://testnet.arcscan.app/tx/${txModal.txHash}`} target="_blank" rel="noreferrer" className="secondaryBtn">View details</a>}
+              <button className="primaryBtn" onClick={() => setTxModal(null)}>Done</button>
             </div>
           </div>
         </div>
