@@ -11,13 +11,22 @@ const DEFAULT_TOKENS = [
     symbol: "USDC",
     name: "USD Coin",
     address: "0x3600000000000000000000000000000000000000",
+    index: 0,
   },
   {
     symbol: "EURC",
     name: "Euro Coin",
     address: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
+    index: 1,
+  },
+  {
+    symbol: "SWPRC",
+    name: "SwapARC Coin",
+    address: "0xBE7477BF91526FC9988C8f33e91B6db687119D45",
+    index: 2,
   },
 ];
+
 
 function Ticker({ tokens, prices }) {
   const [items, setItems] = useState(() =>
@@ -187,11 +196,11 @@ export default function App() {
 
   const [prices, setPrices] = useState({}); // { SYMBOL: number | null }
 
-  const POOL_ADDRESS = "0x5A30dE47f430dc820204Ce3E3419f013bfC6565F";
+  const POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
   const POOL_ABI = [
-    "function swap(address tokenIn, uint256 amountIn)",
-    "function getReserves() view returns (uint256 reserveA, uint256 reserveB)",
-  ];
+    "function exchange(int128 i, int128 j, uint256 dx) returns (uint256)",
+    "function get_dy(int128 i, int128 j, uint256 dx) view returns (uint256)",
+  ];  
   // ERC20 ABI used throughout (balanceOf, decimals, symbol; plus allowance/approve)
   const ERC20_ABI = [
     "function balanceOf(address owner) view returns (uint256)",
@@ -222,18 +231,6 @@ export default function App() {
       clearInterval(iv);
     };
   }, [tokens]);
-
-  // Recompute estimation whenever swapAmount / tokens / selection changes
-  useEffect(() => {
-    computeEstimateAuto();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [swapAmount, swapFrom, swapTo, prices]);
-
-  function computeEstimateAuto() {
-    if (!swapAmount || Number(swapAmount) <= 0) {
-      setEstimatedTo("");
-      return;
-    }
 
     const amt = Number(swapAmount);
     const pFrom = prices[swapFrom];
@@ -276,71 +273,44 @@ export default function App() {
   }, [swapHistory]);
   // New: estimate using pool.callStatic.swap when possible, to show real on-chain approximation
   useEffect(() => {
-    // estimateOut updates estimatedTo with the on-chain estimate (preferred)
     let mounted = true;
+  
     async function estimateOut() {
-      if (!swapAmount || Number(swapAmount) <= 0) {
-        return;
-      }
-      // Need provider (read-only)
+      if (!swapAmount || Number(swapAmount) <= 0) return;
+  
       try {
-        if (!window.ethereum) {
-          return; // no wallet; keep previous estimate
-        }
         const provider = new ethers.BrowserProvider(window.ethereum);
-        const tokenFrom = tokens.find((t) => t.symbol === swapFrom);
-        const tokenTo = tokens.find((t) => t.symbol === swapTo);
-        if (!tokenFrom || !tokenTo) return;
-
-        const tokenIn = new ethers.Contract(
-          tokenFrom.address,
-          ERC20_ABI,
-          provider
-        );
-        const tokenOut = new ethers.Contract(
-          tokenTo.address,
-          ERC20_ABI,
-          provider
-        );
-        const decimalsIn = await tokenIn.decimals().catch(() => 18);
-        const decimalsOut = await tokenOut.decimals().catch(() => 18);
-
-        const amountIn = ethers.parseUnits(String(swapAmount), decimalsIn);
-
         const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, provider);
-
-        // callStatic.swap -> estimate expected out without sending tx
-        let expectedOut = null;
-        try {
-          expectedOut = await pool.callStatic.swap(tokenFrom.address, amountIn);
-        } catch (e) {
-          // callStatic might fail for some custom pool implementations
-          expectedOut = null;
-        }
-
+  
+        const fromToken = tokens.find(t => t.symbol === swapFrom);
+        const toToken = tokens.find(t => t.symbol === swapTo);
+        if (!fromToken || !toToken) return;
+  
+        const tokenIn = new ethers.Contract(fromToken.address, ERC20_ABI, provider);
+        const decimals = await tokenIn.decimals();
+  
+        const dx = ethers.parseUnits(swapAmount, decimals);
+  
+        const dy = await pool.get_dy(
+          fromToken.index,
+          toToken.index,
+          dx
+        );
+  
         if (!mounted) return;
-
-        if (expectedOut != null) {
-          const human = Number(ethers.formatUnits(expectedOut, decimalsOut));
-          // format and place in the same field used by UI
-          const formatted =
-            human >= 1000
-              ? human.toLocaleString(undefined, { maximumFractionDigits: 2 })
-              : human.toLocaleString(undefined, { maximumFractionDigits: 6 });
-          setEstimatedTo(formatted);
-        }
-      } catch (e) {
-        // ignore; we already have price-based estimate as fallback
-        // console.warn("estimateOut failed:", e);
+  
+        const outHuman = Number(ethers.formatUnits(dy, decimals));
+        setEstimatedTo(outHuman.toLocaleString(undefined, {
+          maximumFractionDigits: 6,
+        }));
+      } catch {
+        // fallback keeps UI alive
       }
     }
-
+  
     estimateOut();
-    return () => {
-      mounted = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [swapAmount, swapFrom, swapTo, tokens]);
+    return () => (mounted = false);
+  }, [swapAmount, swapFrom, swapTo, tokens]);  
 
   function setPercentAmount(percent) {
     const bal = balances[swapFrom];
@@ -524,14 +494,6 @@ export default function App() {
       return;
     }
 
-    if (
-      !["USDC", "EURC"].includes(swapFrom) ||
-      !["USDC", "EURC"].includes(swapTo)
-    ) {
-      alert("This pool only supports USDC ↔ EURC swaps.");
-      return;
-    }
-
     try {
       if (!window.ethereum) {
         alert("Wallet not available in browser.");
@@ -560,7 +522,8 @@ export default function App() {
       );
 
       const decimalsIn = await tokenIn.decimals().catch(() => 18);
-      const decimalsOut = await tokenOut.decimals().catch(() => 18);
+      const decimalsOut = decimalsIn;
+
 
       const amountIn = ethers.parseUnits(String(swapAmount), decimalsIn);
 
@@ -579,31 +542,32 @@ export default function App() {
       // step 2: estimate output using callStatic (read-only)
       const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, signer);
 
-      let expectedOut = null;
-      try {
-        expectedOut = await pool.callStatic.swap(tokenInAddress, amountIn);
-      } catch (e) {
-        // callStatic may fail for some pools; we continue without estimate
-        expectedOut = null;
-      }
+      const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, signer);
 
-      let expectedOutHuman = null;
-      if (expectedOut != null) {
-        expectedOutHuman = Number(ethers.formatUnits(expectedOut, decimalsOut));
-      }
+// optional on-chain estimate (safe)
+let expectedOutHuman = null;
+try {
+  const dy = await pool.get_dy(
+    tokenFrom.index,
+    tokenTo.index,
+    amountIn
+  );
+  expectedOutHuman = Number(
+    ethers.formatUnits(dy, decimalsIn)
+  );
+} catch {}
 
-      if (expectedOutHuman != null) {
-        setQuote(
-          `Estimated receive: ~ ${expectedOutHuman.toFixed(
-            decimalsOut >= 6 ? 6 : 4
-          )} ${swapTo}. Sending swap...`
-        );
-      } else {
-        setQuote("Sending swap (no on-chain estimate) — check wallet...");
-      }
+setQuote("Sending swap — confirm in wallet...");
 
-      // step 3: perform pool swap (on-chain)
-      const tx = await pool.swap(tokenInAddress, amountIn);
+// 🔥 REAL CURVE SWAP
+const tx = await pool.exchange(
+  tokenFrom.index,
+  tokenTo.index,
+  amountIn
+);
+
+await tx.wait();
+
       setQuote(`Swap submitted: tx ${tx.hash} — waiting for confirmation...`);
       await tx.wait();
       const txUrl = `https://testnet.arcscan.app/tx/${tx.hash}`;
