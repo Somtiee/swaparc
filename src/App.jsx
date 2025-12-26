@@ -532,12 +532,10 @@ export default function App() {
         {
           fromToken: swapFrom,
           fromAmount: swapAmount,
-          toToken: swapTo,
-          toAmount:
-          estimatedTo || "0.000000"
-          txUrl,
-          status: "success",
-        },
+            toAmount: estimatedTo || "0.000000",
+            txUrl,
+            status: "success",
+          }          
         ...prev,
       ]);
 
@@ -546,9 +544,7 @@ export default function App() {
         fromToken: swapFrom,
         fromAmount: swapAmount,
         toToken: swapTo,
-        toAmount:
-        estimatedTo || "0.000000"
-        txHash: tx.hash,
+        toAmount: estimatedTo || "0.000000",
       });
 
       if (expectedOutHuman != null) {
