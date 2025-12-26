@@ -297,12 +297,9 @@ export default function App() {
         if (!fromToken || !toToken) return;
   
         let decimalsIn;
-        if (fromToken.symbol === "USDC") {
-          decimalsIn = 18;
-        } else {
-          const tokenIn = new ethers.Contract(fromToken.address, ERC20_ABI, provider);
-          decimalsIn = await tokenIn.decimals();
-        }
+        const tokenIn = new ethers.Contract(fromToken.address, ERC20_ABI, provider);
+const decimalsIn = await tokenIn.decimals();
+
         
         const dx = ethers.parseUnits(swapAmount, decimalsIn);        
   
@@ -442,12 +439,7 @@ export default function App() {
   async function fetchBalances(userAddress, provider) {
     try {
       const tokenBalances = {};
-      // note: your code previously used provider.getBalance(userAddress) as USDC
-      // keep same behavior to avoid changing UI logic
-      const rawUSDC = await provider.getBalance(userAddress);
-      tokenBalances["USDC"] = parseFloat(ethers.formatEther(rawUSDC)).toFixed(
-        4
-      );
+ 
 
       for (const t of tokens) {
         try {
@@ -546,7 +538,8 @@ export default function App() {
       );
       
       const tokenDecimals = await tokenIn.decimals();
-      const approveAmount = ethers.parseUnits(
+
+      const amountIn = ethers.parseUnits(
         String(swapAmount),
         tokenDecimals
       );
@@ -556,12 +549,10 @@ export default function App() {
         POOL_ADDRESS
       );
       
-      if (BigInt(allowance) < BigInt(approveAmount)) {
-        const txA = await tokenIn.approve(POOL_ADDRESS, approveAmount);
+      if (BigInt(allowance) < BigInt(amountIn)) {
+        const txA = await tokenIn.approve(POOL_ADDRESS, amountIn);
         await txA.wait();
       }
-      
-      
       
       const tokenDecimals = await tokenIn.decimals();
       const amountIn = ethers.parseUnits(
