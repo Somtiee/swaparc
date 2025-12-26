@@ -11,8 +11,8 @@ const POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
 
 const POOL_ABI = [
   "function get_dy(uint256 i, uint256 j, uint256 dx) view returns (uint256)",
-  "function exchange(uint256 i, uint256 j, uint256 dx, uint256 min_dy) payable returns (uint256)",
-  "function coins(uint256 arg) view returns (address)",
+  "function exchange(uint256 i, uint256 j, uint256 dx, uint256 min_dy) returns (uint256)",
+  "function coins(uint256 index) view returns (address)",
 ];
 
 const ERC20_ABI = [
@@ -103,15 +103,8 @@ function Ticker({ tokens, prices }) {
 function formatPriceMock(sym) {
   const base = {
     USDC: 1,
-    EURC: 1.063,
-    SWPRC: 0.71,
-    USDG: 1,
-    ARCX: 0.42,
-    wETH: 3475.12,
-    wBTC: 94000,
-    SOL: 180.4,
-    BTC: 94000,
-    ETH: 3475.12,
+    EURC: 0.94,   // Updated to match your pool ratio: 1 USDC ≈ 0.94 EURC
+    SWPRC: 1.4,   // Updated to match your pool ratio: 1 USDC ≈ 1.4 SWPRC
   }[sym] ?? 1;
   return Number(base).toFixed(base >= 100 ? 0 : base >= 10 ? 2 : 4);
 }
@@ -207,7 +200,6 @@ export default function App() {
   const [arrowSpin, setArrowSpin] = useState(false);
   const [customAddr, setCustomAddr] = useState("");
   const [estimatedTo, setEstimatedTo] = useState("");
-
   const [prices, setPrices] = useState({});
 
   async function loadPoolTokens(provider) {
@@ -245,7 +237,7 @@ export default function App() {
 
       console.log("Pool tokens loaded:", orderedTokens.map(t => t.symbol));
     } catch (e) {
-      console.error("Failed to load pool tokens – falling back to defaults", e);
+      console.error("Failed to load pool tokens – using fallback indices", e);
       setTokenIndices({ USDC: 0, EURC: 1, SWPRC: 2 });
     }
   }
@@ -305,15 +297,23 @@ export default function App() {
 
         if (mounted) setEstimatedTo(formatted);
       } catch (e) {
-        console.warn("On-chain estimate failed", e);
-        setEstimatedTo("—");
+        console.warn("On-chain estimate failed – using mock ratio", e);
+        // Fallback to your exact pool ratio
+        const amt = Number(swapAmount);
+        let received = 0;
+        if (swapFrom === "USDC" && swapTo === "EURC") received = amt * 0.94;
+        else if (swapFrom === "EURC" && swapTo === "USDC") received = amt / 0.94;
+        else if (swapFrom === "USDC" && swapTo === "SWPRC") received = amt * 1.4;
+        else if (swapFrom === "SWPRC" && swapTo === "USDC") received = amt / 1.4;
+        else if (swapFrom === "EURC" && swapTo === "SWPRC") received = (amt / 0.94) * 1.4;
+        else if (swapFrom === "SWPRC" && swapTo === "EURC") received = (amt / 1.4) * 0.94;
+
+        setEstimatedTo(received.toLocaleString(undefined, { maximumFractionDigits: 6 }));
       }
     }
 
     estimateOut();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [swapAmount, swapFrom, swapTo, tokens, tokenIndices]);
 
   useEffect(() => {
@@ -507,10 +507,8 @@ export default function App() {
       const decimalsIn = await tokenIn.decimals().catch(() => 6);
       const amountIn = ethers.parseUnits(swapAmount, decimalsIn);
 
-      const allowance = await tokenIn.allowance(
-        await signer.getAddress(),
-        POOL_ADDRESS
-      );
+      // Approve if needed
+      const allowance = await tokenIn.allowance(await signer.getAddress(), POOL_ADDRESS);
       if (BigInt(allowance) < BigInt(amountIn)) {
         setQuote("Approving token...");
         const txA = await tokenIn.approve(POOL_ADDRESS, amountIn);
@@ -519,24 +517,17 @@ export default function App() {
 
       const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, signer);
 
-      let expectedOut = null;
+      // Estimate for slippage (0.5%)
+      let min_dy = 0;
       try {
-        expectedOut = await pool.get_dy(i, j, amountIn);
-      } catch {}
-
-      let expectedHuman = null;
-      if (expectedOut) {
+        const expectedOut = await pool.get_dy(i, j, amountIn);
+        min_dy = expectedOut * 995n / 1000n;
         const decOut = await new ethers.Contract(toToken.address, ERC20_ABI, provider).decimals().catch(() => 6);
-        expectedHuman = Number(ethers.formatUnits(expectedOut, decOut));
+        const expectedHuman = Number(ethers.formatUnits(expectedOut, decOut));
+        setQuote(`Estimated ~${expectedHuman.toFixed(6)} ${swapTo}. Sending...`);
+      } catch {
+        setQuote("Sending swap (no estimate available)...");
       }
-
-      setQuote(
-        expectedHuman
-          ? `Estimated: ~${expectedHuman.toFixed(6)} ${swapTo}. Sending...`
-          : "Sending swap..."
-      );
-
-      const min_dy = expectedOut ? (expectedOut * 995n) / 1000n : 0;
 
       const tx = await pool.exchange(i, j, amountIn, min_dy);
       setQuote(`Submitted: ${tx.hash} – waiting confirmation...`);
@@ -548,7 +539,7 @@ export default function App() {
           fromToken: swapFrom,
           fromAmount: swapAmount,
           toToken: swapTo,
-          toAmount: expectedHuman ? expectedHuman.toFixed(6) : estimatedTo || "0",
+          toAmount: estimatedTo || "Unknown",
           txUrl,
           status: "success",
         },
@@ -560,16 +551,15 @@ export default function App() {
         fromToken: swapFrom,
         fromAmount: swapAmount,
         toToken: swapTo,
-        toAmount: expectedHuman ? expectedHuman.toFixed(6) : estimatedTo || "0",
+        toAmount: estimatedTo || "Unknown",
         txHash: tx.hash,
       });
 
       setQuote(`Swap succeeded — tx ${tx.hash}`);
-
       await fetchBalances(await signer.getAddress(), provider);
     } catch (err) {
       console.error(err);
-      const m = err?.message || String(err);
+      const m = err?.reason || err?.message || String(err);
       setQuote("Swap failed: " + m);
       setTxModal({
         status: "failed",
