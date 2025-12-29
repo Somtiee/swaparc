@@ -19,6 +19,15 @@ body,
   font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
 }
 
+html, body {
+  overflow-x: hidden;
+}
+
+.app-container.hybrid-center {
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .app-page.hybrid-page {
   min-height: 100vh;
   width: 100%;
@@ -121,10 +130,11 @@ body,
   position: fixed;
   left: 0;
   top: 92px;
-  width: 100vw;
-  pointer-events: none;
-  z-index: 8;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
 }
+
 
 .ticker-viewport::before {
   content: "";
@@ -929,3 +939,22 @@ body,
 .historyTime {
   white-space: nowrap;
 }
+@media (max-width: 768px) {
+  .mobileHeader {
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .walletCard.small {
+    grid-column: span 3;
+    text-align: center;
+  }
+
+  .disconnectBtn {
+    grid-column: span 3;
+    width: 100%;
+  }
+}
+
