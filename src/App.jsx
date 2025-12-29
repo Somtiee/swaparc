@@ -659,7 +659,7 @@ export default function App() {
               <div className="subtitle">Stablecoin FX & Treasury tools</div>
             </div>
           </div>
-          <div className="headerRight">
+          <div className="headerRight mobileHeader">
             <button
               onClick={() => window.open("https://x.com/swaparc_app", "_blank")}
               className="xBtn"
