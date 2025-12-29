@@ -14,7 +14,6 @@ const POOL_ABI = [
   "function swap(uint256 i, uint256 j, uint256 dx) returns (uint256)",
 ];
 
-
 const ERC20_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
   "function decimals() view returns (uint8)",
@@ -101,18 +100,19 @@ function Ticker({ tokens, prices }) {
 }
 
 function formatPriceMock(sym) {
-  const base = {
-    USDC: 1,
-    EURC: 1.063,
-    SWPRC: 0.71,
-    USDG: 1,
-    ARCX: 0.42,
-    wETH: 3475.12,
-    wBTC: 94000,
-    SOL: 180.4,
-    BTC: 94000,
-    ETH: 3475.12,
-  }[sym] ?? 1;
+  const base =
+    {
+      USDC: 1,
+      EURC: 1.063,
+      SWPRC: 0.71,
+      USDG: 1,
+      ARCX: 0.42,
+      wETH: 3475.12,
+      wBTC: 94000,
+      SOL: 180.4,
+      BTC: 94000,
+      ETH: 3475.12,
+    }[sym] ?? 1;
   return Number(base).toFixed(base >= 100 ? 0 : base >= 10 ? 2 : 4);
 }
 
@@ -188,13 +188,28 @@ export default function App() {
     USDC: 0,
     EURC: 1,
     SWPRC: 2,
-  };  
+  };
   const [address, setAddress] = useState(null);
   const [network, setNetwork] = useState(null);
   const [status, setStatus] = useState("Not connected");
   const [balances, setBalances] = useState({});
   const [tokens, setTokens] = useState(INITIAL_TOKENS);
   const [swapFrom, setSwapFrom] = useState("USDC");
+  const [poolTxs, setPoolTxs] = useState([]);
+  const TXS_PER_PAGE = 10;
+  const [txPage, setTxPage] = useState(0);
+  const startIdx = txPage * TXS_PER_PAGE;
+  const endIdx = startIdx + TXS_PER_PAGE;
+  const pagedTxs = poolTxs.slice(startIdx, endIdx);
+  const walletTxs = address
+    ? poolTxs.filter(
+        (tx) =>
+          tx.from?.toLowerCase() === address.toLowerCase() ||
+          tx.to?.toLowerCase() === address.toLowerCase()
+      )
+    : [];
+  const pagedWalletTxs = walletTxs.slice(startIdx, endIdx);
+  const [txLoading, setTxLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("swap");
   const [swapHistory, setSwapHistory] = useState(() => {
     try {
@@ -214,6 +229,32 @@ export default function App() {
 
   const [prices, setPrices] = useState({});
 
+  async function fetchPoolTransactions() {
+    setTxLoading(true);
+    try {
+      const res = await fetch(
+        `https://testnet.arcscan.app/api?module=account&action=txlist&address=${POOL_ADDRESS}&sort=desc`
+      );
+      const data = await res.json();
+
+      if (data.status !== "1") {
+        setPoolTxs([]);
+        return;
+      }
+
+      setPoolTxs(data.result);
+    } catch (err) {
+      console.error("Failed to fetch pool txs", err);
+    } finally {
+      setTxLoading(false);
+    }
+  }
+  useEffect(() => {
+    if (activeTab === "history") {
+      setTxPage(0);
+      fetchPoolTransactions();
+    }
+  }, [activeTab]);
   useEffect(() => {
     let mounted = true;
     async function fetchAndSet() {
@@ -238,7 +279,12 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
     async function estimateOut() {
-      if (!swapAmount || Number(swapAmount) <= 0 || swapFrom === swapTo || Object.keys(tokenIndices).length === 0) {
+      if (
+        !swapAmount ||
+        Number(swapAmount) <= 0 ||
+        swapFrom === swapTo ||
+        Object.keys(tokenIndices).length === 0
+      ) {
         setEstimatedTo("");
         return;
       }
@@ -252,14 +298,24 @@ export default function App() {
         const i = tokenIndices[swapFrom];
         const j = tokenIndices[swapTo];
 
-        const tokenIn = new ethers.Contract(fromToken.address, ERC20_ABI, provider);
+        const tokenIn = new ethers.Contract(
+          fromToken.address,
+          ERC20_ABI,
+          provider
+        );
         const decimalsIn = await tokenIn.decimals();
         const amountIn = ethers.parseUnits(swapAmount, decimalsIn);
 
         const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, provider);
         const dy = await pool.get_dy(i, j, amountIn);
 
-        const decimalsOut = await new ethers.Contract(toToken.address, ERC20_ABI, provider).decimals().catch(() => 6);
+        const decimalsOut = await new ethers.Contract(
+          toToken.address,
+          ERC20_ABI,
+          provider
+        )
+          .decimals()
+          .catch(() => 6);
         const human = Number(ethers.formatUnits(dy, decimalsOut));
 
         const formatted =
@@ -419,6 +475,12 @@ export default function App() {
     return a.slice(0, 6) + "..." + a.slice(-4);
   }
 
+  function formatDateTime(ts) {
+    if (!ts) return "—";
+    const d = new Date(Number(ts) * 1000);
+    return d.toLocaleString();
+  }
+
   function onSwapArrowClick() {
     setArrowSpin(true);
     setTimeout(() => setArrowSpin(false), 600);
@@ -485,7 +547,13 @@ export default function App() {
 
       let expectedHuman = null;
       if (expectedOut) {
-        const decOut = await new ethers.Contract(toToken.address, ERC20_ABI, provider).decimals().catch(() => 6);
+        const decOut = await new ethers.Contract(
+          toToken.address,
+          ERC20_ABI,
+          provider
+        )
+          .decimals()
+          .catch(() => 6);
         expectedHuman = Number(ethers.formatUnits(expectedOut, decOut));
       }
 
@@ -507,7 +575,9 @@ export default function App() {
           fromToken: swapFrom,
           fromAmount: swapAmount,
           toToken: swapTo,
-          toAmount: expectedHuman ? expectedHuman.toFixed(6) : estimatedTo || "0",
+          toAmount: expectedHuman
+            ? expectedHuman.toFixed(6)
+            : estimatedTo || "0",
           txUrl,
           status: "success",
         },
@@ -590,6 +660,12 @@ export default function App() {
             </div>
           </div>
           <div className="headerRight">
+            <button
+              onClick={() => window.open("https://x.com/swaparc_app", "_blank")}
+              className="xBtn"
+            >
+              𝕏
+            </button>
             <button
               className="faucetBtn"
               onClick={openFaucet}
@@ -698,6 +774,7 @@ export default function App() {
                 >
                   Swap
                 </button>
+
                 <button
                   className={`tabBtn ${
                     activeTab === "history" ? "active" : ""
@@ -706,7 +783,15 @@ export default function App() {
                 >
                   History
                 </button>
+
+                <button
+                  className={`tabBtn ${activeTab === "pools" ? "active" : ""}`}
+                  onClick={() => setActiveTab("pools")}
+                >
+                  Pools
+                </button>
               </div>
+
               {activeTab === "swap" && (
                 <>
                   <div className="swapRowClean">
@@ -787,31 +872,76 @@ export default function App() {
               )}
               {activeTab === "history" && (
                 <div className="historyBox">
-                  {swapHistory.length === 0 ? (
-                    <p className="muted">No swaps yet.</p>
+                  {txLoading ? (
+                    <p className="muted">Loading pool transactions...</p>
+                  ) : poolTxs.length === 0 ? (
+                    <p className="muted">No transactions found.</p>
                   ) : (
-                    <ul className="historyList">
-                      {swapHistory.map((tx, i) => (
-                        <li key={i} className="historyItem">
-                          <div>
-                            <strong>From:</strong> {tx.fromAmount}{" "}
-                            {tx.fromToken}
-                          </div>
-                          <div>
-                            <strong>To:</strong> {tx.toAmount} {tx.toToken}
-                          </div>
-                          <div className="historyMeta">
-                            <a href={tx.txUrl} target="_blank" rel="noreferrer">
-                              View Tx
-                            </a>
-                            <span className={`status ${tx.status}`}>
-                              {tx.status.toUpperCase()}
-                            </span>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
+                    <>
+                      <ul className="historyList">
+                        {pagedWalletTxs.map((tx) => (
+                          <li key={tx.hash} className="historyItem">
+                            {/* LEFT SIDE */}
+                            <div className="historyLeft">
+                              <div>
+                                <strong>From:</strong> {shortAddr(tx.from)}
+                              </div>
+                              <div>
+                                <strong>To:</strong> {shortAddr(tx.to)}
+                              </div>
+
+                              <div className="historyMeta">
+                                <a
+                                  href={`https://testnet.arcscan.app/tx/${tx.hash}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  View Tx
+                                </a>
+                              </div>
+                            </div>
+
+                            {/* RIGHT SIDE */}
+                            <div className="historyRight">
+                              <div className="historyTime">
+                                {formatDateTime(tx.timeStamp)}
+                              </div>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+
+                      <div className="paginationRow">
+                        <button
+                          className="pageBtn"
+                          disabled={txPage === 0}
+                          onClick={() => setTxPage((p) => Math.max(0, p - 1))}
+                        >
+                          ◀ Prev
+                        </button>
+
+                        <span className="pageInfo">
+                          Page {txPage + 1} /{" "}
+                          {Math.ceil(poolTxs.length / TXS_PER_PAGE)}
+                        </span>
+
+                        <button
+                          className="pageBtn"
+                          disabled={endIdx >= poolTxs.length}
+                          onClick={() => setTxPage((p) => p + 1)}
+                        >
+                          Next ▶
+                        </button>
+                      </div>
+                    </>
                   )}
+                </div>
+              )}
+
+              {activeTab === "pools" && (
+                <div className="comingSoon neon-card">
+                  <h2>POOLS</h2>
+                  <p>Coming Soon ✨</p>
                 </div>
               )}
             </div>
@@ -869,4 +999,4 @@ export default function App() {
       )}
     </div>
   );
-} 
+}
