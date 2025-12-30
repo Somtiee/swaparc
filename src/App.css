@@ -1189,3 +1189,9 @@ body {
       0 18px 40px rgba(46, 110, 246, 0.45);
   }
 }
+
+@media (min-width: 1400px) {
+  .app-container.hybrid-center {
+    max-width: 1400px;
+  }
+}
