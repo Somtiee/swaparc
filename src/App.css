@@ -226,13 +226,8 @@ html, body {
 }
 
 .topCards.hybrid-grid {
-  display: grid;
-  grid-template-columns: 300px 1fr;
-  gap: 28px;
-  align-items: start;
+  display: flex;
   justify-content: center;
-  max-width: 1100px;
-  margin: 0 auto;
 }
 
 .card {
@@ -573,6 +568,7 @@ html, body {
     top: 56px;
   }
 }
+
 
 @media (max-width: 768px) {
 
@@ -958,3 +954,127 @@ html, body {
   }
 }
 
+.historyToggleRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.historyToggleBtn {
+  flex: 1;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  color: #cfe7ff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.historyToggleBtn.active {
+  background: linear-gradient(90deg, #2e6ef6, #1b4fd8);
+  color: white;
+}
+/* Highlight MY transactions when viewing ALL */
+.mineTx {
+  border: 1px solid rgba(124, 197, 255, 0.45);
+  background: linear-gradient(
+    180deg,
+    rgba(124, 197, 255, 0.12),
+    rgba(255, 255, 255, 0.03)
+  );
+  box-shadow:
+    0 0 0 1px rgba(124, 197, 255, 0.35),
+    0 8px 28px rgba(124, 197, 255, 0.18);
+}
+
+.tokenBalanceHint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #9fd8ff;
+  opacity: 0.85;
+}
+
+.topNav {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+}
+
+.navBtn {
+  background: transparent;
+  border: none;
+  color: #cfe7ff;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.navBtn.active {
+  color: #ffffff;
+  border-bottom-color: #7cc5ff;
+}
+
+.desktopOnly {
+  display: flex;
+}
+
+@media (max-width: 768px) {
+  .desktopOnly {
+    display: none;
+  }
+}
+
+.hamburgerBtn {
+  display: none;
+  font-size: 22px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.2);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.mobileMenuOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 15, 35, 0.9);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobileMenu {
+  width: 90%;
+  max-width: 360px;
+  background: #0b1f3b;
+  padding: 24px;
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mobileMenu button {
+  padding: 14px;
+  border-radius: 12px;
+  border: none;
+  background: rgba(255,255,255,0.06);
+  color: #eaf6ff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.closeBtn {
+  background: rgba(255, 80, 80, 0.15);
+}
+
+@media (max-width: 768px) {
+  .hamburgerBtn {
+    display: block;
+  }
+}

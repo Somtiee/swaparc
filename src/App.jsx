@@ -196,6 +196,7 @@ export default function App() {
   const [tokens, setTokens] = useState(INITIAL_TOKENS);
   const [swapFrom, setSwapFrom] = useState("USDC");
   const [poolTxs, setPoolTxs] = useState([]);
+  const [historyView, setHistoryView] = useState("mine");
   const TXS_PER_PAGE = 10;
   const [txPage, setTxPage] = useState(0);
   const startIdx = txPage * TXS_PER_PAGE;
@@ -209,6 +210,9 @@ export default function App() {
       )
     : [];
   const pagedWalletTxs = walletTxs.slice(startIdx, endIdx);
+  const activeHistoryTxs = historyView === "all" ? pagedTxs : pagedWalletTxs;
+  const activeHistoryTotal =
+    historyView === "all" ? poolTxs.length : walletTxs.length;
   const [txLoading, setTxLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("swap");
   const [swapHistory, setSwapHistory] = useState(() => {
@@ -221,6 +225,7 @@ export default function App() {
   });
   const [txModal, setTxModal] = useState(null);
   const [swapTo, setSwapTo] = useState("EURC");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [swapAmount, setSwapAmount] = useState("");
   const [quote, setQuote] = useState(null);
   const [arrowSpin, setArrowSpin] = useState(false);
@@ -249,6 +254,10 @@ export default function App() {
       setTxLoading(false);
     }
   }
+  useEffect(() => {
+    setTxPage(0);
+  }, [historyView]);
+
   useEffect(() => {
     if (activeTab === "history") {
       setTxPage(0);
@@ -474,6 +483,14 @@ export default function App() {
     if (!a) return "";
     return a.slice(0, 6) + "..." + a.slice(-4);
   }
+  function isMyTx(tx) {
+    if (!address) return false;
+
+    return (
+      tx.from?.toLowerCase() === address.toLowerCase() ||
+      tx.to?.toLowerCase() === address.toLowerCase()
+    );
+  }
 
   function formatDateTime(ts) {
     if (!ts) return "—";
@@ -659,7 +676,25 @@ export default function App() {
               <div className="subtitle">Stablecoin FX & Treasury tools</div>
             </div>
           </div>
+          <div className="topNav desktopOnly">
+            {["swap", "history", "pools"].map((t) => (
+              <button
+                key={t}
+                className={`navBtn ${activeTab === t ? "active" : ""}`}
+                onClick={() => setActiveTab(t)}
+              >
+                {t.toUpperCase()}
+              </button>
+            ))}
+          </div>
           <div className="headerRight mobileHeader">
+            <button
+              className="hamburgerBtn"
+              onClick={() => setMobileMenuOpen(true)}
+            >
+              ☰
+            </button>
+
             <button
               onClick={() => window.open("https://x.com/swaparc_app", "_blank")}
               className="xBtn"
@@ -706,92 +741,7 @@ export default function App() {
 
         <main className="main">
           <section className="topCards hybrid-grid">
-            <div className="card balancesBox neon-card">
-              <h3>Token Balances</h3>
-
-              {Object.keys(balances).length === 0 ? (
-                <p className="muted">
-                  No balances loaded — connect wallet & click Connect.
-                </p>
-              ) : (
-                <ul className="balancesList">
-                  {tokens
-                    .filter((t) => {
-                      const bal = balances[t.symbol];
-                      return bal && bal !== "n/a" && Number(bal) > 0;
-                    })
-                    .map((t) => (
-                      <li className="balanceItem" key={t.address}>
-                        <div className="balanceLeft">
-                          {tokenIcon(t.symbol)}
-                          <div className="balanceSymbol">{t.symbol}</div>
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                          <div className="balanceRight">
-                            {balances[t.symbol] ?? "—"}
-                          </div>
-                          <div style={{ fontSize: 12, opacity: 0.8 }}>
-                            {usdValueFor(t.symbol) != null
-                              ? `$${usdValueFor(t.symbol).toLocaleString(
-                                  undefined,
-                                  { maximumFractionDigits: 2 }
-                                )}`
-                              : prices[t.symbol] == null
-                              ? "price n/a"
-                              : ""}
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                </ul>
-              )}
-
-              <div style={{ marginTop: 12 }}>
-                <input
-                  placeholder="Paste token address (0x...)"
-                  value={customAddr}
-                  onChange={(e) => setCustomAddr(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: 8,
-                    borderRadius: 8,
-                    border: "1px solid rgba(255,255,255,0.06)",
-                    marginBottom: 8,
-                    background: "transparent",
-                    color: "#eaf6ff",
-                  }}
-                />
-                <button onClick={addCustomToken} className="smallAddBtn">
-                  Add Token
-                </button>
-              </div>
-            </div>
             <div className="card controls neon-card swapCardCentered">
-              <div className="tabHeader">
-                <button
-                  className={`tabBtn ${activeTab === "swap" ? "active" : ""}`}
-                  onClick={() => setActiveTab("swap")}
-                >
-                  Swap
-                </button>
-
-                <button
-                  className={`tabBtn ${
-                    activeTab === "history" ? "active" : ""
-                  }`}
-                  onClick={() => setActiveTab("history")}
-                >
-                  History
-                </button>
-
-                <button
-                  className={`tabBtn ${activeTab === "pools" ? "active" : ""}`}
-                  onClick={() => setActiveTab("pools")}
-                >
-                  Pools
-                </button>
-              </div>
-
               {activeTab === "swap" && (
                 <>
                   <div className="swapRowClean">
@@ -812,6 +762,12 @@ export default function App() {
                         onChange={(e) => setSwapAmount(e.target.value)}
                       />
                     </div>
+                    {balances[swapFrom] && balances[swapFrom] !== "n/a" && (
+                      <div className="tokenBalanceHint">
+                        Balance: {balances[swapFrom]}
+                      </div>
+                    )}
+
                     <div className="percentRow relay-style">
                       {[25, 50, 75].map((p) => (
                         <button
@@ -853,6 +809,11 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+                  {balances[swapTo] && balances[swapTo] !== "n/a" && (
+                    <div className="tokenBalanceHint">
+                      Balance: {balances[swapTo]}
+                    </div>
+                  )}
 
                   <div style={{ marginTop: 12 }}>
                     <button
@@ -872,6 +833,25 @@ export default function App() {
               )}
               {activeTab === "history" && (
                 <div className="historyBox">
+                  <div className="historyToggleRow">
+                    <button
+                      className={`historyToggleBtn ${
+                        historyView === "mine" ? "active" : ""
+                      }`}
+                      onClick={() => setHistoryView("mine")}
+                    >
+                      ONLY MINE
+                    </button>
+
+                    <button
+                      className={`historyToggleBtn ${
+                        historyView === "all" ? "active" : ""
+                      }`}
+                      onClick={() => setHistoryView("all")}
+                    >
+                      ALL
+                    </button>
+                  </div>
                   {txLoading ? (
                     <p className="muted">Loading pool transactions...</p>
                   ) : poolTxs.length === 0 ? (
@@ -879,8 +859,15 @@ export default function App() {
                   ) : (
                     <>
                       <ul className="historyList">
-                        {pagedWalletTxs.map((tx) => (
-                          <li key={tx.hash} className="historyItem">
+                        {activeHistoryTxs.map((tx) => (
+                          <li
+                            key={tx.hash}
+                            className={`historyItem ${
+                              historyView === "all" && isMyTx(tx)
+                                ? "mineTx"
+                                : ""
+                            }`}
+                          >
                             {/* LEFT SIDE */}
                             <div className="historyLeft">
                               <div>
@@ -922,12 +909,12 @@ export default function App() {
 
                         <span className="pageInfo">
                           Page {txPage + 1} /{" "}
-                          {Math.ceil(poolTxs.length / TXS_PER_PAGE)}
+                          {Math.ceil(activeHistoryTotal / TXS_PER_PAGE)}
                         </span>
 
                         <button
                           className="pageBtn"
-                          disabled={endIdx >= poolTxs.length}
+                          disabled={endIdx >= activeHistoryTotal}
                           onClick={() => setTxPage((p) => p + 1)}
                         >
                           Next ▶
@@ -994,6 +981,46 @@ export default function App() {
                 Done
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {mobileMenuOpen && (
+        <div className="mobileMenuOverlay">
+          <div className="mobileMenu">
+            <button
+              onClick={() => {
+                setActiveTab("swap");
+                setMobileMenuOpen(false);
+              }}
+            >
+              Swap
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab("history");
+                setMobileMenuOpen(false);
+              }}
+            >
+              History
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab("pools");
+                setMobileMenuOpen(false);
+              }}
+            >
+              Pools
+            </button>
+
+            <button onClick={openFaucet}>Get Faucet</button>
+
+            <button
+              className="closeBtn"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              Close ✕
+            </button>
           </div>
         </div>
       )}
