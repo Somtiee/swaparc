@@ -19,7 +19,8 @@ body,
   font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
 }
 
-html, body {
+html,
+body {
   overflow-x: hidden;
 }
 
@@ -867,6 +868,7 @@ html, body {
     opacity: 0;
   }
 }
+
 .comingSoon {
   text-align: center;
   padding: 40px;
@@ -874,14 +876,23 @@ html, body {
 }
 
 @keyframes pulse {
-  0% { box-shadow: 0 0 10px #00eaff; }
-  50% { box-shadow: 0 0 25px #00eaff; }
-  100% { box-shadow: 0 0 10px #00eaff; }
+  0% {
+    box-shadow: 0 0 10px #00eaff;
+  }
+
+  50% {
+    box-shadow: 0 0 25px #00eaff;
+  }
+
+  100% {
+    box-shadow: 0 0 10px #00eaff;
+  }
 }
+
 .xBtn {
   margin-right: 12px;
   background: transparent;
-  border: 1px solid rgba(255,255,255,0.2);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   color: #fff;
   padding: 8px 12px;
   border-radius: 10px;
@@ -899,8 +910,8 @@ html, body {
 .pageBtn {
   padding: 6px 10px;
   border-radius: 8px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   color: #eaf6ff;
   cursor: pointer;
 }
@@ -914,6 +925,7 @@ html, body {
   font-size: 13px;
   opacity: 0.8;
 }
+
 .historyItem {
   display: flex;
   justify-content: space-between;
@@ -935,6 +947,7 @@ html, body {
 .historyTime {
   white-space: nowrap;
 }
+
 @media (max-width: 768px) {
   .mobileHeader {
     display: grid;
@@ -964,8 +977,8 @@ html, body {
   flex: 1;
   padding: 8px;
   border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
   color: #cfe7ff;
   font-weight: 600;
   cursor: pointer;
@@ -975,14 +988,13 @@ html, body {
   background: linear-gradient(90deg, #2e6ef6, #1b4fd8);
   color: white;
 }
+
 /* Highlight MY transactions when viewing ALL */
 .mineTx {
   border: 1px solid rgba(124, 197, 255, 0.45);
-  background: linear-gradient(
-    180deg,
-    rgba(124, 197, 255, 0.12),
-    rgba(255, 255, 255, 0.03)
-  );
+  background: linear-gradient(180deg,
+      rgba(124, 197, 255, 0.12),
+      rgba(255, 255, 255, 0.03));
   box-shadow:
     0 0 0 1px rgba(124, 197, 255, 0.35),
     0 8px 28px rgba(124, 197, 255, 0.18);
@@ -1031,7 +1043,7 @@ html, body {
   display: none;
   font-size: 22px;
   background: transparent;
-  border: 1px solid rgba(255,255,255,0.2);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   color: white;
   padding: 8px 12px;
   border-radius: 10px;
@@ -1063,7 +1075,7 @@ html, body {
   padding: 14px;
   border-radius: 12px;
   border: none;
-  background: rgba(255,255,255,0.06);
+  background: rgba(255, 255, 255, 0.06);
   color: #eaf6ff;
   font-weight: 700;
   cursor: pointer;
@@ -1076,5 +1088,45 @@ html, body {
 @media (max-width: 768px) {
   .hamburgerBtn {
     display: block;
+  }
+}
+
+
+@media (max-width: 768px) {
+  .title,
+  .subtitle {
+    display: none;
+  }
+
+  .brand {
+    justify-content: flex-start;
+  }
+
+  .headerRow.hybrid-header {
+    flex-wrap: nowrap;
+  }
+
+  .headerRight.mobileHeader {
+    width: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .walletPill {
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #eaf6ff;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .xBtn,
+  .faucetBtn,
+  .disconnectBtn {
+    display: none;
   }
 }
