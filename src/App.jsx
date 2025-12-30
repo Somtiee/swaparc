@@ -688,6 +688,21 @@ export default function App() {
             ))}
           </div>
           <div className="headerRight mobileHeader">
+  {/* DESKTOP ONLY BUTTONS */}
+  <button
+    className="xBtn desktopOnly"
+    onClick={() => window.open("https://x.com/swaparc_app", "_blank")}
+  >
+    𝕏
+  </button>
+
+  <button
+    className="faucetBtn desktopOnly"
+    onClick={openFaucet}
+  >
+    💧 Get Faucet
+  </button>
+
   {!address ? (
     <button className="connectBtn" onClick={connectWallet}>
       Connect Wallet
