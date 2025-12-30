@@ -577,23 +577,6 @@ body {
     overflow-x: hidden;
   }
 
-  .headerRow.hybrid-header {
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-
-  .brand {
-    width: 100%;
-    justify-content: center;
-    text-align: center;
-  }
-
-  .headerRight {
-    width: 100%;
-    justify-content: center;
-    flex-wrap: wrap;
-  }
-
   .topCards.hybrid-grid {
     grid-template-columns: 1fr !important;
   }
@@ -659,17 +642,6 @@ body {
     padding: 12px 0 40px 0;
   }
 
-  .headerRow.hybrid-header {
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .brand,
-  .headerRight {
-    width: 100%;
-    justify-content: center;
-  }
 
   .ticker-viewport,
   .app-container.hybrid-center {
@@ -686,11 +658,6 @@ body {
     font-size: 18px;
   }
 
-  button,
-  .connectBtn,
-  .primaryBtn {
-    width: 100%;
-  }
 }
 
 
@@ -948,25 +915,6 @@ body {
   white-space: nowrap;
 }
 
-@media (max-width: 768px) {
-  .mobileHeader {
-    display: grid;
-    grid-template-columns: repeat(3, auto);
-    gap: 8px;
-    justify-content: center;
-  }
-
-  .walletCard.small {
-    grid-column: span 3;
-    text-align: center;
-  }
-
-  .disconnectBtn {
-    grid-column: span 3;
-    width: 100%;
-  }
-}
-
 .historyToggleRow {
   display: flex;
   gap: 8px;
@@ -1102,9 +1050,6 @@ body {
     justify-content: flex-start;
   }
 
-  .headerRow.hybrid-header {
-    flex-wrap: nowrap;
-  }
 
   .headerRight.mobileHeader {
     width: auto;
@@ -1130,3 +1075,38 @@ body {
     display: none;
   }
 }
+
+@media (max-width: 768px) {
+  .headerRow.hybrid-header {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+  }
+
+  .logoImg.big {
+    width: 64px;
+    height: 64px;
+  }
+
+  .headerRight.mobileHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .connectBtn,
+  .walletPill {
+    padding: 8px 12px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+}
+
