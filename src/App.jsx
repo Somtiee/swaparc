@@ -959,35 +959,37 @@ export default function App() {
         </div>
       )}
 
-     <button onClick={() => { setActiveTab("swap"); setMobileMenuOpen(false); }}>
-  Swap
-</button>
+{mobileMenuOpen && (
+  <div className="mobileMenuOverlay">
+    <div className="mobileMenu">
+      <button onClick={() => { setActiveTab("swap"); setMobileMenuOpen(false); }}>
+        Swap
+      </button>
 
-<button onClick={() => { setActiveTab("history"); setMobileMenuOpen(false); }}>
-  History
-</button>
+      <button onClick={() => { setActiveTab("history"); setMobileMenuOpen(false); }}>
+        History
+      </button>
 
-<button onClick={() => { setActiveTab("pools"); setMobileMenuOpen(false); }}>
-  Pools
-</button>
+      <button onClick={() => { setActiveTab("pools"); setMobileMenuOpen(false); }}>
+        Pools
+      </button>
 
-<button onClick={openFaucet}>
-  💧 Get Faucet
-</button>
+      <button onClick={openFaucet}>
+        💧 Get Faucet
+      </button>
 
-<button
-  onClick={() => window.open("https://x.com/swaparc_app", "_blank")}
->
-  𝕏 Twitter
-</button>
+      <button
+        onClick={() => window.open("https://x.com/swaparc_app", "_blank")}
+      >
+        𝕏 Twitter
+      </button>
 
-<button className="closeBtn" onClick={() => setMobileMenuOpen(false)}>
-  Close ✕
-</button>
-
-          </div>
-        </div>
-      )}
+      <button className="closeBtn" onClick={() => setMobileMenuOpen(false)}>
+        Close ✕
+      </button>
+    </div>
+  </div>
+)}
     </div>
   );
 }
