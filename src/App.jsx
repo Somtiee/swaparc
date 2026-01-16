@@ -1,15 +1,52 @@
 import { useEffect, useState, useRef } from "react";
 import { ethers } from "ethers";
 import logo from "./assets/swaparc-logo.png";
+import usdcLogo from "./assets/usdc.jpg";
+import eurcLogo from "./assets/eurc.jpg";
+import swprcLogo from "./assets/swprc.jpg";
 import "./App.css";
 import { getPrices } from "./priceFetcher";
 
 const ARC_CHAIN_ID_DEC = 5042002;
 const ARC_CHAIN_ID_HEX = "0x4CEF52";
 
-const POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
+const SWAP_POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
 
+const POOLS = [
+  {
+    id: "usdc-eurc",
+    name: "USDC / EURC",
+    tokens: ["USDC", "EURC"],
+    poolAddress: "0xd22e4fB80E21e8d2C91131eC2D6b0C000491934B",
+    lpToken: "0x454f21b7738A446f79ea4ff00e71b9e8E9E6FEE9",
+  },
+  {
+    id: "usdc-swprc",
+    name: "USDC / SWPRC",
+    tokens: ["USDC", "SWPRC"],
+    poolAddress: "0x613bc8A188a571e7Ffe3F884FabAB0F43ABB8282",
+    lpToken: "0x2E2C7B48B2422223aD9628DA159f304192c24d3B",
+  },
+  {
+    id: "eurc-swprc",
+    name: "EURC / SWPRC",
+    tokens: ["EURC", "SWPRC"],
+    poolAddress: "0x9463DE67E73B42B2cE5e45cab7e32184B9c24939",
+    lpToken: "0xb81816d4fBB3D33b56c3efc04675d1cDed0f68b1",
+  },
+];
+
+const LP_ABI = [
+  "function balanceOf(address) view returns (uint256)",
+  "function totalSupply() view returns (uint256)",
+  "function decimals() view returns (uint8)",
+];
 const POOL_ABI = [
+  "function getBalances() view returns (uint256[])",
+  "function lpToken() view returns (address)",
+  "function addLiquidity(uint256[] amounts)",
+  "function removeLiquidity(uint256 lpAmount)",
+  "function claimRewards()",
   "function get_dy(uint256 i, uint256 j, uint256 dx) view returns (uint256)",
   "function swap(uint256 i, uint256 j, uint256 dx) returns (uint256)",
 ];
@@ -21,6 +58,11 @@ const ERC20_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
   "function allowance(address owner, address spender) view returns (uint256)",
 ];
+const TOKEN_LOGOS = {
+  USDC: usdcLogo,
+  EURC: eurcLogo,
+  SWPRC: swprcLogo,
+};
 
 const INITIAL_TOKENS = [
   {
@@ -83,7 +125,14 @@ function Ticker({ tokens, prices }) {
       <div className="ticker-track">
         {double.map((t, i) => (
           <div className="ticker-item" key={`${t.symbol}-${i}`}>
-            <div className="ticker-logo">{t.symbol.slice(0, 1)}</div>
+            <div className="ticker-logo">
+              <img
+                src={TOKEN_LOGOS[t.symbol]}
+                alt={t.symbol}
+                style={{ width: "100%", height: "100%", borderRadius: "50%" }}
+              />
+            </div>
+
             <div className="ticker-name">{t.symbol}</div>
             <div className="ticker-price">
               {prices && prices[t.symbol] != null
@@ -137,7 +186,14 @@ function TokenSelect({ tokens, value, onChange }) {
   return (
     <div className="tokenselect" ref={ref}>
       <button className="tokenbtn" onClick={() => setOpen((o) => !o)}>
-        <span className="tokenBadgeSmall">{value.slice(0, 3)}</span>
+        <span className="tokenBadgeSmall">
+          <img
+            src={TOKEN_LOGOS[value]}
+            alt={value}
+            style={{ width: "100%", height: "100%", borderRadius: "50%" }}
+          />
+        </span>
+
         <span className="tokenLabel">{value}</span>
         <span className="caret">{open ? "▴" : "▾"}</span>
       </button>
@@ -163,8 +219,17 @@ function TokenSelect({ tokens, value, onChange }) {
                   }}
                 >
                   <span className="tokenBadgeSmall">
-                    {t.symbol.slice(0, 3)}
+                    <img
+                      src={TOKEN_LOGOS[t.symbol]}
+                      alt={t.symbol}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        borderRadius: "50%",
+                      }}
+                    />
                   </span>
+
                   <div style={{ textAlign: "left" }}>
                     <div className="optSym">{t.symbol}</div>
                     <div className="optName">{t.name}</div>
@@ -190,12 +255,35 @@ export default function App() {
     SWPRC: 2,
   };
   const [address, setAddress] = useState(null);
+  const [activePreset, setActivePreset] = useState(null);
   const [network, setNetwork] = useState(null);
+  const [poolTokenBalances, setPoolTokenBalances] = useState({});
+  const [lpTokenAmounts, setLpTokenAmounts] = useState({});
+  const [lpBalances, setLpBalances] = useState({});
+  const [liquiditySuccess, setLiquiditySuccess] = useState(null);
+  const [lpDecimals, setLpDecimals] = useState(18);
+  const [poolBalances, setPoolBalances] = useState({});
   const [status, setStatus] = useState("Not connected");
   const [balances, setBalances] = useState({});
   const [tokens, setTokens] = useState(INITIAL_TOKENS);
   const [swapFrom, setSwapFrom] = useState("USDC");
   const [poolTxs, setPoolTxs] = useState([]);
+  const [showAddLiquidity, setShowAddLiquidity] = useState(false);
+  const [liqInputs, setLiqInputs] = useState({
+    USDC: "",
+    EURC: "",
+    SWPRC: "",
+  });
+  const [myDeposits, setMyDeposits] = useState({
+    USDC: 0,
+    EURC: 0,
+    SWPRC: 0,
+  });
+
+  const [liqLoading, setLiqLoading] = useState(false);
+  const [showRemoveLiquidity, setShowRemoveLiquidity] = useState(false);
+  const [removeLpAmount, setRemoveLpAmount] = useState("");
+  const [removeLoading, setRemoveLoading] = useState(false);
   const [historyView, setHistoryView] = useState("mine");
   const TXS_PER_PAGE = 10;
   const [txPage, setTxPage] = useState(0);
@@ -215,6 +303,7 @@ export default function App() {
     historyView === "all" ? poolTxs.length : walletTxs.length;
   const [txLoading, setTxLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("swap");
+  const [poolsView, setPoolsView] = useState("positions");
   const [swapHistory, setSwapHistory] = useState(() => {
     try {
       const saved = localStorage.getItem("swaparc_history");
@@ -234,11 +323,147 @@ export default function App() {
 
   const [prices, setPrices] = useState({});
 
+  async function fetchAllLPBalances(user, provider) {
+    const balances = {};
+
+    for (const p of POOLS) {
+      try {
+        const lp = new ethers.Contract(p.lpToken, LP_ABI, provider);
+        const raw = await lp.balanceOf(user);
+        const dec = await lp.decimals();
+        balances[p.id] = Number(raw) / 1e6;
+      } catch {
+        balances[p.id] = 0;
+      }
+    }
+
+    setLpBalances(balances);
+  }
+
+  async function handleClaimRewards(poolPreset) {
+    if (!address) {
+      alert("Connect wallet first");
+      return;
+    }
+
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      const pool = new ethers.Contract(
+        poolPreset.poolAddress,
+        POOL_ABI,
+        signer
+      );
+
+      const tx = await pool.claimRewards();
+      await tx.wait();
+
+      await fetchBalances(address, provider);
+      await fetchAllLPBalances(address, provider);
+
+      alert("Rewards claimed!");
+    } catch (err) {
+      console.error(err);
+      alert("Claim rewards failed");
+    }
+  }
+
+  async function fetchLPTokenAmounts(user, provider) {
+    const result = {};
+
+    for (const p of POOLS) {
+      try {
+        // Contracts
+        const pool = new ethers.Contract(p.poolAddress, POOL_ABI, provider);
+        const lp = new ethers.Contract(p.lpToken, LP_ABI, provider);
+
+        // LP math
+        const userLP = await lp.balanceOf(user); // raw LP
+        const totalLP = await lp.totalSupply(); // raw LP
+
+        if (totalLP === 0n || userLP === 0n) continue;
+
+        const share = Number(userLP) / Number(totalLP);
+
+        // Pool balances
+        const balances = await pool.getBalances();
+
+        result[p.id] = {};
+
+        for (let i = 0; i < p.tokens.length; i++) {
+          const sym = p.tokens[i];
+          const token = INITIAL_TOKENS.find((t) => t.symbol === sym);
+          const tokenC = new ethers.Contract(
+            token.address,
+            ERC20_ABI,
+            provider
+          );
+          const dec = await tokenC.decimals();
+
+          const poolAmount = Number(ethers.formatUnits(balances[i], dec));
+
+          result[p.id][sym] = poolAmount * share;
+        }
+      } catch (e) {
+        console.warn("LP breakdown failed for", p.id, e);
+      }
+    }
+
+    setLpTokenAmounts(result);
+  }
+
+  async function fetchPoolBalances(provider) {
+    const tvlResult = {};
+    const tokenResult = {};
+
+    for (const p of POOLS) {
+      try {
+        const pool = new ethers.Contract(p.poolAddress, POOL_ABI, provider);
+        const raw = await pool.getBalances();
+
+        tokenResult[p.id] = {};
+        let tvl = 0;
+
+        for (let i = 0; i < p.tokens.length; i++) {
+          const sym = p.tokens[i];
+          const token = INITIAL_TOKENS.find((t) => t.symbol === sym);
+          const tokenC = new ethers.Contract(
+            token.address,
+            ERC20_ABI,
+            provider
+          );
+          const dec = await tokenC.decimals();
+
+          const bal = Number(ethers.formatUnits(raw[i], dec));
+          tokenResult[p.id][sym] = bal;
+
+          // Normalize everything to USDC+
+          if (sym === "USDC") {
+            tvl += bal;
+          } else if (sym === "EURC") {
+            tvl += bal * (prices.EURC || 1); // EUR → USD
+          } else if (sym === "SWPRC") {
+            tvl += bal * (prices.SWPRC || 0);
+          }
+        }
+
+        tvlResult[p.id] = tvl;
+      } catch {
+        tvlResult[p.id] = 0;
+        tokenResult[p.id] = {};
+      }
+    }
+
+    setPoolBalances(tvlResult);
+    setPoolTokenBalances(tokenResult);
+  }
+
   async function fetchPoolTransactions() {
     setTxLoading(true);
     try {
       const res = await fetch(
-        `https://testnet.arcscan.app/api?module=account&action=txlist&address=${POOL_ADDRESS}&sort=desc`
+        `https://testnet.arcscan.app/api?module=account&action=txlist&address=${SWAP_POOL_ADDRESS}&sort=desc`
       );
       const data = await res.json();
 
@@ -254,16 +479,51 @@ export default function App() {
       setTxLoading(false);
     }
   }
+  async function fetchUserPoolTransactions(userAddress) {
+    if (!userAddress) return;
+  
+    setTxLoading(true);
+    try {
+      const res = await fetch(
+        `https://testnet.arcscan.app/api?module=account&action=txlist&address=${userAddress}&sort=desc`
+      );
+      const data = await res.json();
+  
+      if (data.status !== "1") {
+        setPoolTxs([]);
+        return;
+      }
+  
+      const filtered = data.result.filter(
+        (tx) =>
+          tx.to?.toLowerCase() === SWAP_POOL_ADDRESS.toLowerCase() ||
+          tx.from?.toLowerCase() === SWAP_POOL_ADDRESS.toLowerCase()
+      );
+  
+      setPoolTxs(filtered);
+    } catch (err) {
+      console.error("Failed to fetch user txs", err);
+    } finally {
+      setTxLoading(false);
+    }
+  }
+  
   useEffect(() => {
     setTxPage(0);
   }, [historyView]);
 
   useEffect(() => {
-    if (activeTab === "history") {
-      setTxPage(0);
+    if (activeTab !== "history") return;
+  
+    setTxPage(0);
+  
+    if (historyView === "mine" && address) {
+      fetchUserPoolTransactions(address);
+    } else {
       fetchPoolTransactions();
     }
-  }, [activeTab]);
+  }, [activeTab, historyView, address]);
+  
   useEffect(() => {
     let mounted = true;
     async function fetchAndSet() {
@@ -315,7 +575,7 @@ export default function App() {
         const decimalsIn = await tokenIn.decimals();
         const amountIn = ethers.parseUnits(swapAmount, decimalsIn);
 
-        const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, provider);
+        const pool = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, provider);
         const dy = await pool.get_dy(i, j, amountIn);
 
         const decimalsOut = await new ethers.Contract(
@@ -436,6 +696,9 @@ export default function App() {
       setStatus("Connected to Arc Testnet");
 
       await fetchBalances(userAddress, provider);
+      await fetchAllLPBalances(userAddress, provider);
+      await fetchLPTokenAmounts(userAddress, provider);
+      await fetchPoolBalances(provider);
     } catch (err) {
       console.error("connectWallet error:", err);
       setStatus("Wallet connection failed");
@@ -547,15 +810,16 @@ export default function App() {
 
       const allowance = await tokenIn.allowance(
         await signer.getAddress(),
-        POOL_ADDRESS
+        SWAP_POOL_ADDRESS
       );
+
       if (BigInt(allowance) < BigInt(amountIn)) {
         setQuote("Approving token...");
-        const txA = await tokenIn.approve(POOL_ADDRESS, amountIn);
+        const txA = await tokenIn.approve(SWAP_POOL_ADDRESS, amountIn);
         await txA.wait();
       }
 
-      const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, signer);
+      const pool = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, signer);
 
       let expectedOut = null;
       try {
@@ -661,6 +925,150 @@ export default function App() {
     return numericBal * Number(p);
   }
 
+  function totalPoolTVL() {
+    return Object.values(poolBalances).reduce(
+      (sum, v) => sum + Number(v || 0),
+      0
+    );
+  }
+
+  async function handleAddLiquidity() {
+    if (!address) {
+      alert("Connect wallet first");
+      return;
+    }
+
+    try {
+      setLiqLoading(true);
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      const pool = new ethers.Contract(
+        activePreset.poolAddress,
+        POOL_ABI,
+        signer
+      );
+
+      const amounts = [];
+
+      for (const sym of activePreset.tokens) {
+        const token = INITIAL_TOKENS.find((t) => t.symbol === sym);
+        const rawVal = liqInputs[sym];
+
+        if (!rawVal || Number(rawVal) <= 0) {
+          amounts.push(0n);
+          continue;
+        }
+
+        const tokenContract = new ethers.Contract(
+          token.address,
+          ERC20_ABI,
+          signer
+        );
+
+        const decimals = await tokenContract.decimals();
+        const parsed = ethers.parseUnits(rawVal, decimals);
+
+        const allowance = await tokenContract.allowance(
+          address,
+          activePreset.poolAddress
+        );
+
+        if (BigInt(allowance) < BigInt(parsed)) {
+          const txApprove = await tokenContract.approve(
+            activePreset.poolAddress,
+            parsed
+          );
+          await txApprove.wait();
+        }
+
+        amounts.push(parsed);
+      }
+
+      const tx = await pool.addLiquidity(amounts);
+      await tx.wait();
+
+      await fetchBalances(address, provider);
+      await fetchAllLPBalances(address, provider);
+      await fetchLPTokenAmounts(address, provider);
+      await fetchPoolBalances(provider);
+      setMyDeposits((prev) => ({
+        USDC: prev.USDC + Number(liqInputs.USDC || 0),
+        EURC: prev.EURC + Number(liqInputs.EURC || 0),
+        SWPRC: prev.SWPRC + Number(liqInputs.SWPRC || 0),
+      }));
+
+      setLiquiditySuccess({
+        poolId: activePreset.id,
+        type: "add",
+        amounts: { ...liqInputs },
+      });
+      setPoolsView("positions");
+      setShowAddLiquidity(false);
+      setLiqInputs({ USDC: "", EURC: "", SWPRC: "" });
+    } catch (err) {
+      console.error(err);
+      alert("Add liquidity failed");
+    } finally {
+      setLiqLoading(false);
+    }
+  }
+  function closeAddLiquidity() {
+    setShowAddLiquidity(false);
+    setActivePreset(null);
+    setLiqInputs({ USDC: "", EURC: "", SWPRC: "" });
+  }
+
+  async function handleRemoveLiquidity() {
+    if (!address) {
+      alert("Connect wallet first");
+      return;
+    }
+
+    if (!removeLpAmount || Number(removeLpAmount) <= 0) {
+      alert("Enter LP amount to remove");
+      return;
+    }
+
+    try {
+      setRemoveLoading(true);
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      // IMPORTANT: LP is 6-decimal based
+      const lpParsed = BigInt(Math.floor(Number(removeLpAmount) * 1e6));
+
+      const pool = new ethers.Contract(
+        activePreset.poolAddress,
+        POOL_ABI,
+        signer
+      );
+
+      const tx = await pool.removeLiquidity(lpParsed);
+      await tx.wait();
+
+      await fetchBalances(address, provider);
+      await fetchAllLPBalances(address, provider);
+      await fetchLPTokenAmounts(address, provider);
+      await fetchPoolBalances(provider);
+
+      setLiquiditySuccess({
+        poolId: activePreset.id,
+        type: "remove",
+        amount: removeLpAmount,
+      });
+      setShowRemoveLiquidity(false);
+      setRemoveLpAmount("");
+    } catch (err) {
+      console.error(err);
+      alert("Remove liquidity failed");
+    } finally {
+      setRemoveLoading(false);
+    }
+  }
+
   return (
     <div className="app-page hybrid-page">
       <div className="app-container hybrid-center">
@@ -688,42 +1096,35 @@ export default function App() {
             ))}
           </div>
           <div className="headerRight mobileHeader">
-  {/* DESKTOP ONLY BUTTONS */}
-  <button
-    className="xBtn desktopOnly"
-    onClick={() => window.open("https://x.com/swaparc_app", "_blank")}
-  >
-    𝕏
-  </button>
+            {/* DESKTOP ONLY BUTTONS */}
+            <button
+              className="xBtn desktopOnly"
+              onClick={() => window.open("https://x.com/swaparc_app", "_blank")}
+            >
+              𝕏
+            </button>
 
-  <button
-    className="faucetBtn desktopOnly"
-    onClick={openFaucet}
-  >
-    💧 Get Faucet
-  </button>
+            <button className="faucetBtn desktopOnly" onClick={openFaucet}>
+              💧 Get Faucet
+            </button>
 
-  {!address ? (
-    <button className="connectBtn" onClick={connectWallet}>
-      Connect Wallet
-    </button>
-  ) : (
-    <button
-      className="walletPill"
-      onClick={disconnectWallet}
-    >
-      Arc Testnet · {shortAddr(address)}
-    </button>
-  )}
+            {!address ? (
+              <button className="connectBtn" onClick={connectWallet}>
+                Connect Wallet
+              </button>
+            ) : (
+              <button className="walletPill" onClick={disconnectWallet}>
+                Arc Testnet · {shortAddr(address)}
+              </button>
+            )}
 
-  <button
-    className="hamburgerBtn"
-    onClick={() => setMobileMenuOpen(true)}
-  >
-    ☰
-  </button>
-</div>
-
+            <button
+              className="hamburgerBtn"
+              onClick={() => setMobileMenuOpen(true)}
+            >
+              ☰
+            </button>
+          </div>
         </header>
 
         <Ticker tokens={tokens} prices={prices} />
@@ -913,12 +1314,235 @@ export default function App() {
                   )}
                 </div>
               )}
-
               {activeTab === "pools" && (
-                <div className="comingSoon neon-card">
-                  <h2>POOLS</h2>
-                  <p>Coming Soon ✨</p>
-                </div>
+                <>
+                  <div
+                    className="historyToggleRow"
+                    style={{ marginBottom: 16 }}
+                  >
+                    <button
+                      className={`historyToggleBtn ${
+                        poolsView === "positions" ? "active" : ""
+                      }`}
+                      onClick={() => setPoolsView("positions")}
+                    >
+                      MY POSITIONS
+                    </button>
+
+                    <button
+                      className={`historyToggleBtn ${
+                        poolsView === "all" ? "active" : ""
+                      }`}
+                      onClick={() => setPoolsView("all")}
+                    >
+                      ALL POOLS
+                    </button>
+                  </div>
+
+                  <div style={{ width: "100%" }}>
+                    {poolsView === "positions" && (
+                      <div className="neon-card">
+                        <h4
+                          style={{
+                            marginBottom: 12,
+                            textAlign: "center",
+                            color: "cyan",
+                          }}
+                        >
+                          My Positions
+                        </h4>
+
+                        {!address ? (
+                          <p className="muted">
+                            Connect wallet to view positions.
+                          </p>
+                        ) : POOLS.filter((p) => lpBalances[p.id] > 0).length ===
+                          0 ? (
+                          <div className="comingSoon">
+                            <p className="muted">
+                              You have no active liquidity positions
+                            </p>
+                            <button
+                              className="primaryBtn"
+                              onClick={() => setPoolsView("all")}
+                            >
+                              Add Liquidity
+                            </button>
+                          </div>
+                        ) : (
+                          POOLS.filter((p) => lpBalances[p.id] > 0).map((p) => (
+                            <div key={p.id} className="positionCard neon-card">
+                              <div className="poolHeader">
+                                <div className="poolTokens">
+                                  {p.tokens.map((t, i) => (
+                                    <span className="token-badge">
+                                      <img
+                                        src={TOKEN_LOGOS[t]}
+                                        alt={t}
+                                        style={{
+                                          width: "100%",
+                                          height: "100%",
+                                          borderRadius: "50%",
+                                        }}
+                                      />
+                                    </span>
+                                  ))}
+                                </div>
+                                <div className="poolName">{p.name}</div>
+                              </div>
+
+                              <div className="poolLiquidity">
+                                <div className="liquidityTitle">
+                                  YOUR LIQUIDITY
+                                </div>
+
+                                {lpTokenAmounts[p.id] ? (
+                                  Object.entries(lpTokenAmounts[p.id]).map(
+                                    ([sym, amt]) => (
+                                      <div key={sym} className="liquidityRow">
+                                        <span>{sym}</span>
+                                        <strong>{amt.toFixed(4)}</strong>
+                                      </div>
+                                    )
+                                  )
+                                ) : (
+                                  <span className="muted">—</span>
+                                )}
+                              </div>
+
+                              <div className="txActions">
+                                <button
+                                  className="secondaryBtn"
+                                  onClick={() => {
+                                    setActivePreset(p);
+                                    setShowRemoveLiquidity(true);
+                                  }}
+                                >
+                                  Remove
+                                </button>
+
+                                <button
+                                  className="primaryBtn"
+                                  onClick={() => {
+                                    setActivePreset(p);
+                                    setShowAddLiquidity(true);
+                                  }}
+                                >
+                                  Add
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+
+                    {poolsView === "all" && (
+                      <div>
+                        <div className="poolsGrid">
+                          {POOLS.map((p) => {
+                            const tvl = poolBalances[p.id] || 0;
+
+                            return (
+                              <div key={p.id} className="poolCard neon-card">
+                                <div className="poolHeader">
+                                  <div className="poolTokens">
+                                    {p.tokens.map((t, i) => (
+                                      <span className="token-badge">
+                                        <img
+                                          src={TOKEN_LOGOS[t]}
+                                          alt={t}
+                                          style={{
+                                            width: "100%",
+                                            height: "100%",
+                                            borderRadius: "50%",
+                                          }}
+                                        />
+                                      </span>
+                                    ))}
+                                  </div>
+                                  <div className="poolName">{p.name}</div>
+                                </div>
+
+                                <div className="poolLiquidity">
+                                  <div className="liquidityTitle">
+                                    TOTAL LIQUIDITY
+                                  </div>
+
+                                  {poolTokenBalances[p.id] ? (
+                                    Object.entries(poolTokenBalances[p.id]).map(
+                                      ([sym, amt]) => (
+                                        <div key={sym} className="liquidityRow">
+                                          <span>{sym}</span>
+                                          <strong>{amt.toFixed(2)}</strong>
+                                        </div>
+                                      )
+                                    )
+                                  ) : (
+                                    <span className="muted">—</span>
+                                  )}
+                                </div>
+
+                                <div className="poolStat">
+                                  <span>Fee</span>
+                                  <strong>0.30%</strong>
+                                </div>
+
+                                <button
+                                  className="primaryBtn"
+                                  onClick={() => {
+                                    setActivePreset(p);
+                                    setPoolsView("positions");
+                                    setShowAddLiquidity(true);
+                                  }}
+                                >
+                                  Deposit
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {Object.keys(poolBalances).length > 0 && (
+                          <div className="neon-card" style={{ marginTop: 28 }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                              }}
+                            >
+                              <div>
+                                <div className="muted">Total TVL</div>
+                                <strong style={{ fontSize: 22 }}>
+                                  $
+                                  {totalPoolTVL().toLocaleString(undefined, {
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </strong>
+                              </div>
+
+                              <div style={{ textAlign: "right" }}>
+                                <div className="muted">Pools</div>
+                                <strong>{POOLS.length}</strong>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        <div
+                          className="muted"
+                          style={{
+                            marginTop: 18,
+                            textAlign: "center",
+                            fontStyle: "italic",
+                          }}
+                        >
+                          Liquidity and TVL are fetched directly from on-chain
+                          balances
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           </section>
@@ -974,37 +1598,180 @@ export default function App() {
         </div>
       )}
 
-{mobileMenuOpen && (
-  <div className="mobileMenuOverlay">
-    <div className="mobileMenu">
-      <button onClick={() => { setActiveTab("swap"); setMobileMenuOpen(false); }}>
-        Swap
-      </button>
+      {liquiditySuccess && (
+        <div className="modalOverlay">
+          <div className="txModal liquidityModal">
+            <h3 style={{ color: "#9ff6ff", marginBottom: 14 }}>
+              {liquiditySuccess.type === "add"
+                ? "Liquidity Added Successfully"
+                : "Liquidity Removed Successfully"}
+            </h3>
 
-      <button onClick={() => { setActiveTab("history"); setMobileMenuOpen(false); }}>
-        History
-      </button>
+            {liquiditySuccess.type === "add" &&
+              Object.entries(liquiditySuccess.amounts).map(
+                ([sym, amt]) =>
+                  amt &&
+                  Number(amt) > 0 && (
+                    <div key={sym} className="txRow">
+                      <span>{sym}</span>
+                      <strong>{Number(amt).toFixed(4)}</strong>
+                    </div>
+                  )
+              )}
 
-      <button onClick={() => { setActiveTab("pools"); setMobileMenuOpen(false); }}>
-        Pools
-      </button>
+            {liquiditySuccess.type === "remove" && (
+              <div className="txRow">
+                <span>LP Removed</span>
+                <strong>{liquiditySuccess.amount}</strong>
+              </div>
+            )}
 
-      <button onClick={openFaucet}>
-        💧 Get Faucet
-      </button>
+            <div className="txActions">
+              <button
+                className="primaryBtn"
+                onClick={() => setLiquiditySuccess(null)}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-      <button
-        onClick={() => window.open("https://x.com/swaparc_app", "_blank")}
-      >
-        𝕏 Twitter
-      </button>
+      {mobileMenuOpen && (
+        <div className="mobileMenuOverlay">
+          <div className="mobileMenu">
+            <button
+              onClick={() => {
+                setActiveTab("swap");
+                setMobileMenuOpen(false);
+              }}
+            >
+              Swap
+            </button>
 
-      <button className="closeBtn" onClick={() => setMobileMenuOpen(false)}>
-        Close ✕
-      </button>
-    </div>
-  </div>
-)}
+            <button
+              onClick={() => {
+                setActiveTab("history");
+                setMobileMenuOpen(false);
+              }}
+            >
+              History
+            </button>
+
+            <button
+              onClick={() => {
+                setActiveTab("pools");
+                setMobileMenuOpen(false);
+              }}
+            >
+              Pools
+            </button>
+
+            <button onClick={openFaucet}>💧 Get Faucet</button>
+
+            <button
+              onClick={() => window.open("https://x.com/swaparc_app", "_blank")}
+            >
+              𝕏 Twitter
+            </button>
+
+            <button
+              className="closeBtn"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              Close ✕
+            </button>
+          </div>
+        </div>
+      )}
+      {showAddLiquidity && (
+        <div className="modalOverlay">
+          <div className="txModal liquidityModal">
+            <h3>Add Liquidity</h3>
+
+            {(activePreset?.tokens || ["USDC", "EURC", "SWPRC"]).map((sym) => (
+              <div key={sym} style={{ marginBottom: 14 }}>
+                <div
+                  style={{ display: "flex", justifyContent: "space-between" }}
+                >
+                  <span>{sym}</span>
+                  <span>Balance: {balances[sym]}</span>
+                </div>
+
+                <input
+                  className="swapInput"
+                  placeholder="0.00"
+                  value={liqInputs[sym] || ""}
+                  onChange={(e) =>
+                    setLiqInputs((p) => ({ ...p, [sym]: e.target.value }))
+                  }
+                />
+
+                <div style={{ fontSize: 12, opacity: 0.7 }}>
+                  ≈ $
+                  {liqInputs[sym] && prices[sym]
+                    ? (Number(liqInputs[sym]) * prices[sym]).toFixed(2)
+                    : "0.00"}
+                </div>
+              </div>
+            ))}
+
+            <div className="txActions">
+              <button className="secondaryBtn" onClick={closeAddLiquidity}>
+                Cancel
+              </button>
+
+              <button
+                className="primaryBtn"
+                onClick={handleAddLiquidity}
+                disabled={liqLoading}
+              >
+                {liqLoading ? "Supplying..." : "Supply"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showRemoveLiquidity && (
+        <div className="modalOverlay">
+          <div className="txModal liquidityModal">
+            <h3>Remove Liquidity</h3>
+
+            <p className="muted">Enter LP amount to remove</p>
+
+            <input
+              className="swapInput"
+              placeholder="LP amount"
+              value={removeLpAmount}
+              onChange={(e) => setRemoveLpAmount(e.target.value)}
+              style={{ marginBottom: 12 }}
+            />
+
+            <p className="muted">
+              Your LP balance:{" "}
+              {activePreset ? lpBalances[activePreset.id]?.toFixed(6) : "—"}
+            </p>
+
+            <div className="txActions">
+              <button
+                className="secondaryBtn"
+                onClick={() => setShowRemoveLiquidity(false)}
+              >
+                Cancel
+              </button>
+
+              <button
+                className="primaryBtn"
+                onClick={handleRemoveLiquidity}
+                disabled={removeLoading}
+              >
+                {removeLoading ? "Removing..." : "Remove"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
