@@ -846,7 +846,23 @@ body {
   margin-top: 16px;
 }
 
-.txActions > button {
+.txActions {
+  display: flex;
+  gap: 10px;
+}
+
+.txActions>* {
+  flex: 1;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: normal;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.txActions>button {
   flex: 1;
 }
 
@@ -929,14 +945,13 @@ body {
   transform: translateY(-1px);
 }
 
-/* DESKTOP – Get Faucet button */
 @media (min-width: 769px) {
   .faucetBtn {
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.25);
-    color: #cfe7ff; /* same as nav buttons */
+    color: #cfe7ff;
     padding: 8px 14px;
-    border-radius: 999px; /* rounded rectangle like X */
+    border-radius: 999px;
     font-weight: 700;
     cursor: pointer;
     transition:
@@ -1035,7 +1050,6 @@ body {
   color: white;
 }
 
-/* Highlight MY transactions when viewing ALL */
 .mineTx {
   border: 1px solid rgba(124, 197, 255, 0.45);
   background: linear-gradient(180deg,
@@ -1139,6 +1153,7 @@ body {
 
 
 @media (max-width: 768px) {
+
   .title,
   .subtitle {
     display: none;
@@ -1159,8 +1174,8 @@ body {
   .walletPill {
     padding: 8px 12px;
     border-radius: 12px;
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     color: #eaf6ff;
     font-weight: 600;
     cursor: pointer;
@@ -1209,6 +1224,7 @@ body {
 }
 
 @media (min-width: 769px) {
+
   .xBtn,
   .faucetBtn {
     display: inline-flex;
@@ -1221,11 +1237,9 @@ body {
   .walletPill {
     padding: 10px 16px;
     border-radius: 14px;
-    background: linear-gradient(
-      180deg,
-      rgba(124, 197, 255, 0.18),
-      rgba(46, 110, 246, 0.25)
-    );
+    background: linear-gradient(180deg,
+        rgba(124, 197, 255, 0.18),
+        rgba(46, 110, 246, 0.25));
     border: 1px solid rgba(124, 197, 255, 0.45);
     color: #f0f7ff;
     font-weight: 700;
@@ -1293,6 +1307,7 @@ body {
     0 0 0 1px rgba(124, 197, 255, 0.4),
     0 18px 40px rgba(46, 110, 246, 0.35);
 }
+
 .positionCard {
   padding: 18px;
   margin-bottom: 16px;
@@ -1303,8 +1318,8 @@ body {
 .positionCard:hover {
   transform: translateY(-4px);
   box-shadow:
-    0 0 0 1px rgba(124,197,255,0.4),
-    0 18px 40px rgba(46,110,246,0.35);
+    0 0 0 1px rgba(124, 197, 255, 0.4),
+    0 18px 40px rgba(46, 110, 246, 0.35);
 }
 
 .positionHeader {
@@ -1331,11 +1346,9 @@ body {
   margin-bottom: 14px;
   padding: 12px;
   border-radius: 12px;
-  background: linear-gradient(
-    180deg,
-    rgba(0, 234, 255, 0.10),
-    rgba(0, 234, 255, 0.04)
-  );
+  background: linear-gradient(180deg,
+      rgba(0, 234, 255, 0.10),
+      rgba(0, 234, 255, 0.04));
   border: 1px solid rgba(0, 234, 255, 0.35);
   box-shadow:
     0 0 0 1px rgba(0, 234, 255, 0.25),
@@ -1369,11 +1382,9 @@ body {
 .poolLiquidity {
   padding: 12px;
   border-radius: 12px;
-  background: linear-gradient(
-    180deg,
-    rgba(0, 234, 255, 0.08),
-    rgba(0, 234, 255, 0.03)
-  );
+  background: linear-gradient(180deg,
+      rgba(0, 234, 255, 0.08),
+      rgba(0, 234, 255, 0.03));
   border: 1px solid rgba(0, 234, 255, 0.28);
   margin-bottom: 12px;
   transition: opacity 0.2s ease, box-shadow 0.2s ease;
@@ -1386,16 +1397,6 @@ body {
     0 16px 36px rgba(0, 234, 255, 0.25);
 }
 
-.txActions button {
-  height: 48px;
-  padding: 0;
-  line-height: 48px;
-}
-
-.txActions button {
-  width: auto;      
-  flex: 1;           
-}
 
 .txActions .primaryBtn {
   margin-top: 0;

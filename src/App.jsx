@@ -1393,7 +1393,7 @@ export default function App() {
 
                               <div className="poolLiquidity">
                                 <div className="liquidityTitle">
-                                  YOUR LIQUIDITY
+                                  MY LIQUIDITY
                                 </div>
 
                                 {lpTokenAmounts[p.id] ? (
@@ -1749,7 +1749,7 @@ export default function App() {
             />
 
             <p className="muted">
-              Your LP balance:{" "}
+             LP balance:{" "}
               {activePreset ? lpBalances[activePreset.id]?.toFixed(6) : "—"}
             </p>
 
