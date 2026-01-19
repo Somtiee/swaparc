@@ -412,7 +412,34 @@ export default function App() {
 
     setLpTokenAmounts(result);
   }
-
+  async function getOnchainPriceInUSDC(provider, fromSymbol) {
+    if (fromSymbol === "USDC") return 1;
+  
+    try {
+      const pool = new ethers.Contract(
+        SWAP_POOL_ADDRESS,
+        POOL_ABI,
+        provider
+      );
+  
+      const fromIndex = tokenIndices[fromSymbol];
+      const usdcIndex = tokenIndices.USDC;
+  
+      const token = INITIAL_TOKENS.find(t => t.symbol === fromSymbol);
+      const tokenC = new ethers.Contract(token.address, ERC20_ABI, provider);
+      const decimals = await tokenC.decimals();
+  
+   
+      const oneToken = ethers.parseUnits("1", decimals);
+      const dy = await pool.get_dy(fromIndex, usdcIndex, oneToken);
+  
+      return Number(ethers.formatUnits(dy, 6)); 
+    } catch (e) {
+      console.warn("Price fetch failed for", fromSymbol);
+      return 0;
+    }
+  }
+  
   async function fetchPoolBalances(provider) {
     const tvlResult = {};
     const tokenResult = {};
@@ -438,14 +465,9 @@ export default function App() {
           const bal = Number(ethers.formatUnits(raw[i], dec));
           tokenResult[p.id][sym] = bal;
 
-          // Normalize everything to USDC+
-          if (sym === "USDC") {
-            tvl += bal;
-          } else if (sym === "EURC") {
-            tvl += bal * (prices.EURC || 1); // EUR → USD
-          } else if (sym === "SWPRC") {
-            tvl += bal * (prices.SWPRC || 0);
-          }
+          const priceInUSDC = await getOnchainPriceInUSDC(provider, sym);
+          tvl += bal * priceInUSDC;
+          
         }
 
         tvlResult[p.id] = tvl;
@@ -481,25 +503,25 @@ export default function App() {
   }
   async function fetchUserPoolTransactions(userAddress) {
     if (!userAddress) return;
-  
+
     setTxLoading(true);
     try {
       const res = await fetch(
         `https://testnet.arcscan.app/api?module=account&action=txlist&address=${userAddress}&sort=desc`
       );
       const data = await res.json();
-  
+
       if (data.status !== "1") {
         setPoolTxs([]);
         return;
       }
-  
+
       const filtered = data.result.filter(
         (tx) =>
           tx.to?.toLowerCase() === SWAP_POOL_ADDRESS.toLowerCase() ||
           tx.from?.toLowerCase() === SWAP_POOL_ADDRESS.toLowerCase()
       );
-  
+
       setPoolTxs(filtered);
     } catch (err) {
       console.error("Failed to fetch user txs", err);
@@ -507,23 +529,23 @@ export default function App() {
       setTxLoading(false);
     }
   }
-  
+
   useEffect(() => {
     setTxPage(0);
   }, [historyView]);
 
   useEffect(() => {
     if (activeTab !== "history") return;
-  
+
     setTxPage(0);
-  
+
     if (historyView === "mine" && address) {
       fetchUserPoolTransactions(address);
     } else {
       fetchPoolTransactions();
     }
   }, [activeTab, historyView, address]);
-  
+
   useEffect(() => {
     let mounted = true;
     async function fetchAndSet() {
@@ -1749,7 +1771,7 @@ export default function App() {
             />
 
             <p className="muted">
-             LP balance:{" "}
+              LP balance:{" "}
               {activePreset ? lpBalances[activePreset.id]?.toFixed(6) : "—"}
             </p>
 
