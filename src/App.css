@@ -200,11 +200,10 @@ body {
 
 @keyframes tickerScroll {
   from {
-    transform: translateX(0);
+    transform: translate3d(0, 0, 0);
   }
-
   to {
-    transform: translateX(-50%);
+    transform: translate3d(-50%, 0, 0);
   }
 }
 
@@ -661,10 +660,9 @@ body {
   }
 
   .ticker-track {
-    animation: none;
+    animation: tickerScroll 70s linear infinite;
     justify-content: flex-start;
   }
-
   .main {
     margin-top: 16px;
   }
