@@ -656,26 +656,42 @@ export default function App() {
       });
       return true;
     } catch (err) {
-      if (err.code === 4902) {
-        await ethereum.request({
-          method: "wallet_addEthereumChain",
-          params: [
-            {
-              chainId: ARC_CHAIN_ID_HEX,
-              chainName: "Arc Testnet",
-              nativeCurrency: {
-                name: "ARC",
-                symbol: "ARC",
-                decimals: 18,
+      // 4902: Chain not found. Some wallets might throw generic errors with "Unrecognized chain".
+      if (
+        err.code === 4902 ||
+        (err.message && err.message.includes("Unrecognized chain"))
+      ) {
+        try {
+          await ethereum.request({
+            method: "wallet_addEthereumChain",
+            params: [
+              {
+                chainId: ARC_CHAIN_ID_HEX,
+                chainName: "Arc Testnet",
+                nativeCurrency: {
+                  name: "ARC",
+                  symbol: "ARC",
+                  decimals: 18,
+                },
+                rpcUrls: ["https://rpc.testnet.arc.network"],
+                blockExplorerUrls: ["https://testnet.arcscan.app"],
               },
-              rpcUrls: ["https://rpc.testnet.arc.network"],
-              blockExplorerUrls: ["https://testnet.arcscan.app"],
-            },
-          ],
-        });
+            ],
+          });
 
-        return true;
+          // Retry switching after adding
+          await ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: ARC_CHAIN_ID_HEX }],
+          });
+
+          return true;
+        } catch (addError) {
+          console.error("Failed to add or switch to Arc Testnet", addError);
+          return false;
+        }
       }
+      console.error("Failed to switch to Arc Testnet", err);
       return false;
     }
   }
@@ -688,12 +704,7 @@ export default function App() {
         return;
       }
 
-      const ok = await ensureArcNetwork();
-      if (!ok) {
-        setStatus("Please switch to Arc Testnet");
-        return;
-      }
-
+      // 1. Request accounts first so we have permission
       const accounts = await ethereum.request({
         method: "eth_requestAccounts",
       });
@@ -703,8 +714,14 @@ export default function App() {
         return;
       }
 
-      const userAddress = accounts[0];
+      // 2. Ensure we are on Arc Testnet (add/switch if needed)
+      const ok = await ensureArcNetwork();
+      if (!ok) {
+        setStatus("Please switch to Arc Testnet");
+        return;
+      }
 
+      const userAddress = accounts[0];
       const provider = new ethers.BrowserProvider(ethereum);
       const net = await provider.getNetwork();
 
@@ -1107,7 +1124,7 @@ export default function App() {
             </div>
           </div>
           <div className="topNav desktopOnly">
-            {["swap", "history", "pools"].map((t) => (
+            {["profile", "swap", "pools", "arcpay"].map((t) => (
               <button
                 key={t}
                 className={`navBtn ${activeTab === t ? "active" : ""}`}
@@ -1154,6 +1171,12 @@ export default function App() {
         <main className="main">
           <section className="topCards hybrid-grid">
             <div className="card controls neon-card swapCardCentered">
+              {activeTab === "profile" && (
+                <div style={{ textAlign: "center", padding: "40px 20px" }}>
+                  <h2>Profile</h2>
+                  <p className="muted">Profile system coming next.</p>
+                </div>
+              )}
               {activeTab === "swap" && (
                 <>
                   <div className="swapRowClean">
@@ -1241,10 +1264,37 @@ export default function App() {
                       <strong>Quote:</strong> {quote}
                     </p>
                   )}
+
+                  <div style={{ marginTop: 24, display: "flex", justifyContent: "center" }}>
+                    <button
+                      className="secondaryBtn"
+                      style={{ fontSize: 13, padding: "8px 16px" }}
+                      onClick={() => setActiveTab("history")}
+                    >
+                      View Swap History
+                    </button>
+                  </div>
                 </>
               )}
               {activeTab === "history" && (
                 <div className="historyBox">
+                  <button
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "rgba(255, 255, 255, 0.6)",
+                      cursor: "pointer",
+                      marginBottom: 12,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontSize: 14,
+                      padding: 0,
+                    }}
+                    onClick={() => setActiveTab("swap")}
+                  >
+                    ◀ Back
+                  </button>
                   <div className="historyToggleRow">
                     <button
                       className={`historyToggleBtn ${
@@ -1566,6 +1616,28 @@ export default function App() {
                   </div>
                 </>
               )}
+              {activeTab === "arcpay" && (
+                <div
+                  className="neon-card"
+                  style={{
+                    boxShadow: "0 0 20px rgba(0, 150, 255, 0.4)",
+                    border: "1px solid rgba(0, 150, 255, 0.6)",
+                    textAlign: "center",
+                    padding: "60px 20px",
+                  }}
+                >
+                  <h2 style={{ fontSize: 32, marginBottom: 16 }}>ARCPAY</h2>
+                  <p
+                    style={{
+                      fontSize: 18,
+                      letterSpacing: 4,
+                      opacity: 0.8,
+                    }}
+                  >
+                    COMING SOON
+                  </p>
+                </div>
+              )}
             </div>
           </section>
         </main>
@@ -1665,6 +1737,15 @@ export default function App() {
           <div className="mobileMenu">
             <button
               onClick={() => {
+                setActiveTab("profile");
+                setMobileMenuOpen(false);
+              }}
+            >
+              Profile
+            </button>
+
+            <button
+              onClick={() => {
                 setActiveTab("swap");
                 setMobileMenuOpen(false);
               }}
@@ -1674,20 +1755,20 @@ export default function App() {
 
             <button
               onClick={() => {
-                setActiveTab("history");
-                setMobileMenuOpen(false);
-              }}
-            >
-              History
-            </button>
-
-            <button
-              onClick={() => {
                 setActiveTab("pools");
                 setMobileMenuOpen(false);
               }}
             >
               Pools
+            </button>
+
+            <button
+              onClick={() => {
+                setActiveTab("arcpay");
+                setMobileMenuOpen(false);
+              }}
+            >
+              ARCPAY
             </button>
 
             <button onClick={openFaucet}>💧 Get Faucet</button>
