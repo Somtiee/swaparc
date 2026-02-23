@@ -24,4 +24,6 @@ dist-ssr
 *.sw?
 
 .vercel
-.env*.local
+.env
+.env.local
+.env.*.local
