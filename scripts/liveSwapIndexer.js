@@ -127,9 +127,17 @@ async function fetchNewTransactions(fromBlock) {
         const i = Number(decoded.args[0]);
         const dx = decoded.args[2];
 
-        const usdcValue = await getDyWithFallback(i, dx);
-        const usd = Number(ethers.formatUnits(usdcValue, 6));
-        if (isNaN(usd)) continue;
+        let usd = 0;
+
+        // If tokenIn is USDC, the USD value is just the input amount
+        if (i === USDC_INDEX) {
+          usd = Number(ethers.formatUnits(dx, 6));
+        } else {
+          const usdcValue = await getDyWithFallback(i, dx);
+          usd = Number(ethers.formatUnits(usdcValue, 6));
+        }
+
+        if (isNaN(usd) || !isFinite(usd)) continue;
 
         const current = walletDeltas.get(wallet) || { count: 0, volume: 0 };
         current.count += 1;
