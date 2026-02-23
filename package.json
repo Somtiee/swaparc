@@ -3,35 +3,40 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-
   "engines": {
-    "node": ">=24.13.0"
+    "node": ">=20 <=22"
   },
-
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "indexer": "node scripts/liveSwapIndexer.js"
   },
-
   "dependencies": {
+    "@circle-fin/developer-controlled-wallets": "^10.1.0",
+    "@circle-fin/w3s-pw-web-sdk": "^1.1.11",
+    "@vercel/kv": "^1.0.1",
     "@walletconnect/ethereum-provider": "^2.23.1",
     "@walletconnect/modal": "^2.7.0",
+    "dotenv": "^16.4.5",
     "ethers": "^6.15.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
-
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^5.1.0",
+    "buffer": "^6.0.3",
+    "crypto-browserify": "^3.12.0",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "process": "^0.11.10",
+    "stream-browserify": "^3.0.0",
     "vite": "^7.2.2"
   }
 }

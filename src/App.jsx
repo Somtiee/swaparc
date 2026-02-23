@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { ethers } from "ethers";
 import logo from "./assets/swaparc-logo.png";
 import usdcLogo from "./assets/usdc.jpg";
@@ -9,6 +9,11 @@ import { getPrices } from "./priceFetcher";
 
 const ARC_CHAIN_ID_DEC = 5042002;
 const ARC_CHAIN_ID_HEX = "0x4CEF52";
+const CIRCLE_APP_ID = import.meta.env.VITE_CIRCLE_APP_ID || "";
+
+console.log("Circle env VITE_CIRCLE_APP_ID", CIRCLE_APP_ID);
+
+import { W3SSdk } from "@circle-fin/w3s-pw-web-sdk";
 
 const SWAP_POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
 
@@ -322,10 +327,637 @@ export default function App() {
   const [estimatedTo, setEstimatedTo] = useState("");
 
   const [prices, setPrices] = useState({});
+  const [authMode, setAuthMode] = useState("wallet");
+  const [leaderboard, setLeaderboard] = useState({
+    topSwapVolume: [],
+    topSwapCount: [],
+    topLPProvided: [],
+  });
+  const [showConnectMenu, setShowConnectMenu] = useState(false);
+  const [gmailComingSoon, setGmailComingSoon] = useState(false);
+  const [userEmail, setUserEmail] = useState(null);
+  const [circleWallet, setCircleWallet] = useState(null);
+  const [circleWalletReady, setCircleWalletReady] = useState(false);
+  const [profileStats, setProfileStats] = useState(null);
+  const [userId, setUserId] = useState(null);
+  const [leaderboardTab, setLeaderboardTab] = useState("swaps");
+  const [portfolioValue, setPortfolioValue] = useState(0);
+  const [tokenPrices, setTokenPrices] = useState({});
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailStep, setEmailStep] = useState(1);
+  const [emailInput, setEmailInput] = useState("");
+  const [emailStatus, setEmailStatus] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [emailErrorDetails, setEmailErrorDetails] = useState("");
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [sdkReady, setSdkReady] = useState(false);
+  const [circleDeviceId, setCircleDeviceId] = useState("");
+  const [circleDeviceToken, setCircleDeviceToken] = useState("");
+  const [circleDeviceEncryptionKey, setCircleDeviceEncryptionKey] = useState("");
+  const [circleOtpToken, setCircleOtpToken] = useState("");
+  const [circleLogin, setCircleLogin] = useState(null);
+  const [circleChallengeId, setCircleChallengeId] = useState(null);
+  const userEmailRef = useRef(null);
 
-  async function fetchAllLPBalances(user, provider) {
+  async function ensureCircleDeviceId() {
+    if (typeof window === "undefined") return null;
+    if (!circleSdkRef.current) {
+      console.warn("[Circle] ensureCircleDeviceId: SDK not ready");
+      return null;
+    }
+
+    try {
+      const cached = window.localStorage.getItem("deviceId");
+
+      if (cached) {
+        console.log("[Circle] deviceId from storage:", cached);
+        setCircleDeviceId(cached);
+        return cached;
+      }
+
+      const id = await circleSdkRef.current.getDeviceId();
+      console.log("[Circle] deviceId from sdk.getDeviceId()", id);
+
+      setCircleDeviceId(id);
+      window.localStorage.setItem("deviceId", id);
+      return id;
+    } catch (error) {
+      console.warn("[Circle] getDeviceId failed:", error);
+      setEmailError(
+        "Failed to initialize device with Circle (deviceId). Enable third-party cookies or disable privacy extensions, then try Reset email login."
+      );
+      return null;
+    }
+  }
+
+  // Fetch On-Chain Prices Once (Shared Source)
+  useEffect(() => {
+    userEmailRef.current = userEmail;
+  }, [userEmail]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function fetchOnChainPrices() {
+      if (!window.ethereum) return;
+      try {
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const prices = {};
+        // Use Promise.all for speed
+        await Promise.all(
+          INITIAL_TOKENS.map(async (t) => {
+            prices[t.symbol] = await getOnchainPriceInUSDC(provider, t.symbol);
+          })
+        );
+
+        if (mounted) {
+          setTokenPrices(prices);
+        }
+      } catch (e) {
+        console.warn("Token price fetch failed", e);
+      }
+    }
+
+    fetchOnChainPrices();
+    const interval = setInterval(fetchOnChainPrices, 30000); // Refresh every 30s
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []); // Run once on mount (and interval)
+
+  // Portfolio Total Value Calculation (Memoized)
+  const calculatedPortfolioValue = useMemo(() => {
+    if (!balances || Object.keys(balances).length === 0) return 0;
+    if (!tokenPrices || Object.keys(tokenPrices).length === 0) return 0;
+
+    let total = 0;
+    // Wallet Balances
+    ["USDC", "EURC", "SWPRC"].forEach((sym) => {
+      const bal = Number(balances[sym] || 0);
+      const price = Number(tokenPrices[sym] || 0);
+      total += bal * price;
+    });
+
+    // LP Positions Value (added to portfolio?)
+    // User requirement: "Total Portfolio Value = USDC_value + EURC_value + SWPRC_value"
+    // But usually portfolio includes LP. The prompt separates them.
+    // "Total Portfolio Value = ..." strictly lists the 3 tokens.
+    // However, previous code added LP value. I will follow the strict formula first,
+    // but usually users want to see total net worth.
+    // Wait, the prompt says "Total Portfolio Value = USDC_value + EURC_value + SWPRC_value".
+    // It does NOT explicitly say "+ LP Value".
+    // BUT, the previous implementation did.
+    // I will include LP value if it was there, or check context.
+    // Actually, looking at the previous code: `let totalPortfolio = totalLpUsd;` then added tokens.
+    // So I should probably include LP value in "Portfolio Value" if that's what the UI expects.
+    // The prompt defines "PORTFOLIO TOTAL VALUE" separate from "LP VALUE".
+    // I will stick to the prompt's formula for the variable, but maybe the UI sums them?
+    // Let's look at `calculatedLpTotalValue` first.
+    return total;
+  }, [balances, tokenPrices]);
+
+  // LP Value Calculation (Memoized)
+  const calculatedLpTotalValue = useMemo(() => {
+    if (!lpTokenAmounts || Object.keys(lpTokenAmounts).length === 0) return 0;
+    if (!tokenPrices || Object.keys(tokenPrices).length === 0) return 0;
+
+    let total = 0;
+    Object.values(lpTokenAmounts).forEach((pool) => {
+      Object.entries(pool).forEach(([sym, amt]) => {
+        const price = Number(tokenPrices[sym] || 0);
+        const amount = Number(amt);
+        if (!isNaN(price) && !isNaN(amount)) {
+            total += amount * price;
+        }
+      });
+    });
+    return total;
+  }, [lpTokenAmounts, tokenPrices]);
+
+  // Combined Portfolio for Display (if needed)
+  const displayPortfolioValue =
+    calculatedPortfolioValue + calculatedLpTotalValue;
+
+  // Persist LP Value
+  useEffect(() => {
+    if (calculatedLpTotalValue > 0 && userId) {
+      // Only update if significantly different
+      if (
+        profileStats &&
+        Math.abs(
+          Number(profileStats.lpProvided || 0) - calculatedLpTotalValue
+        ) > 0.01
+      ) {
+        // Update local state immediately for UI responsiveness
+        setProfileStats((prev) => ({
+          ...prev,
+          lpProvided: calculatedLpTotalValue,
+        }));
+
+        // Persist to backend
+        fetch("/api/profile/updateLp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: userId,
+            lpTotalValue: calculatedLpTotalValue,
+          }),
+        }).catch(console.error);
+      }
+    }
+  }, [calculatedLpTotalValue, userId, profileStats]);
+
+  // Badge Logic (Memoized)
+  const badgeState = useMemo(() => {
+    if (!profileStats) return { earlySwaparcer: false };
+
+    const count = Number(profileStats.swapCount || 0);
+    const vol = Number(profileStats.swapVolume || 0);
+    // Use calculated LP value for immediate feedback, or profile?
+    // User says "Badge state must recompute whenever... lpProvided changes".
+    // calculatedLpTotalValue is the most up-to-date.
+    const lp = calculatedLpTotalValue;
+
+    const isEarlySwaparcer = count >= 100 || vol >= 10000 || lp >= 1000;
+    return { earlySwaparcer: isEarlySwaparcer };
+  }, [profileStats, calculatedLpTotalValue]);
+
+  useEffect(() => {
+    // Prevent race condition: Only calculate totals AFTER both balances AND prices are available.
+    // This effect is now replaced by useMemo above.
+    // I will remove the old effect logic in the next step or here.
+    setPortfolioValue(displayPortfolioValue);
+  }, [displayPortfolioValue]);
+
+  async function fetchLeaderboard() {
+    try {
+      const res = await fetch("/api/profile/leaderboard");
+      const data = await res.json();
+      setLeaderboard(data);
+    } catch (err) {
+      console.error("Failed to fetch leaderboard", err);
+    }
+  }
+
+  async function getProfileData(addr) {
+    const targetAddr = addr || address;
+    if (!targetAddr) return null;
+    try {
+      const res = await fetch(`/api/profile/get?userId=${targetAddr}`);
+      if (res.ok) {
+        const data = await res.json();
+        // Unwrap the profile object from the response
+        if (data && data.success && data.profile) {
+          return data.profile;
+        }
+        // Fallback: check if the response was the profile itself (legacy)
+        if (data && data.userId) {
+          return data;
+        }
+      }
+      return await createNewProfileData(targetAddr);
+    } catch (err) {
+      console.error("Failed to fetch profile", err);
+      return null;
+    }
+  }
+
+  async function createNewProfileData(addr) {
+    try {
+      const payload = {
+        userId: addr,
+        username: "Anonymous",
+        walletId: addr,
+      };
+      const res = await fetch("/api/profile/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        return {
+          ...payload,
+          swapCount: 0,
+          swapVolume: 0,
+          lpProvided: 0,
+          badges: [],
+        };
+      }
+    } catch (err) {
+      console.error("Failed to create profile", err);
+    }
+    return null;
+  }
+
+  async function fetchProfile(addr) {
+    const data = await getProfileData(addr);
+    if (data) {
+      setProfileStats(data);
+      setUserId(data.userId);
+    }
+  }
+
+  async function createNewProfile(addr) {
+    const data = await createNewProfileData(addr);
+    if (data) {
+      setProfileStats(data);
+      setUserId(addr);
+    }
+  }
+
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editForm, setEditForm] = useState({ username: "", avatar: "" });
+  const fileInputRef = useRef(null);
+  const circleSdkRef = useRef(null);
+
+  function handleFileChange(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (file.size > 500000) {
+      // 500KB limit
+      alert("Image too large (max 500KB)");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setEditForm((prev) => ({ ...prev, avatar: ev.target.result }));
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function startEditing() {
+    if (!profileStats) return;
+    setEditForm({
+      username: profileStats.username || "",
+      avatar: profileStats.avatar || "",
+    });
+    setIsEditingProfile(true);
+  }
+
+  async function saveProfile() {
+    const targetId = userId || address;
+    if (!targetId) return;
+
+    try {
+      const res = await fetch("/api/profile/updateIdentity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: targetId,
+          username: editForm.username,
+          avatar: editForm.avatar,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsEditingProfile(false);
+        fetchProfile();
+      } else {
+        alert("Save failed");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Save failed");
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === "leaderboard") fetchLeaderboard();
+    if (activeTab === "profile") {
+      (async () => {
+        if (!address) return;
+
+        if (window.ethereum) {
+          const provider = new ethers.BrowserProvider(window.ethereum);
+          try {
+            // Run simultaneous fetches (Prices handled globally now)
+            const [profData, balData, lpBalData, lpAmountsResult] =
+              await Promise.all([
+                getProfileData(address),
+                getBalances(address, provider),
+                getAllLPBalancesData(address, provider),
+                getLpTokenAmountsData(address, provider),
+              ]);
+
+            // Handle LP backend update is now in a separate effect
+
+            // Patch profile with latest LP if available and valid
+            let finalProfile = profData;
+            // We don't need to patch LP here imperatively as we rely on the calculated value
+            // But for initial display, we might want to ensure consistency?
+            // Actually, we should just set the fetched profile.
+            // The derived values (LP, Portfolio) are calculated via useMemo/state.
+
+            // Batch Updates
+            if (finalProfile) {
+              setProfileStats(finalProfile);
+              setUserId(finalProfile.userId);
+            }
+            setBalances(balData || {});
+            setLpBalances(lpBalData || {});
+            setLpTokenAmounts(lpAmountsResult?.amounts || {});
+
+            // Note: portfolioValue is updated via useEffect/useMemo dependent on balances/prices
+          } catch (e) {
+            console.error("Profile load error", e);
+          }
+        } else {
+          fetchProfile();
+        }
+      })();
+    }
+  }, [activeTab, address]); // Removed swapHistory dependency as repair is separate
+
+  useEffect(() => {
+    if (!profileStats) return;
+    if (!swapHistory || swapHistory.length === 0) return;
+    if (!tokenPrices || Object.keys(tokenPrices).length === 0) return;
+  
+    const successful = swapHistory.filter(
+      (t) => !t.status || t.status === "success"
+    );
+  
+    let rebuiltCount = 0;
+    let rebuiltVolume = 0;
+  
+    for (const tx of successful) {
+      const token = tx.fromToken || tx.token || "USDC";
+      const amt = Number(tx.fromAmount || tx.amount || 0);
+      const price = Number(tokenPrices[token] || 1);
+  
+      if (amt > 0) {
+        rebuiltCount += 1;
+        rebuiltVolume += amt * price;
+      }
+    }
+  
+    const backendCount = Number(profileStats.swapCount || 0);
+  
+    // ONLY repair fresh profiles
+    /*
+    if (backendCount === 0 && rebuiltCount > 0) {
+      setProfileStats((prev) => ({
+        ...prev,
+        swapCount: rebuiltCount,
+        swapVolume: rebuiltVolume,
+      }));
+  
+      fetch("/api/profile/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: userId || address,
+          swapCount: rebuiltCount,
+          swapVolume: rebuiltVolume,
+        }),
+      }).catch(console.error);
+    }
+    */
+  }, [swapHistory, tokenPrices, profileStats, userId, address]);
+  
+
+  useEffect(() => {
+    if (address) {
+      fetchProfile(address);
+    } else {
+      setProfileStats(null);
+      setUserId(null);
+    }
+  }, [address]);
+
+  useEffect(() => {
+    if (!CIRCLE_APP_ID) {
+      console.warn("Circle SDK init skipped: missing VITE_CIRCLE_APP_ID");
+      return;
+    }
+
+    let cancelled = false;
+
+    const initSdk = async () => {
+      try {
+        console.log("[Circle] init appId:", CIRCLE_APP_ID);
+
+        const onLoginComplete = async (error, result) => {
+          if (cancelled) return;
+
+          if (error || !result) {
+            const err = error || {};
+            const message =
+              err && err.message ? err.message : "Email authentication failed";
+            setEmailError(message);
+            setEmailStatus("");
+            setCircleLogin(null);
+            return;
+          }
+
+          const loginData = {
+            userId: result.userId || null,
+            userToken: result.userToken,
+            encryptionKey: result.encryptionKey,
+            refreshToken: result.refreshToken || null,
+          };
+
+          setCircleLogin(loginData);
+          setEmailError("");
+
+          const email = userEmailRef.current;
+
+          if (!email) {
+            setEmailStatus("Email verified.");
+            return;
+          }
+
+          try {
+            setEmailStatus("Email verified. Loading wallet...");
+
+            if (typeof window !== "undefined") {
+              window.localStorage.setItem("circle_user_email", email);
+              window.localStorage.setItem(
+                "circle_user_token",
+                loginData.userToken
+              );
+              window.localStorage.setItem(
+                "circle_encryption_key",
+                loginData.encryptionKey
+              );
+            }
+
+            let res = await fetch("/api/circle/user/get-or-create-wallet", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                email,
+                userToken: loginData.userToken,
+              }),
+            });
+
+            let data = await res.json();
+
+            if (res.status === 404) {
+              await initializeAndCreateCircleWallet(loginData);
+
+              res = await fetch("/api/circle/user/get-or-create-wallet", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  email,
+                  userToken: loginData.userToken,
+                }),
+              });
+              data = await res.json();
+            }
+
+            if (!res.ok) {
+              setEmailError(
+                data.error || data.message || "Failed to load Circle wallet"
+              );
+              setEmailStatus("");
+              return;
+            }
+
+            setCircleWallet({
+              walletId: data.walletId,
+              address: data.address,
+              blockchain: data.blockchain,
+            });
+            setCircleWalletReady(true);
+            setAuthMode("email");
+            setEmailStatus("Circle wallet ready");
+            setShowEmailModal(false);
+          } catch {
+            setEmailError("Failed to load Circle wallet");
+            setEmailStatus("");
+          }
+        };
+
+        const sdk = new W3SSdk(
+          {
+            appSettings: { appId: CIRCLE_APP_ID },
+          },
+          onLoginComplete
+        );
+
+        if (cancelled) return;
+        circleSdkRef.current = sdk;
+        setSdkReady(true);
+      } catch (err) {
+        if (cancelled) return;
+        setEmailError("Circle email connect is unavailable");
+      }
+    };
+
+    initSdk();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!sdkReady || !circleSdkRef.current) return;
+    ensureCircleDeviceId();
+  }, [sdkReady]);
+
+  useEffect(() => {
+    console.log("Circle debug state", {
+      appId: CIRCLE_APP_ID,
+      sdkReady,
+      circleDeviceId,
+    });
+  }, [sdkReady, circleDeviceId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const storedEmail = window.localStorage.getItem("circle_user_email");
+    const storedToken = window.localStorage.getItem("circle_user_token");
+    if (!storedEmail || !storedToken) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch(
+          "/api/circle/user/get-or-create-wallet",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: storedEmail,
+              userToken: storedToken,
+            }),
+          }
+        );
+
+        const data = await res.json();
+        if (!res.ok) {
+          return;
+        }
+
+        if (cancelled) return;
+
+        setUserEmail(storedEmail);
+        setCircleWallet({
+          walletId: data.walletId,
+          address: data.address,
+          blockchain: data.blockchain,
+        });
+        setCircleWalletReady(true);
+        setAuthMode("email");
+      } catch {
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function getAllLPBalancesData(user, provider) {
     const balances = {};
-
     for (const p of POOLS) {
       try {
         const lp = new ethers.Contract(p.lpToken, LP_ABI, provider);
@@ -336,7 +968,11 @@ export default function App() {
         balances[p.id] = 0;
       }
     }
+    return balances;
+  }
 
+  async function fetchAllLPBalances(user, provider) {
+    const balances = await getAllLPBalancesData(user, provider);
     setLpBalances(balances);
   }
 
@@ -369,8 +1005,9 @@ export default function App() {
     }
   }
 
-  async function fetchLPTokenAmounts(user, provider) {
+  async function getLpTokenAmountsData(user, provider) {
     const result = {};
+    let totalLpUsd = 0;
 
     for (const p of POOLS) {
       try {
@@ -402,44 +1039,60 @@ export default function App() {
           const dec = await tokenC.decimals();
 
           const poolAmount = Number(ethers.formatUnits(balances[i], dec));
+          const userShareAmount = poolAmount * share;
 
-          result[p.id][sym] = poolAmount * share;
+          result[p.id][sym] = userShareAmount;
+
+          // Calculate USD value for this portion
+          const price = await getOnchainPriceInUSDC(provider, sym);
+          totalLpUsd += userShareAmount * price;
         }
       } catch (e) {
         console.warn("LP breakdown failed for", p.id, e);
       }
     }
+    return { amounts: result, totalLpUsd };
+  }
 
-    setLpTokenAmounts(result);
+  async function fetchLPTokenAmounts(user, provider) {
+    const { amounts, totalLpUsd } = await getLpTokenAmountsData(user, provider);
+    setLpTokenAmounts(amounts);
+
+    // Persist LP stat to backend
+    try {
+      await fetch("/api/profile/updateLp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user, lpTotalValue: totalLpUsd }),
+      });
+      if (activeTab === "profile") fetchProfile(user);
+    } catch (err) {
+      console.warn("Failed to update LP stats", err);
+    }
   }
   async function getOnchainPriceInUSDC(provider, fromSymbol) {
     if (fromSymbol === "USDC") return 1;
-  
+
     try {
-      const pool = new ethers.Contract(
-        SWAP_POOL_ADDRESS,
-        POOL_ABI,
-        provider
-      );
-  
+      const pool = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, provider);
+
       const fromIndex = tokenIndices[fromSymbol];
       const usdcIndex = tokenIndices.USDC;
-  
-      const token = INITIAL_TOKENS.find(t => t.symbol === fromSymbol);
+
+      const token = INITIAL_TOKENS.find((t) => t.symbol === fromSymbol);
       const tokenC = new ethers.Contract(token.address, ERC20_ABI, provider);
       const decimals = await tokenC.decimals();
-  
-   
+
       const oneToken = ethers.parseUnits("1", decimals);
       const dy = await pool.get_dy(fromIndex, usdcIndex, oneToken);
-  
-      return Number(ethers.formatUnits(dy, 6)); 
+
+      return Number(ethers.formatUnits(dy, 6));
     } catch (e) {
       console.warn("Price fetch failed for", fromSymbol);
       return 0;
     }
   }
-  
+
   async function fetchPoolBalances(provider) {
     const tvlResult = {};
     const tokenResult = {};
@@ -467,7 +1120,6 @@ export default function App() {
 
           const priceInUSDC = await getOnchainPriceInUSDC(provider, sym);
           tvl += bal * priceInUSDC;
-          
         }
 
         tvlResult[p.id] = tvl;
@@ -704,20 +1356,20 @@ export default function App() {
         return;
       }
 
-      // 1. Request accounts first so we have permission
+      // 1. Ensure we are on Arc Testnet (add/switch if needed)
+      const ok = await ensureArcNetwork();
+      if (!ok) {
+        setStatus("Please add or switch to Arc Testnet");
+        return;
+      }
+
+      // 2. Request accounts (wallet popup)
       const accounts = await ethereum.request({
         method: "eth_requestAccounts",
       });
 
       if (!accounts?.length) {
         setStatus("No account found.");
-        return;
-      }
-
-      // 2. Ensure we are on Arc Testnet (add/switch if needed)
-      const ok = await ensureArcNetwork();
-      if (!ok) {
-        setStatus("Please switch to Arc Testnet");
         return;
       }
 
@@ -754,28 +1406,31 @@ export default function App() {
     setEstimatedTo("");
   }
 
+  async function getBalances(userAddress, provider) {
+    const tokenBalances = {};
+    for (const t of tokens) {
+      try {
+        const tokenContract = new ethers.Contract(
+          t.address,
+          ERC20_ABI,
+          provider
+        );
+        const rawBalance = await tokenContract.balanceOf(userAddress);
+        const decimals = await tokenContract.decimals();
+        tokenBalances[t.symbol] = parseFloat(
+          ethers.formatUnits(rawBalance, decimals)
+        ).toFixed(4);
+      } catch {
+        tokenBalances[t.symbol] = "n/a";
+      }
+    }
+    return tokenBalances;
+  }
+
   async function fetchBalances(userAddress, provider) {
     try {
-      const tokenBalances = {};
-
-      for (const t of tokens) {
-        try {
-          const tokenContract = new ethers.Contract(
-            t.address,
-            ERC20_ABI,
-            provider
-          );
-          const rawBalance = await tokenContract.balanceOf(userAddress);
-          const decimals = await tokenContract.decimals();
-          tokenBalances[t.symbol] = parseFloat(
-            ethers.formatUnits(rawBalance, decimals)
-          ).toFixed(4);
-        } catch {
-          tokenBalances[t.symbol] = "n/a";
-        }
-      }
-
-      setBalances(tokenBalances);
+      const b = await getBalances(userAddress, provider);
+      setBalances(b);
     } catch (err) {
       console.error("Failed to fetch balances:", err);
     }
@@ -915,6 +1570,26 @@ export default function App() {
 
       setQuote(`Swap succeeded — tx ${tx.hash}`);
 
+      // Update progression
+      try {
+        const price = tokenPrices[swapFrom] || 1;
+        const usdValue = Number(swapAmount) * Number(price);
+        await fetch("/api/profile/addSwap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: await signer.getAddress(),
+            amount: usdValue,
+          }),
+        });
+        const userAddr = await signer.getAddress();
+        setTimeout(() => {
+          fetchProfile(userAddr);
+        }, 3000);
+      } catch (err) {
+        console.warn("Profile update failed", err);
+      }
+
       await fetchBalances(await signer.getAddress(), provider);
     } catch (err) {
       console.error(err);
@@ -929,6 +1604,118 @@ export default function App() {
         txHash: null,
       });
     }
+  }
+
+  async function loadCircleWallet(userToken) {
+    try {
+      const res = await fetch("/api/circle/user/wallets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userToken }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setEmailError(data.error || "Failed to load Circle wallet");
+        return;
+      }
+      const wallets = data.wallets || [];
+      if (!wallets.length) {
+        setEmailError("No Circle wallet found");
+        return;
+      }
+      const w = wallets[0];
+      setCircleWallet({
+        walletId: w.id,
+        address: w.address,
+        blockchain: w.blockchain,
+      });
+      setCircleWalletReady(true);
+      setAuthMode("email");
+      setEmailStatus("Circle wallet ready");
+      setShowEmailModal(false);
+    } catch (e) {
+      setEmailError("Failed to load Circle wallet");
+    }
+  }
+
+  async function initializeAndCreateCircleWallet(loginData) {
+    if (!loginData || !loginData.userToken || !loginData.encryptionKey) return;
+    if (!circleSdkRef.current) return;
+
+    try {
+      setEmailStatus("Initializing Circle user...");
+      setEmailError("");
+
+      const res = await fetch("/api/circle/user/initialize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userToken: loginData.userToken }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setEmailError(data.error || "Failed to initialize Circle user");
+        setEmailStatus("");
+        return;
+      }
+
+      const challengeId = data.challengeId;
+      if (!challengeId) {
+        setEmailError("Missing challengeId from Circle");
+        setEmailStatus("");
+        return;
+      }
+
+      setCircleChallengeId(challengeId);
+      circleSdkRef.current.setAuthentication({
+        userToken: loginData.userToken,
+        encryptionKey: loginData.encryptionKey,
+      });
+
+      setEmailStatus("Creating Circle wallet...");
+
+      circleSdkRef.current.execute(challengeId, async (error) => {
+        if (error) {
+          const message =
+            error && error.message
+              ? error.message
+              : "Failed to execute Circle challenge";
+          setEmailError(message);
+          setEmailStatus("");
+          return;
+        }
+
+        setCircleChallengeId(null);
+        setEmailStatus("Circle wallet created. Loading details...");
+
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await loadCircleWallet(loginData.userToken);
+      });
+    } catch (e) {
+      setEmailError("Circle email login failed");
+      setEmailStatus("");
+    }
+  }
+
+  function connectGmail() {
+    setActiveTab("profile");
+    setShowEmailModal(false);
+    setEmailStep(1);
+    setEmailStatus("");
+    setEmailError("");
+    setGmailComingSoon(true);
+  }
+
+  function getActiveWalletAddress() {
+    if (
+      authMode === "email" &&
+      circleWallet &&
+      circleWallet.address
+    ) {
+      return circleWallet.address;
+    }
+    if (address) return address;
+    return null;
   }
 
   function addCustomToken() {
@@ -1147,15 +1934,62 @@ export default function App() {
               💧 Get Faucet
             </button>
 
-            {!address ? (
-              <button className="connectBtn" onClick={connectWallet}>
-                Connect Wallet
-              </button>
-            ) : (
+            {!address && authMode !== "email" && (
+              <div style={{ position: "relative" }}>
+                <button
+                  className="connectCTA neon-btn"
+                  onClick={() => setShowConnectMenu((v) => !v)}
+                >
+                  CONNECT
+                </button>
+                {showConnectMenu && (
+                  <div
+                    className="connectDropdown"
+                    style={{
+                      position: "absolute",
+                      right: 0,
+                      top: "110%",
+                      background: "rgba(14,32,56,0.95)",
+                      border: "1px solid rgba(0, 255, 255, 0.35)",
+                      boxShadow: "0 10px 30px rgba(0, 255, 255, 0.15)",
+                      borderRadius: 12,
+                      padding: 12,
+                      width: 220,
+                      zIndex: 50,
+                      backdropFilter: "blur(6px)",
+                    }}
+                    onMouseLeave={() => setShowConnectMenu(false)}
+                  >
+                    <button
+                      className="connectOption neon-btn"
+                      style={{ width: "100%", marginBottom: 8 }}
+                      onClick={() => {
+                        setShowConnectMenu(false);
+                        connectWallet();
+                      }}
+                    >
+                      Connect via Wallet
+                    </button>
+                    <button
+                      className="connectOption neon-btn"
+                      style={{ width: "100%" }}
+                      onClick={() => {
+                        setShowConnectMenu(false);
+                        connectGmail();
+                      }}
+                    >
+                      Connect via Gmail
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {address ? (
               <button className="walletPill" onClick={disconnectWallet}>
                 Arc Testnet · {shortAddr(address)}
               </button>
-            )}
+            ) : null}
 
             <button
               className="hamburgerBtn"
@@ -1168,13 +2002,1125 @@ export default function App() {
 
         <Ticker tokens={tokens} prices={prices} />
 
+        {showEmailModal && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.7)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 1000,
+            }}
+          >
+            <div
+              style={{
+                background: "#061426",
+                borderRadius: 16,
+                border: "1px solid rgba(0,255,255,0.4)",
+                boxShadow: "0 20px 40px rgba(0,0,0,0.7)",
+                padding: 24,
+                width: "100%",
+                maxWidth: 420,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 16,
+                }}
+              >
+                <h2 style={{ margin: 0, fontSize: "1.2rem" }}>Connect via Email</h2>
+                <button
+                  onClick={() => {
+                    setShowEmailModal(false);
+                    setEmailStep(1);
+                    setEmailStatus("");
+                    setEmailError("");
+                  }}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#aaa",
+                    fontSize: "1.1rem",
+                    cursor: "pointer",
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {!CIRCLE_APP_ID && (
+                <div
+                  style={{
+                    marginBottom: 12,
+                    padding: 10,
+                    borderRadius: 8,
+                    background: "rgba(255, 80, 80, 0.12)",
+                    border: "1px solid rgba(255, 80, 80, 0.5)",
+                    color: "#ffb3b3",
+                    fontSize: "0.85rem",
+                  }}
+                >
+                  Missing Circle App ID — go to Circle Console → Wallets → User Controlled → Configurator → App ID and set VITE_CIRCLE_APP_ID in your .env.
+                </div>
+              )}
+
+              {emailStep === 1 && (
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      marginBottom: 8,
+                      fontSize: "0.9rem",
+                    }}
+                  >
+                    Email address
+                  </label>
+                  <input
+                    type="email"
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    placeholder="you@example.com"
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      border: "1px solid rgba(0,255,255,0.4)",
+                      background: "rgba(3,16,32,0.9)",
+                      color: "#e4f5ff",
+                      marginBottom: 12,
+                    }}
+                  />
+                  <button
+                    disabled={emailLoading || !sdkReady}
+                    onClick={async () => {
+                      if (!sdkReady || !circleSdkRef.current) {
+                        setEmailError(
+                          "Email login is not ready yet. Please wait a moment."
+                        );
+                        console.warn("Send OTP blocked: SDK not ready");
+                        return;
+                      }
+                      if (!emailInput) {
+                        setEmailError("Enter an email address");
+                        console.warn("Send OTP blocked: missing email");
+                        return;
+                      }
+
+                      try {
+                        setEmailLoading(true);
+                        setEmailError("");
+                        setEmailErrorDetails("");
+                        setEmailStatus("Requesting OTP...");
+                        setUserEmail(emailInput);
+
+                        const deviceIdToUse = await ensureCircleDeviceId();
+                        if (!deviceIdToUse) {
+                          setEmailStatus("");
+                          setEmailLoading(false);
+                          setEmailError(
+                            "Failed to initialize device with Circle (deviceId). Enable third-party cookies or disable privacy extensions, then try Reset email login."
+                          );
+                          console.warn(
+                            "Send OTP blocked: ensureCircleDeviceId returned null"
+                          );
+                          return;
+                        }
+
+                        console.log(
+                          "[Circle] Send OTP using deviceId:",
+                          deviceIdToUse
+                        );
+
+                        const res = await fetch("/api/auth/send-code", {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                          },
+                          body: JSON.stringify({
+                            email: emailInput,
+                            deviceId: deviceIdToUse,
+                          }),
+                        });
+
+                        const data = await res.json();
+                        console.log("Send OTP response", {
+                          status: res.status,
+                          ok: res.ok,
+                          data,
+                        });
+                        if (!res.ok) {
+                          setEmailError(
+                            data.error || "Failed to request OTP"
+                          );
+                          if (data && data.details) {
+                            const raw = JSON.stringify(data.details);
+                            const snippet =
+                              raw.length > 300
+                                ? `${raw.slice(0, 300)}...`
+                                : raw;
+                            setEmailErrorDetails(snippet);
+                          } else {
+                            setEmailErrorDetails("");
+                          }
+                          setEmailStatus("");
+                          console.error("Send OTP failed", {
+                            status: res.status,
+                            data,
+                          });
+                          return;
+                        }
+
+                        if (typeof window !== "undefined") {
+                          window.localStorage.setItem(
+                            "circle_user_email",
+                            emailInput
+                          );
+                        }
+
+                        setCircleDeviceToken(data.deviceToken);
+                        setCircleDeviceEncryptionKey(
+                          data.deviceEncryptionKey
+                        );
+                        setCircleOtpToken(data.otpToken);
+
+                        if (circleSdkRef.current) {
+                          circleSdkRef.current.updateConfigs({
+                            appSettings: { appId: CIRCLE_APP_ID },
+                            loginConfigs: {
+                              deviceToken: data.deviceToken,
+                              deviceEncryptionKey: data.deviceEncryptionKey,
+                              otpToken: data.otpToken,
+                              email: { email: emailInput },
+                            },
+                          });
+                          console.log("[Circle] loginConfigs set after send-code");
+                        }
+
+                        setEmailErrorDetails("");
+                        setEmailStatus(
+                          "OTP sent. After receiving OTP, click Verify to open Circle’s verification window."
+                        );
+                        setEmailStep(2);
+                      } catch (err) {
+                        console.error("Send OTP request error", err);
+                        setEmailError("Failed to request OTP");
+                        setEmailStatus("");
+                      } finally {
+                        setEmailLoading(false);
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 999,
+                      border: "none",
+                      background: "linear-gradient(90deg,#00f0ff,#00ffb7)",
+                      color: "#001018",
+                      fontWeight: 700,
+                      cursor: emailLoading || !sdkReady ? "not-allowed" : "pointer",
+                      opacity: emailLoading || !sdkReady ? 0.5 : 1,
+                    }}
+                  >
+                    {emailLoading ? "Sending..." : "Send OTP"}
+                  </button>
+                </div>
+              )}
+
+              {emailStep === 2 && (
+                <div>
+                  <p
+                    style={{
+                      fontSize: "0.9rem",
+                      marginBottom: 12,
+                      color: "#e4f5ff",
+                    }}
+                  >
+                    After receiving OTP, click Verify to open Circle’s verification window.
+                  </p>
+                  <button
+                    disabled={
+                      !circleDeviceToken ||
+                      !circleDeviceEncryptionKey ||
+                      !circleOtpToken ||
+                      !sdkReady
+                    }
+                    onClick={() => {
+                      if (!circleSdkRef.current) {
+                        setEmailError("Email login not ready");
+                        return;
+                      }
+                      if (
+                        !circleDeviceToken ||
+                        !circleDeviceEncryptionKey ||
+                        !circleOtpToken
+                      ) {
+                        setEmailError("Missing OTP session data");
+                        return;
+                      }
+
+                      setEmailError("");
+                      setEmailStatus("Opening Circle verification window...");
+
+                      try {
+                        const sdk = circleSdkRef.current;
+                        if (typeof sdk.verifyOtp === "function") {
+                          console.log("Calling sdk.verifyOtp() for email OTP flow");
+                          sdk.verifyOtp();
+                        } else if (typeof sdk.emailLogin === "function") {
+                          console.log(
+                            "sdk.verifyOtp() not found, falling back to sdk.emailLogin()"
+                          );
+                          sdk.emailLogin();
+                        } else {
+                          console.warn(
+                            "No Circle email verification method found on SDK"
+                          );
+                          setEmailError(
+                            "Circle SDK does not expose an email verification method."
+                          );
+                          setEmailStatus("");
+                        }
+                      } catch (e) {
+                        console.error(
+                          "Circle OTP verification trigger failed",
+                          e
+                        );
+                        setEmailError(
+                          "Failed to start Circle OTP verification. Check console for details."
+                        );
+                        setEmailStatus("");
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 999,
+                      border: "none",
+                      background: "linear-gradient(90deg,#00f0ff,#00ffb7)",
+                      color: "#001018",
+                      fontWeight: 700,
+                      cursor:
+                        !circleDeviceToken ||
+                        !circleDeviceEncryptionKey ||
+                        !circleOtpToken ||
+                        !sdkReady
+                          ? "default"
+                          : "pointer",
+                      opacity:
+                        !circleDeviceToken ||
+                        !circleDeviceEncryptionKey ||
+                        !circleOtpToken ||
+                        !sdkReady
+                          ? 0.7
+                          : 1,
+                    }}
+                  >
+                    Verify in Circle Window
+                  </button>
+                </div>
+              )}
+
+              <div
+                style={{
+                  marginTop: 12,
+                  display: "flex",
+                  justifyContent: "flex-end",
+                }}
+              >
+                <button
+                  onClick={() => {
+                    if (typeof window !== "undefined") {
+                      window.localStorage.removeItem("circle_device_id");
+                      window.localStorage.removeItem("deviceId");
+                      window.localStorage.removeItem("circle_user_email");
+                      window.localStorage.removeItem("circle_user_token");
+                      window.localStorage.removeItem("circle_encryption_key");
+                      window.localStorage.removeItem("circle_device_token");
+                      window.localStorage.removeItem(
+                        "circle_device_encryption_key"
+                      );
+                      window.localStorage.removeItem("circle_otp_token");
+                      window.localStorage.removeItem("circle_app_id");
+                    }
+                    setCircleDeviceId("");
+                    setCircleDeviceToken("");
+                    setCircleDeviceEncryptionKey("");
+                    setCircleOtpToken("");
+                    setEmailInput("");
+                    setEmailStatus("");
+                    setEmailError("");
+                    if (typeof window !== "undefined") {
+                      window.location.reload();
+                    }
+                  }}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid rgba(0,255,255,0.4)",
+                    borderRadius: 999,
+                    padding: "6px 12px",
+                    fontSize: "0.8rem",
+                    color: "#9bf5ff",
+                    cursor: "pointer",
+                  }}
+                >
+                  Reset email login
+                </button>
+              </div>
+
+              {(emailStatus || emailError || emailErrorDetails) && (
+                <div style={{ marginTop: 12, fontSize: "0.85rem" }}>
+                  {emailStatus && (
+                    <div style={{ color: "#9bf5ff" }}>{emailStatus}</div>
+                  )}
+                  {emailError && (
+                    <div style={{ color: "#ff8080" }}>{emailError}</div>
+                  )}
+                  {emailErrorDetails && (
+                    <pre
+                      style={{
+                        marginTop: 6,
+                        color: "#ffb3b3",
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {emailErrorDetails}
+                    </pre>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <main className="main">
           <section className="topCards hybrid-grid">
             <div className="card controls neon-card swapCardCentered">
               {activeTab === "profile" && (
                 <div style={{ textAlign: "center", padding: "40px 20px" }}>
                   <h2>Profile</h2>
-                  <p className="muted">Profile system coming next.</p>
+
+                  {!(address || authMode === "email") ? (
+                    gmailComingSoon ? (
+                      <div
+                        className="neonPlaceholder"
+                        style={{
+                          marginTop: 40,
+                          padding: "32px 24px",
+                          borderRadius: 16,
+                          border: "1px solid rgba(0,255,255,0.6)",
+                          background:
+                            "radial-gradient(circle at top, rgba(0,255,255,0.35), rgba(0,0,0,0.6))",
+                          boxShadow:
+                            "0 0 25px rgba(0,255,255,0.5), 0 0 60px rgba(0,255,180,0.3)",
+                          maxWidth: 460,
+                          marginLeft: "auto",
+                          marginRight: "auto",
+                          textAlign: "center",
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: "1.1em",
+                            fontWeight: 800,
+                            marginBottom: 10,
+                            background:
+                              "linear-gradient(90deg,#00f0ff,#00ffb3,#8a7bff)",
+                            WebkitBackgroundClip: "text",
+                            color: "transparent",
+                            letterSpacing: "1px",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          Gmail Connect – Coming Soon
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "0.9em",
+                            color: "#d7f9ff",
+                            marginBottom: 20,
+                            opacity: 0.9,
+                          }}
+                        >
+                          We&apos;re finalizing email / Gmail login.
+                          For now, please connect using your wallet to unlock
+                          your SwapARC profile and badges.
+                        </div>
+                        <button
+                          onClick={() => {
+                            setGmailComingSoon(false);
+                            connectWallet();
+                          }}
+                          style={{
+                            padding: "10px 20px",
+                            borderRadius: 999,
+                            border: "none",
+                            background:
+                              "linear-gradient(90deg,#00f0ff,#00ffb7)",
+                            color: "#001018",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            boxShadow:
+                              "0 0 18px rgba(0,255,255,0.6), 0 0 40px rgba(0,255,183,0.4)",
+                          }}
+                        >
+                          Connect via Wallet
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        className="neonPlaceholder"
+                        style={{
+                          marginTop: 40,
+                          padding: "28px 20px",
+                          borderRadius: 12,
+                          border: "1px solid rgba(0,255,255,0.35)",
+                          background: "rgba(0,0,0,0.25)",
+                          boxShadow: "0 10px 30px rgba(0,255,255,0.12)",
+                          maxWidth: 420,
+                          marginLeft: "auto",
+                          marginRight: "auto",
+                          textAlign: "center",
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: "1.05em",
+                            fontWeight: 700,
+                            color: "#cfffff",
+                            letterSpacing: "0.5px",
+                          }}
+                        >
+                          CONNECT WALLET or LINK YOUR EMAIL to continue
+                        </div>
+                      </div>
+                    )
+                  ) : (
+                    <>
+                      {/* Profile Card (Identity & Stats) */}
+                      {(address || authMode === "email") && (
+                        <div
+                          className="neon-card"
+                          style={{
+                            padding: 20,
+                            marginBottom: 20,
+                            textAlign: "left",
+                          }}
+                        >
+                          {/* Top Section: Identity */}
+                          {profileStats ? (
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "flex-start",
+                                marginBottom: 25,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: 15,
+                                  alignItems: "center",
+                                }}
+                              >
+                                {/* Avatar */}
+                                <div
+                                  onClick={
+                                    isEditingProfile
+                                      ? () => fileInputRef.current?.click()
+                                      : undefined
+                                  }
+                                  style={{
+                                    width: 64,
+                                    height: 64,
+                                    borderRadius: "50%",
+                                    background:
+                                      isEditingProfile && editForm.avatar
+                                        ? `url(${editForm.avatar}) center/cover`
+                                        : profileStats.avatar
+                                        ? `url(${profileStats.avatar}) center/cover`
+                                        : "linear-gradient(135deg, #0096ff, #00ffff)",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    border: "2px solid rgba(255,255,255,0.2)",
+                                    boxShadow: "0 4px 15px rgba(0,255,255,0.2)",
+                                    overflow: "hidden",
+                                    position: "relative",
+                                    cursor: isEditingProfile
+                                      ? "pointer"
+                                      : "default",
+                                  }}
+                                >
+                                  <input
+                                    type="file"
+                                    hidden
+                                    ref={fileInputRef}
+                                    accept="image/*"
+                                    onChange={handleFileChange}
+                                  />
+                                  {isEditingProfile && (
+                                    <div
+                                      style={{
+                                        position: "absolute",
+                                        inset: 0,
+                                        background: "rgba(0,0,0,0.4)",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                      }}
+                                    >
+                                      <span style={{ fontSize: 20 }}>📷</span>
+                                    </div>
+                                  )}
+                                  {!profileStats.avatar &&
+                                    !editForm.avatar &&
+                                    !isEditingProfile && (
+                                      <span style={{ fontSize: 28 }}>👤</span>
+                                    )}
+                                </div>
+
+                                <div>
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 10,
+                                    }}
+                                  >
+                                    {isEditingProfile ? (
+                                      <input
+                                        className="swapInput"
+                                        style={{
+                                          padding: "5px 10px",
+                                          fontSize: "1.1em",
+                                          width: 160,
+                                          marginBottom: 5,
+                                        }}
+                                        value={editForm.username}
+                                        onChange={(e) =>
+                                          setEditForm((p) => ({
+                                            ...p,
+                                            username: e.target.value,
+                                          }))
+                                        }
+                                        placeholder="Username"
+                                      />
+                                    ) : (
+                                      <h3
+                                        style={{
+                                          margin: 0,
+                                          fontSize: "1.4em",
+                                          letterSpacing: "0.5px",
+                                        }}
+                                      >
+                                        {profileStats.username || "Anon User"}
+                                      </h3>
+                                    )}
+
+                                    <button
+                                      className={
+                                        isEditingProfile
+                                          ? "primaryBtn"
+                                          : "secondaryBtn"
+                                      }
+                                      style={{
+                                        padding: "4px 10px",
+                                        fontSize: "0.75em",
+                                        minWidth: 50,
+                                        height: 26,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        borderRadius: 6,
+                                      }}
+                                      onClick={
+                                        isEditingProfile
+                                          ? saveProfile
+                                          : startEditing
+                                      }
+                                    >
+                                      {isEditingProfile ? "Save" : "Edit"}
+                                    </button>
+                                  </div>
+
+                                  <div
+                                    className="muted"
+                                    style={{
+                                      fontSize: "0.85em",
+                                      marginTop: 4,
+                                      fontFamily: "monospace",
+                                      background: "rgba(255,255,255,0.05)",
+                                      padding: "2px 6px",
+                                      borderRadius: 4,
+                                      display: "inline-block",
+                                    }}
+                                  >
+                                    {shortAddr(address)}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div
+                              style={{
+                                marginBottom: 25,
+                                textAlign: "center",
+                                padding: 20,
+                                background: "rgba(255,255,255,0.02)",
+                                borderRadius: 12,
+                              }}
+                            >
+                              <div className="muted">Loading Profile...</div>
+                            </div>
+                          )}
+
+                          {/* Stats Section */}
+                          {profileStats && (
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "1fr 1fr 1fr",
+                                gap: 10,
+                                marginBottom: 25,
+                                background: "rgba(0,0,0,0.2)",
+                                padding: 15,
+                                borderRadius: 12,
+                                border: "1px solid rgba(255,255,255,0.05)",
+                              }}
+                            >
+                              <div style={{ textAlign: "center" }}>
+                                <div
+                                  className="muted"
+                                  style={{
+                                    fontSize: "0.75em",
+                                    textTransform: "uppercase",
+                                    marginBottom: 6,
+                                  }}
+                                >
+                                  Total Swap Volume
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: "1.1em",
+                                    fontWeight: "bold",
+                                    color: "gold",
+                                  }}
+                                >
+                                  $
+                                  {Number(
+                                    profileStats.swapVolume || 0
+                                  ).toLocaleString()}
+                                </div>
+                              </div>
+                              <div
+                                style={{
+                                  textAlign: "center",
+                                  borderLeft: "1px solid rgba(255,255,255,0.1)",
+                                  borderRight:
+                                    "1px solid rgba(255,255,255,0.1)",
+                                }}
+                              >
+                                <div
+                                  className="muted"
+                                  style={{
+                                    fontSize: "0.75em",
+                                    textTransform: "uppercase",
+                                    marginBottom: 6,
+                                  }}
+                                >
+                                  Total Swap Count
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: "1.1em",
+                                    fontWeight: "bold",
+                                  }}
+                                >
+                                  {profileStats.swapCount || 0}
+                                </div>
+                              </div>
+                              <div style={{ textAlign: "center" }}>
+                                <div
+                                  className="muted"
+                                  style={{
+                                    fontSize: "0.75em",
+                                    textTransform: "uppercase",
+                                    marginBottom: 6,
+                                  }}
+                                >
+                                  Total LP Provided
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: "1.1em",
+                                    fontWeight: "bold",
+                                    color: "cyan",
+                                  }}
+                                >
+                                  $
+                                  {Number(
+                                    profileStats.lpProvided || 0
+                                  ).toLocaleString()}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Badges Section */}
+                          {profileStats && (
+                            <div style={{ marginBottom: 25 }}>
+                              <h4
+                                style={{
+                                  margin: "0 0 12px 0",
+                                  fontSize: "0.85em",
+                                  textTransform: "uppercase",
+                                  opacity: 0.7,
+                                  letterSpacing: "1px",
+                                }}
+                              >
+                                Badges
+                              </h4>
+                              <div
+                                style={{
+                                  display: "grid",
+                                  gridTemplateColumns: "140px",
+                                  justifyContent: "start",
+                                  gap: 12,
+                                }}
+                              >
+                                {/* Early Swaparcer Badge */}
+                                {(() => {
+                                  const unlocked = badgeState.earlySwaparcer;
+
+                                  return (
+                                    <div
+                                      className="badgeTile"
+                                      style={{
+                                        width: 140,
+                                        height: 160,
+                                        borderRadius: 12,
+                                        background: unlocked
+                                          ? "rgba(0, 255, 255, 0.15)"
+                                          : "rgba(255, 255, 255, 0.03)",
+                                        border: `1px solid ${
+                                          unlocked
+                                            ? "rgba(0, 255, 255, 0.5)"
+                                            : "rgba(255, 255, 255, 0.05)"
+                                        }`,
+                                        opacity: unlocked ? 1 : 0.4,
+                                        filter: unlocked ? "none" : "grayscale(100%)",
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        overflow: "hidden",
+                                        gap: 6
+                                      }}
+                                    >
+                                      <img
+                                        src="/badges/early-swaparcer.png"
+                                        alt="Early Swaparcer"
+                                        style={{
+                                          width: "100%",
+                                          height: 112,
+                                          objectFit: "cover",
+                                        }}
+                                      />
+                                      <div
+                                        className="badgeLabel"
+                                        style={{
+                                          fontSize: "0.75em",
+                                          fontWeight: 700,
+                                          color: unlocked ? "cyan" : "inherit",
+                                          textTransform: "uppercase"
+                                        }}
+                                      >
+                                        Early Swaparcer
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+
+                                
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Wallet Portfolio Section - Independent Card */}
+                      {address && (
+                        <div
+                          className="neon-card"
+                          style={{
+                            padding: 20,
+                            marginBottom: 20,
+                            textAlign: "left",
+                          }}
+                        >
+                          <h3 style={{ marginTop: 0, marginBottom: 20 }}>
+                            Wallet Portfolio
+                          </h3>
+
+                          {/* Wallet Address */}
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              marginBottom: 15,
+                              fontSize: "0.9em",
+                              background: "rgba(255,255,255,0.03)",
+                              padding: "8px 12px",
+                              borderRadius: 8,
+                            }}
+                          >
+                            <span className="muted">Address</span>
+                            <span
+                              style={{
+                                fontFamily: "monospace",
+                                fontSize: "0.85em",
+                              }}
+                            >
+                              {address}
+                            </span>
+                          </div>
+
+                          {/* Total Value */}
+                          <div
+                            style={{ marginBottom: 20, textAlign: "center" }}
+                          >
+                            <div
+                              className="muted"
+                              style={{ fontSize: "0.8em", marginBottom: 5 }}
+                            >
+                              Total Value
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "1.6em",
+                                fontWeight: "bold",
+                                color: "#4caf50",
+                              }}
+                            >
+                              $
+                              {portfolioValue.toLocaleString(undefined, {
+                                maximumFractionDigits: 2,
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Token Balances */}
+                          <div style={{ marginBottom: 15 }}>
+                            <div
+                              className="muted"
+                              style={{
+                                fontSize: "0.8em",
+                                marginBottom: 8,
+                                paddingLeft: 5,
+                              }}
+                            >
+                              Tokens
+                            </div>
+                            <div
+                              style={{
+                                background: "rgba(0,0,0,0.3)",
+                                borderRadius: 8,
+                                overflow: "hidden",
+                              }}
+                            >
+                              {["USDC", "EURC", "SWPRC"].map((sym) => {
+                                const bal = Number(balances[sym] || 0);
+                                const val = bal * Number(tokenPrices[sym] || 0);
+                                return (
+                                  <div
+                                    key={sym}
+                                    style={{
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      padding: "10px 12px",
+                                      borderBottom:
+                                        "1px solid rgba(255,255,255,0.05)",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 8,
+                                      }}
+                                    >
+                                      <img
+                                        src={TOKEN_LOGOS[sym]}
+                                        style={{
+                                          width: 20,
+                                          height: 20,
+                                          borderRadius: "50%",
+                                        }}
+                                        alt={sym}
+                                      />
+                                      <span>{sym}</span>
+                                    </div>
+                                    <div style={{ textAlign: "right" }}>
+                                      <div>{bal.toFixed(4)}</div>
+                                      <div
+                                        className="muted"
+                                        style={{ fontSize: "0.8em" }}
+                                      >
+                                        ${val.toFixed(2)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* LP Positions */}
+                          {Object.keys(lpBalances).some(
+                            (k) => lpBalances[k] > 0
+                          ) && (
+                            <div>
+                              <div
+                                className="muted"
+                                style={{
+                                  fontSize: "0.8em",
+                                  marginBottom: 8,
+                                  paddingLeft: 5,
+                                }}
+                              >
+                                LP Positions
+                              </div>
+                              <div
+                                style={{
+                                  background: "rgba(0,0,0,0.3)",
+                                  borderRadius: 8,
+                                  overflow: "hidden",
+                                }}
+                              >
+                                {POOLS.map((p) => {
+                                  const bal = lpBalances[p.id];
+                                  if (!bal || bal <= 0) return null;
+                                  const amounts = lpTokenAmounts[p.id] || {};
+                                  const val = Object.entries(amounts).reduce(
+                                    (sum, [sym, amt]) =>
+                                      sum + amt * Number(tokenPrices[sym] || 0),
+                                    0
+                                  );
+                                  return (
+                                    <div
+                                      key={p.id}
+                                      style={{
+                                        padding: "10px 12px",
+                                        borderBottom:
+                                          "1px solid rgba(255,255,255,0.05)",
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          display: "flex",
+                                          justifyContent: "space-between",
+                                          marginBottom: 5,
+                                        }}
+                                      >
+                                        <span>{p.name}</span>
+                                        <span>{bal.toFixed(4)} LP</span>
+                                      </div>
+                                      <div
+                                        style={{
+                                          display: "flex",
+                                          justifyContent: "space-between",
+                                          fontSize: "0.8em",
+                                        }}
+                                      >
+                                        <span className="muted">
+                                          {Object.entries(amounts)
+                                            .map(
+                                              ([sym, amt]) =>
+                                                `${amt.toFixed(2)} ${sym}`
+                                            )
+                                            .join(" + ")}
+                                        </span>
+                                        <span className="muted">
+                                          ${val.toFixed(2)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Circle Wallet Placeholder */}
+                      {authMode === "email" && (
+                        <div
+                          className="neon-card"
+                          style={{
+                            textAlign: "left",
+                            marginBottom: 20,
+                            padding: 20,
+                          }}
+                        >
+                          <h3 style={{ marginTop: 0 }}>Circle Wallet</h3>
+                          {circleWalletReady && circleWallet ? (
+                            <>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  marginBottom: 10,
+                                  fontSize: "0.9em",
+                                }}
+                              >
+                                <span className="muted">Address</span>
+                                <span
+                                  style={{
+                                    fontFamily: "monospace",
+                                    fontSize: "0.85em",
+                                  }}
+                                >
+                                  {circleWallet.address}
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  marginBottom: 6,
+                                  fontSize: "0.9em",
+                                }}
+                              >
+                                <span className="muted">Blockchain</span>
+                                <span>{circleWallet.blockchain}</span>
+                              </div>
+                              <div className="muted" style={{ fontSize: "0.8em" }}>
+                                Wallet ID: {circleWallet.walletId}
+                              </div>
+                            </>
+                          ) : (
+                            <p style={{ color: "cyan", fontWeight: "bold" }}>
+                              Provisioning Circle Smart Wallet...
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      <p className="muted" style={{ marginTop: 20 }}>
+                        {authMode === "wallet"
+                          ? "Profile connected via Wallet"
+                          : "Email login coming next – profile setup required"}
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
               {activeTab === "swap" && (
@@ -1265,7 +3211,13 @@ export default function App() {
                     </p>
                   )}
 
-                  <div style={{ marginTop: 24, display: "flex", justifyContent: "center" }}>
+                  <div
+                    style={{
+                      marginTop: 24,
+                      display: "flex",
+                      justifyContent: "center",
+                    }}
+                  >
                     <button
                       className="secondaryBtn"
                       style={{ fontSize: 13, padding: "8px 16px" }}
@@ -1615,6 +3567,86 @@ export default function App() {
                     )}
                   </div>
                 </>
+              )}
+              {activeTab === "leaderboard" && (
+                <div className="leaderboardContainer" style={{ width: "100%" }}>
+                  <div className="historyToggleRow">
+                    <button
+                      className={`historyToggleBtn ${
+                        leaderboardTab === "swaps" ? "active" : ""
+                      }`}
+                      onClick={() => setLeaderboardTab("swaps")}
+                    >
+                      TOP TRADERS
+                    </button>
+                    <button
+                      className={`historyToggleBtn ${
+                        leaderboardTab === "lp" ? "active" : ""
+                      }`}
+                      onClick={() => setLeaderboardTab("lp")}
+                    >
+                      TOP LP PROVIDERS
+                    </button>
+                  </div>
+
+                  <div className="neon-card" style={{ marginTop: 20 }}>
+                    {leaderboardTab === "swaps" && (
+                      <ul className="historyList">
+                        {leaderboard.topSwapVolume.length === 0 ? (
+                          <p className="muted">No data yet</p>
+                        ) : (
+                          leaderboard.topSwapVolume.map((u, i) => (
+                            <li key={i} className="historyItem">
+                              <div className="historyLeft">
+                                <strong>
+                                  #{i + 1} {u.username || shortAddr(u.userId)}
+                                </strong>
+                              </div>
+                              <div className="historyRight">
+                                Vol: $
+                                {Number(u.swapVolume).toLocaleString(
+                                  undefined,
+                                  { maximumFractionDigits: 2 }
+                                )}{" "}
+                                <br />
+                                <span
+                                  className="muted"
+                                  style={{ fontSize: 12 }}
+                                >
+                                  {u.swapCount} Swaps
+                                </span>
+                              </div>
+                            </li>
+                          ))
+                        )}
+                      </ul>
+                    )}
+                    {leaderboardTab === "lp" && (
+                      <ul className="historyList">
+                        {leaderboard.topLPProvided.length === 0 ? (
+                          <p className="muted">No data yet</p>
+                        ) : (
+                          leaderboard.topLPProvided.map((u, i) => (
+                            <li key={i} className="historyItem">
+                              <div className="historyLeft">
+                                <strong>
+                                  #{i + 1} {u.username || shortAddr(u.userId)}
+                                </strong>
+                              </div>
+                              <div className="historyRight">
+                                LP: $
+                                {Number(u.lpProvided).toLocaleString(
+                                  undefined,
+                                  { maximumFractionDigits: 2 }
+                                )}
+                              </div>
+                            </li>
+                          ))
+                        )}
+                      </ul>
+                    )}
+                  </div>
+                </div>
               )}
               {activeTab === "arcpay" && (
                 <div
