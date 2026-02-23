@@ -176,7 +176,11 @@ async function startLiveIndexer() {
     process.exit(1);
   }
 
-  console.log(`Connected to ${RPC_URL}`);
+  console.log(
+    `Connected to primary RPC ${PRIMARY_RPC_URL}${
+      FALLBACK_RPC_URL ? ` (fallback: ${FALLBACK_RPC_URL})` : ""
+    }`
+  );
   console.log(`Tracking swaps on ${SWAP_POOL_ADDRESS} via Arcscan...`);
 
   let lastBlock = await getStartingBlock();
