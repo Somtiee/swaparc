@@ -553,6 +553,37 @@ body {
     inset 0 2px 6px rgba(0, 0, 0, 0.35);
 }
 
+.neon-btn {
+  background: rgba(0, 255, 255, 0.12);
+  border: 1px solid rgba(0, 255, 255, 0.35);
+  color: #cfffff;
+  padding: 8px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: box-shadow 180ms ease, transform 180ms ease, background 180ms ease;
+}
+.neon-btn:hover {
+  background: rgba(0, 255, 255, 0.2);
+  box-shadow: 0 0 12px rgba(0, 255, 255, 0.25), inset 0 0 0 1px rgba(0, 255, 255, 0.5);
+  color: #eaffff;
+  transform: translateY(-1px);
+}
+.connectCTA {
+  margin-left: 8px;
+}
+.connectDropdown .connectOption {
+  display: block;
+}
+
+.neonPlaceholder {
+  transition: box-shadow 160ms ease, transform 160ms ease, border-color 160ms ease;
+}
+.neonPlaceholder:hover {
+  border-color: rgba(0,255,255,0.6);
+  box-shadow: 0 12px 40px rgba(0,255,255,0.2), inset 0 0 0 1px rgba(0,255,255,0.4);
+  transform: translateY(-2px);
+}
+
 
 .primaryBtn:hover {
   transform: translateY(-3px);
@@ -714,6 +745,17 @@ body {
     transform 180ms ease,
     box-shadow 180ms ease,
     color 180ms ease;
+}
+
+.badgeTile {
+  transition: all 0.2s;
+}
+.badgeTile:hover {
+  border-color: rgba(0, 255, 255, 0.8) !important;
+  box-shadow: 0 0 0 2px rgba(0, 255, 255, 0.15);
+}
+.badgeTile:hover .badgeLabel {
+  color: cyan !important;
 }
 
 .percentRow.relay-style .percentBtn:hover {
