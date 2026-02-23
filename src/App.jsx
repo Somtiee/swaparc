@@ -2684,9 +2684,9 @@ export default function App() {
                           {/* Stats Section */}
                           {profileStats && (
                             <div
+                              className="profileStatsGrid"
                               style={{
                                 display: "grid",
-                                gridTemplateColumns: "1fr 1fr 1fr",
                                 gap: 10,
                                 marginBottom: 25,
                                 background: "rgba(0,0,0,0.2)",
