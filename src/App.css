@@ -553,6 +553,16 @@ body {
     inset 0 2px 6px rgba(0, 0, 0, 0.35);
 }
 
+.profileStatsGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 720px) {
+  .profileStatsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .neon-btn {
   background: rgba(0, 255, 255, 0.12);
   border: 1px solid rgba(0, 255, 255, 0.35);
@@ -573,6 +583,24 @@ body {
 }
 .connectDropdown .connectOption {
   display: block;
+}
+
+@media (max-width: 600px) {
+  .headerRight.mobileHeader {
+    gap: 6px;
+  }
+
+  .connectCTA {
+    padding: 6px 10px;
+    font-size: 12px;
+    margin-left: 0;
+    flex-shrink: 1;
+  }
+
+  .hamburgerBtn {
+    padding: 6px 8px;
+    font-size: 18px;
+  }
 }
 
 .neonPlaceholder {
