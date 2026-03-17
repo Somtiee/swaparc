@@ -372,6 +372,24 @@ export default function App() {
     }
   }, [authMode, circleWallet]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!activePreset?.lpToken) return;
+      try {
+        const provider = getReadProvider();
+        const lp = new ethers.Contract(activePreset.lpToken, LP_ABI, provider);
+        const dec = await lp.decimals();
+        if (!cancelled) setLpDecimals(Number(dec) || 18);
+      } catch {
+        if (!cancelled) setLpDecimals(18);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activePreset?.lpToken]);
+
   const [profileStats, setProfileStats] = useState(null);
   const [userId, setUserId] = useState(null);
   const [leaderboardTab, setLeaderboardTab] = useState("swaps");
@@ -399,7 +417,12 @@ export default function App() {
   // --- HELPER FUNCTIONS (Safe to use state now) ---
   function getReadProvider() {
     // Prefer a higher-limit public RPC to avoid 429/-32007 rate limits in production
-    return new ethers.JsonRpcProvider("https://arc-testnet.drpc.org");
+    // Disable JSON-RPC batching: some free-tier providers (drpc) reject batches > 3.
+    return new ethers.JsonRpcProvider(
+      "https://arc-testnet.drpc.org",
+      undefined,
+      { batchMaxCount: 1 }
+    );
   }
 
   function getActiveWalletAddress() {
@@ -2866,8 +2889,13 @@ export default function App() {
       setRemoveLoading(true);
       const provider = getReadProvider();
 
-      // IMPORTANT: LP is 6-decimal based
-      const lpParsed = BigInt(Math.floor(Number(removeLpAmount) * 1e6));
+      // Use the LP token's actual decimals (varies by pool/token)
+      let lpParsed;
+      try {
+        lpParsed = ethers.parseUnits(String(removeLpAmount), lpDecimals);
+      } catch {
+        throw new Error("Invalid LP amount");
+      }
       let finalTxHash = null;
 
       if (isCircleMode()) {
@@ -2915,11 +2943,7 @@ export default function App() {
       if (!removeTxHash || removeTxHash === "SUBMITTED") {
         await new Promise((r) => setTimeout(r, 6000));
       }
-      const provider3 = getReadProvider();
-      await fetchBalances(walletAddr, provider3);
-      await fetchAllLPBalances(walletAddr, provider3);
-      await fetchLPTokenAmounts(walletAddr, provider3);
-      await fetchPoolBalances(provider3);
+      await refreshUserLiquidityData(walletAddr);
 
       setShowRemoveLiquidity(false);
       setRemoveLpAmount("");
@@ -5166,7 +5190,7 @@ export default function App() {
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
                 <span className="muted" style={{ fontSize: 14 }}>Amount to Remove</span>
                 <span className="muted" style={{ fontSize: 14 }}>
-                  LP Balance: {activePreset ? lpBalances[activePreset.id]?.toFixed(6) : "—"}
+                  LP Balance: {activePreset && lpBalances[activePreset.id] != null ? lpBalances[activePreset.id].toFixed(6) : "—"}
                 </span>
               </div>
               
@@ -5182,14 +5206,14 @@ export default function App() {
                    <button 
                      className="secondaryBtn" 
                      style={{ padding: "4px 8px", fontSize: 12 }}
-                     onClick={() => setRemoveLpAmount(activePreset ? (lpBalances[activePreset.id] * 0.5).toFixed(6) : "0")}
+                     onClick={() => setRemoveLpAmount(activePreset && lpBalances[activePreset.id] != null ? (lpBalances[activePreset.id] * 0.5).toFixed(6) : "0")}
                    >
                      50%
                    </button>
                    <button 
                      className="secondaryBtn" 
                      style={{ padding: "4px 8px", fontSize: 12 }}
-                     onClick={() => setRemoveLpAmount(activePreset ? lpBalances[activePreset.id].toFixed(6) : "0")}
+                     onClick={() => setRemoveLpAmount(activePreset && lpBalances[activePreset.id] != null ? lpBalances[activePreset.id].toFixed(6) : "0")}
                    >
                      Max
                    </button>
