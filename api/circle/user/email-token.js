@@ -4,6 +4,7 @@ export default async function handler(req, res) {
   }
 
   const apiKey = process.env.CIRCLE_API_KEY;
+  const appId = process.env.VITE_CIRCLE_APP_ID;
   if (!apiKey) {
     return res.status(500).json({ error: "Circle API key not configured" });
   }
@@ -21,8 +22,13 @@ export default async function handler(req, res) {
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random()}`;
 
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    };
+
     const response = await fetch(
-      "https://api.circle.com/v1/w3s/users/email/token",
+      `${process.env.CIRCLE_BASE_URL || "https://api.circle.com"}/v1/w3s/users/email/token`,
       {
         method: "POST",
         headers: {
@@ -30,7 +36,10 @@ export default async function handler(req, res) {
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          idempotencyKey,
+          idempotencyKey:
+             typeof crypto !== "undefined" && crypto.randomUUID
+               ? crypto.randomUUID()
+               : `${Date.now()}-${Math.random()}`,
           email,
           deviceId,
         }),
