@@ -6,7 +6,8 @@ const ARCSCAN_API = "https://testnet.arcscan.app/api";
 
 // Same iface as in liveSwapIndexer.js
 const iface = new ethers.Interface([
-  "function swap(uint256 i,uint256 j,uint256 dx)"
+  "event TokenExchange(address indexed buyer, int128 sold_id, uint256 tokens_sold, int128 bought_id, uint256 tokens_bought)",
+  "event Swap(address indexed sender, address indexed tIn, address indexed tOut, uint256 amountIn, uint256 amountOut)"
 ]);
 
 async function main() {
@@ -16,50 +17,57 @@ async function main() {
 
   while (true) {
     const url =
-      `${ARCSCAN_API}?module=account&action=txlist` +
+      `${ARCSCAN_API}?module=logs&action=getLogs` +
       `&address=${SWAP_POOL_ADDRESS}` +
-      `&startblock=${startBlock}&endblock=${endBlock}&sort=asc`;
+      `&fromBlock=${startBlock}&toBlock=${endBlock}&sort=asc`;
 
-    console.log("Fetching:", url);
+    console.log("Fetching logs:", url);
 
     const resp = await fetch(url);
     const data = await resp.json();
 
     if (data.status !== "1" || !data.result || data.result.length === 0) {
-      console.log("No more transactions from Arcscan.");
+      console.log("No more logs from Arcscan.");
       break;
     }
 
-    for (const tx of data.result) {
+    for (const log of data.result) {
       try {
-        if (!tx.input || tx.input === "0x") continue;
-
-        // Only count real swap() calls
         let decoded;
         try {
-          decoded = iface.parseTransaction({ data: tx.input });
+          // Arcscan logs have 'topics' and 'data'. Ethers expects them.
+          decoded = iface.parseLog({
+            topics: log.topics,
+            data: log.data,
+          });
         } catch {
-          continue; // not the swap function
+          continue; // not a relevant event
         }
 
-        if (decoded?.name !== "swap") continue;
-
-        if (tx.from) {
-          uniqueWallets.add(tx.from.toLowerCase());
+        if (decoded?.name === "TokenExchange") {
+          // args: [buyer, sold_id, tokens_sold, bought_id, tokens_bought]
+          if (decoded.args[0]) {
+            uniqueWallets.add(decoded.args[0].toLowerCase());
+          }
+        } else if (decoded?.name === "Swap") {
+          // args: [sender, tIn, tOut, amountIn, amountOut]
+          if (decoded.args[0]) {
+            uniqueWallets.add(decoded.args[0].toLowerCase());
+          }
         }
       } catch (err) {
-        console.error(`Error processing tx ${tx.hash}:`, err.message || err);
+        console.error(`Error processing log ${log.transactionHash}:`, err.message || err);
       }
     }
 
-    const lastTx = data.result[data.result.length - 1];
-    const lastBlock = Number(lastTx.blockNumber);
+    const lastLog = data.result[data.result.length - 1];
+    const lastBlock = Number(lastLog.blockNumber);
 
     console.log(
       `Processed up to block ${lastBlock}. Unique swap wallets so far: ${uniqueWallets.size}`
     );
 
-    // Move startBlock forward to paginate beyond Arcscan's 10k limit
+    // Move startBlock forward
     startBlock = lastBlock + 1;
   }
 
