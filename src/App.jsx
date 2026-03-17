@@ -2878,7 +2878,6 @@ export default function App() {
 
       setShowRemoveLiquidity(false);
       setRemoveLpAmount("");
-      setRemovePercent(0);
     } catch (err) {
       console.error("[App] Remove liquidity failed:", err);
       alert("Remove liquidity failed: " + (err.message || err));
