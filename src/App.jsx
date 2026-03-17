@@ -285,6 +285,7 @@ export default function App() {
   const [poolTokenBalances, setPoolTokenBalances] = useState({});
   const [lpTokenAmounts, setLpTokenAmounts] = useState({});
   const [lpBalances, setLpBalances] = useState({});
+  const [lpLoading, setLpLoading] = useState(false);
   const [liquiditySuccess, setLiquiditySuccess] = useState(null);
   const [lpDecimals, setLpDecimals] = useState(18);
   const [poolBalances, setPoolBalances] = useState({});
@@ -1141,7 +1142,7 @@ export default function App() {
         const lp = new ethers.Contract(p.lpToken, LP_ABI, provider);
         const raw = await lp.balanceOf(user);
         const dec = await lp.decimals();
-        balances[p.id] = Number(raw) / 1e6;
+        balances[p.id] = Number(ethers.formatUnits(raw, dec));
       } catch {
         balances[p.id] = 0;
       }
@@ -1153,6 +1154,34 @@ export default function App() {
     const balances = await getAllLPBalancesData(user, provider);
     setLpBalances(balances);
   }
+
+  async function refreshUserLiquidityData(userAddr) {
+    if (!userAddr) return;
+    const provider = getReadProvider();
+    setLpLoading(true);
+    try {
+      await fetchBalances(userAddr, provider);
+      await fetchAllLPBalances(userAddr, provider);
+      await fetchLPTokenAmounts(userAddr, provider);
+      await fetchPoolBalances(provider);
+    } finally {
+      setLpLoading(false);
+    }
+  }
+
+  const lastLiquidityRefreshRef = useRef(null);
+  useEffect(() => {
+    const userAddr = getActiveWalletAddress();
+    if (!userAddr) return;
+    // Only refresh when the active wallet changes or becomes ready
+    if (lastLiquidityRefreshRef.current === userAddr) return;
+    // Avoid fetching before Circle wallet is actually ready
+    if (authMode === "email" && (!circleWalletReady || !circleWallet?.address)) return;
+    lastLiquidityRefreshRef.current = userAddr;
+    refreshUserLiquidityData(userAddr).catch((e) =>
+      console.warn("Liquidity refresh failed", e)
+    );
+  }, [authMode, circleWalletReady, circleWallet?.address, address]);
 
   async function handleClaimRewards(poolPreset) {
     console.log("[CircleTx] Starting Claim Rewards...");
@@ -2638,6 +2667,10 @@ export default function App() {
       alert("Connect wallet first");
       return;
     }
+    if (!activePreset || !activePreset.poolAddress) {
+      alert("Select a pool first.");
+      return;
+    }
 
     try {
       setLiqLoading(true);
@@ -2722,11 +2755,7 @@ export default function App() {
           setQuote("Waiting for chain to settle...");
           await new Promise((r) => setTimeout(r, 6000));
         }
-        const provider2 = getReadProvider();
-        await fetchBalances(walletAddr, provider2);
-        await fetchAllLPBalances(walletAddr, provider2);
-        await fetchLPTokenAmounts(walletAddr, provider2);
-        await fetchPoolBalances(provider2);
+        await refreshUserLiquidityData(walletAddr);
 
         setMyDeposits((prev) => ({
           ...prev,
@@ -2784,11 +2813,7 @@ export default function App() {
       }
 
       // 4. Post-Action Updates (runs for BOTH Circle and Injected Wallet)
-      const provider2 = getReadProvider();
-      await fetchBalances(walletAddr, provider2);
-      await fetchAllLPBalances(walletAddr, provider2);
-      await fetchLPTokenAmounts(walletAddr, provider2);
-      await fetchPoolBalances(provider2);
+      await refreshUserLiquidityData(walletAddr);
       setMyDeposits((prev) => ({
         ...prev,
         USDC: prev.USDC + Number(liqInputs.USDC || 0),
@@ -4627,10 +4652,12 @@ export default function App() {
                           My Positions
                         </h4>
 
-                        {!address ? (
+                        {!getActiveWalletAddress() ? (
                           <p className="muted">
                             Connect wallet to view positions.
                           </p>
+                        ) : lpLoading ? (
+                          <p className="muted">Loading your positions…</p>
                         ) : POOLS.filter((p) => lpBalances[p.id] > 0).length ===
                           0 ? (
                           <div className="comingSoon">
@@ -4650,7 +4677,7 @@ export default function App() {
                               <div className="poolHeader">
                                 <div className="poolTokens">
                                   {p.tokens.map((t, i) => (
-                                    <span className="token-badge">
+                                    <span key={`${p.id}-${t}-${i}`} className="token-badge">
                                       <img
                                         src={TOKEN_LOGOS[t]}
                                         alt={t}
@@ -4671,7 +4698,8 @@ export default function App() {
                                   MY LIQUIDITY
                                 </div>
 
-                                {lpTokenAmounts[p.id] ? (
+                                {lpTokenAmounts[p.id] &&
+                                Object.keys(lpTokenAmounts[p.id]).length > 0 ? (
                                   Object.entries(lpTokenAmounts[p.id]).map(
                                     ([sym, amt]) => (
                                       <div key={sym} className="liquidityRow">
