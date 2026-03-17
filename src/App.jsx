@@ -450,10 +450,10 @@ export default function App() {
 
   // --- HELPER FUNCTIONS (Safe to use state now) ---
   function getReadProvider() {
-    // Primary: Arc public RPC (more reliable than free-tier DRPC timeouts in-browser)
+    // Primary: Alchemy (reliable + higher limits than public RPC)
     // Disable JSON-RPC batching: some providers reject batches > 3.
     return new ethers.JsonRpcProvider(
-      "https://rpc.testnet.arc.network",
+      "https://arc-testnet.g.alchemy.com/v2/1WWSAbr2aJ6weaYUt5RfD8aLvQ8g3GHa",
       undefined,
       { batchMaxCount: 1 }
     );
@@ -461,6 +461,7 @@ export default function App() {
 
   const READ_RPC_URLS = useMemo(
     () => [
+      "https://arc-testnet.g.alchemy.com/v2/1WWSAbr2aJ6weaYUt5RfD8aLvQ8g3GHa",
       "https://rpc.testnet.arc.network",
       "https://arc-testnet.drpc.org",
     ],
