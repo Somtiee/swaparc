@@ -27,6 +27,7 @@ export default async function handler(req, res) {
   }
 
   const profile = await kv.hgetall(key);
+  console.log(`[API] Profile lookup for ${userId} (key: ${key}):`, profile ? "Found" : "Not Found");
 
   if (profile && profile.badges && typeof profile.badges === 'string') {
     try {

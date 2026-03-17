@@ -45,7 +45,7 @@ body {
 
 .app-container.hybrid-center {
   width: 100%;
-  max-width: 1100px;
+  max-width: 1150px;
   padding: 18px;
   animation: fadeIn 400ms ease both;
   position: relative;
@@ -231,17 +231,18 @@ body {
 }
 
 .card {
-  background: var(--glass);
-  border-radius: 14px;
-  padding: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.03);
-  box-shadow: 0 8px 30px rgba(2, 10, 30, 0.6);
-  transition: transform 240ms ease, box-shadow 240ms ease;
+  background: linear-gradient(180deg, rgba(23, 33, 53, 0.8) 0%, rgba(13, 20, 35, 0.9) 100%);
+  border-radius: 16px;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(10px);
+  transition: transform 200ms ease, box-shadow 200ms ease;
 }
 
 .card:hover {
-  transform: translateY(-6px);
-  box-shadow: 0 22px 60px rgba(2, 10, 30, 0.75);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
 }
 
 .neon-card {
@@ -418,24 +419,97 @@ body {
   margin: 0 auto;
 }
 
-.swapRowClean {
+.swapCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 16px;
 }
 
-.swapLabel {
-  color: #cce6ff;
+.swapTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+}
+
+.slippageSettingsBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 187, 255, 0.45);
+  background: radial-gradient(circle at top left, rgba(83, 155, 255, 0.35), rgba(4, 19, 46, 0.9));
+  color: #e8f3ff;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 8px 20px rgba(25, 115, 255, 0.35);
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease,
+    transform 140ms ease,
+    border-color 160ms ease;
+}
+
+.slippageSettingsBtn:hover {
+  border-color: rgba(171, 210, 255, 0.9);
+  background: radial-gradient(circle at top left, rgba(110, 183, 255, 0.5), rgba(7, 30, 72, 0.95));
+  box-shadow:
+    0 0 0 1px rgba(75, 163, 255, 0.65),
+    0 10px 24px rgba(21, 115, 255, 0.5);
+  transform: translateY(-1px);
+}
+
+.slippageSettingsBtn:active {
+  transform: translateY(0);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.slippageSettingsIcon {
   font-size: 14px;
+}
+
+.slippageSettingsValue {
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+.swapRowClean {
   margin-bottom: 6px;
 }
 
+.swapLabel {
+  color: #8c9bb5;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+
 .swapBox {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(0, 187, 255, 0.22);
-  padding: 12px;
-  border-radius: 14px;
+  background: rgba(13, 20, 35, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  padding: 16px 20px;
+  border-radius: 16px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 100px;
+  transition: border-color 200ms ease, background 200ms ease;
+}
+
+.swapBox:hover {
+  background: rgba(18, 26, 45, 0.8);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.swapBox:focus-within {
+  border-color: rgba(46, 110, 246, 0.5);
+  box-shadow: 0 0 0 1px rgba(46, 110, 246, 0.2);
 }
 
 .swapTokenBtn {
@@ -456,11 +530,18 @@ body {
 
 .swapInput {
   flex: 1;
+  width: 100%;
   background: transparent;
   border: none;
-  text-align: right;
-  font-size: 20px;
+  text-align: left;
+  font-size: 36px;
+  font-weight: 500;
   color: #e7f3ff;
+  padding: 0;
+}
+
+.swapInput::placeholder {
+  color: rgba(231, 243, 255, 0.2);
 }
 
 .swapInput:focus {
@@ -468,26 +549,39 @@ body {
 }
 
 .swapInput.readOnly {
-  opacity: 0.6;
+  opacity: 0.8;
 }
 
 .swapCenter {
+  position: relative;
   text-align: center;
-  margin: 12px 0;
+  height: 0;
+  z-index: 2;
+  margin: -4px 0;
 }
 
 .swapArrow {
-  font-size: 26px;
-  background: #0e2038;
-  border: 1px solid #1b3c6a;
-  padding: 8px 12px;
-  border-radius: 10px;
+  font-size: 20px;
+  background: #172135;
+  border: 4px solid #0d1423;
+  color: #a0c3ff;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  margin: 0 auto;
   cursor: pointer;
-  transition: 0.2s;
+  transition: all 0.2s ease;
+  position: relative;
+  top: -22px;
 }
 
 .swapArrow:hover {
-  background: #153055;
+  background: #202e4a;
+  color: #ffffff;
+  transform: scale(1.05);
 }
 
 .spin {
@@ -500,7 +594,7 @@ body {
   }
 
   to {
-    transform: rotate(360deg);
+    transform: rotate(180deg);
   }
 }
 
@@ -511,55 +605,74 @@ body {
 }
 
 .primaryBtn {
-  margin-top: 8px;
+  margin-top: 12px;
   width: 100%;
-  padding: 12px;
-  border-radius: 12px;
+  padding: 14px;
+  border-radius: 16px;
   border: none;
-  background: linear-gradient(90deg, #1648a6, #2e6ef6);
+  background: linear-gradient(90deg, #2e6ef6, #1b4fd8);
   color: white;
+  font-size: 16px;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 12px 40px rgba(30, 80, 180, 0.12);
+  box-shadow: 0 8px 24px rgba(46, 110, 246, 0.2);
+  transition: all 0.2s ease;
+}
+
+.primaryBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(46, 110, 246, 0.35);
+  filter: brightness(1.1);
 }
 
 .secondaryBtn {
   width: 100%;
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.04);
   color: #cfe7ff;
   font-weight: 700;
   cursor: pointer;
-  transition:
-    background 160ms ease,
-    transform 160ms ease,
-    box-shadow 160ms ease,
-    color 160ms ease;
+  transition: all 0.2s ease;
 }
 
 .secondaryBtn:hover {
-  background: rgba(124, 197, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
   color: #ffffff;
   transform: translateY(-1px);
-  box-shadow:
-    inset 0 0 0 1px rgba(124, 197, 255, 0.35);
 }
 
 .secondaryBtn:active {
   transform: translateY(0);
-  box-shadow:
-    inset 0 2px 6px rgba(0, 0, 0, 0.35);
 }
 
 .profileStatsGrid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: grid !important;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  justify-content: center;
+  max-width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.profileStatsGrid > div:nth-child(3) {
+  grid-column: span 2;
+  justify-self: center;
+  width: 100%;
+}
+
+.profileStatsGrid .card {
+  min-width: 0; /* Allow grid to shrink cards properly */
 }
 
 @media (max-width: 720px) {
   .profileStatsGrid {
     grid-template-columns: 1fr;
+  }
+  .profileStatsGrid > div:nth-child(3) {
+    grid-column: span 1;
   }
 }
 
@@ -676,9 +789,8 @@ body {
   }
 
   .swapBox {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
+    padding: 14px 16px;
+    gap: 8px;
   }
 
   .swapTokenBtn {
@@ -687,9 +799,7 @@ body {
   }
 
   .swapInput {
-    width: 100%;
-    text-align: left;
-    font-size: 18px;
+    font-size: 28px;
   }
 
   .tokendropdown {
@@ -737,13 +847,11 @@ body {
   }
 
   .swapBox {
-    flex-direction: column;
-    align-items: stretch;
+    padding: 14px 16px;
   }
 
   .swapInput {
-    text-align: left;
-    font-size: 18px;
+    font-size: 28px;
   }
 
 }
@@ -799,6 +907,111 @@ body {
   transform: translateY(0);
   box-shadow:
     inset 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.percentBtn.active {
+  background: rgba(124, 197, 255, 0.2);
+  border-color: rgba(124, 197, 255, 0.5);
+  color: #fff;
+}
+
+.slippagePanel {
+  margin-top: 14px;
+  padding: 10px 12px 12px;
+  border-radius: 12px;
+  background: radial-gradient(circle at top left, rgba(7, 37, 84, 0.9), rgba(0, 5, 18, 0.95));
+  border: 1px solid rgba(67, 152, 255, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.45),
+    0 10px 30px rgba(10, 64, 163, 0.5);
+}
+
+.slippagePanelHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.slippageCurrent {
+  font-weight: 600;
+  color: #e3f1ff;
+}
+
+.slippagePresetRow {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.slippageChip {
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(136, 178, 255, 0.5);
+  background: rgba(0, 12, 40, 0.6);
+  color: #cfe5ff;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 120ms ease;
+}
+
+.slippageChip:hover {
+  background: rgba(53, 132, 255, 0.3);
+  border-color: rgba(162, 204, 255, 0.9);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.slippageChip.active {
+  background: linear-gradient(120deg, #2f7bff, #4fd1ff);
+  border-color: rgba(14, 116, 255, 0.95);
+  color: #0b1020;
+  box-shadow:
+    0 0 0 1px rgba(7, 22, 71, 0.8),
+    0 5px 15px rgba(26, 108, 255, 0.6);
+}
+
+.slippageInputRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.slippageInput {
+  width: 72px;
+  padding: 4px 6px;
+  font-size: 12px;
+  background: rgba(2, 10, 32, 0.9);
+  border-radius: 7px;
+  border: 1px solid rgba(108, 162, 255, 0.7);
+  color: #f0f6ff;
+}
+
+.slippageInput:focus {
+  outline: none;
+  border-color: rgba(178, 215, 255, 1);
+  box-shadow: 0 0 0 1px rgba(127, 186, 255, 0.9);
+}
+
+.slippageWarning {
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.slippageWarning.caution {
+  color: #facc6b;
+}
+
+.slippageWarning.danger {
+  color: #fb7070;
 }
 
 @media (max-width: 768px) {
