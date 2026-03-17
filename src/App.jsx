@@ -4136,12 +4136,7 @@ export default function App() {
                             }}
                           >
                             <span className="muted">Address</span>
-                            <span
-                              style={{
-                                fontFamily: "monospace",
-                                fontSize: "0.85em",
-                              }}
-                            >
+                            <span className="addressValue">
                               {address}
                             </span>
                           </div>
@@ -4336,12 +4331,7 @@ export default function App() {
                                 }}
                               >
                                 <span className="muted">Address</span>
-                                <span
-                                  style={{
-                                    fontFamily: "monospace",
-                                    fontSize: "0.85em",
-                                  }}
-                                >
+                                <span className="addressValue">
                                   {circleWallet.address}
                                 </span>
                               </div>
@@ -4356,7 +4346,7 @@ export default function App() {
                                 <span className="muted">Blockchain</span>
                                 <span>{circleWallet.blockchain}</span>
                               </div>
-                              <div className="muted" style={{ fontSize: "0.8em" }}>
+                              <div className="muted addressValue" style={{ fontSize: "0.8em" }}>
                                 Wallet ID: {circleWallet.walletId}
                               </div>
                             </>
@@ -4371,7 +4361,7 @@ export default function App() {
                       <p className="muted" style={{ marginTop: 20 }}>
                         {authMode === "wallet"
                           ? "Profile connected via Wallet"
-                          : "Email login coming next – profile setup required"}
+                          : "Profile connected via Gmail"}
                       </p>
                     </>
                   )}

@@ -478,6 +478,15 @@ body {
   opacity: 0.9;
 }
 
+.addressValue {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 60%;
+  text-align: right;
+}
+
 .swapRowClean {
   margin-bottom: 6px;
 }
@@ -1015,6 +1024,58 @@ body {
 }
 
 @media (max-width: 768px) {
+  .swapCardHeader {
+    margin-bottom: 10px;
+  }
+
+  .swapTitle {
+    font-size: 16px;
+  }
+
+  .slippageSettingsBtn {
+    padding: 4px 8px;
+    gap: 5px;
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.35),
+      0 6px 16px rgba(25, 115, 255, 0.25);
+  }
+
+  .slippageSettingsIcon {
+    font-size: 13px;
+  }
+
+  .slippageSettingsValue {
+    font-size: 10px;
+  }
+
+  .slippagePanel {
+    margin-top: 10px;
+    max-height: 240px;
+    overflow: auto;
+  }
+
+  .slippagePresetRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .slippageChip {
+    width: 100%;
+    justify-content: center;
+    border-radius: 12px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .slippageInputRow {
+    margin-top: 8px;
+  }
+
+  .addressValue {
+    max-width: 52%;
+  }
+
   .percentRow.relay-style {
     gap: 6px;
   }
