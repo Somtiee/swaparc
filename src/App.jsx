@@ -310,6 +310,8 @@ export default function App() {
   const [showRemoveLiquidity, setShowRemoveLiquidity] = useState(false);
   const [removeLpAmount, setRemoveLpAmount] = useState("");
   const [removeLoading, setRemoveLoading] = useState(false);
+  const [activeLpBalance, setActiveLpBalance] = useState(null);
+  const [activeLpBalanceLoading, setActiveLpBalanceLoading] = useState(false);
   const [historyView, setHistoryView] = useState("mine");
   const TXS_PER_PAGE = 10;
   const [txPage, setTxPage] = useState(0);
@@ -389,6 +391,36 @@ export default function App() {
       cancelled = true;
     };
   }, [activePreset?.lpToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!showRemoveLiquidity) return;
+      const userAddr = getActiveWalletAddress();
+      if (!userAddr || !activePreset?.lpToken) return;
+      // Avoid reading before Circle wallet is ready
+      if (authMode === "email" && (!circleWalletReady || !circleWallet?.address)) return;
+
+      setActiveLpBalanceLoading(true);
+      try {
+        const provider = getReadProvider();
+        const lp = new ethers.Contract(activePreset.lpToken, LP_ABI, provider);
+        const raw = await lp.balanceOf(userAddr);
+        const dec = await lp.decimals().catch(() => lpDecimals);
+        const human = Number(ethers.formatUnits(raw, dec));
+        if (!cancelled) setActiveLpBalance(human);
+      } catch (e) {
+        console.warn("Active LP balance fetch failed", e);
+        if (!cancelled) setActiveLpBalance(null);
+      } finally {
+        if (!cancelled) setActiveLpBalanceLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showRemoveLiquidity, activePreset?.lpToken, activePreset?.id, authMode, circleWalletReady, circleWallet?.address, address, lpDecimals]);
 
   const [profileStats, setProfileStats] = useState(null);
   const [userId, setUserId] = useState(null);
@@ -2947,6 +2979,7 @@ export default function App() {
 
       setShowRemoveLiquidity(false);
       setRemoveLpAmount("");
+      setActiveLpBalance(null);
     } catch (err) {
       console.error("[App] Remove liquidity failed:", err);
       alert("Remove liquidity failed: " + (err.message || err));
@@ -5190,7 +5223,14 @@ export default function App() {
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
                 <span className="muted" style={{ fontSize: 14 }}>Amount to Remove</span>
                 <span className="muted" style={{ fontSize: 14 }}>
-                  LP Balance: {activePreset && lpBalances[activePreset.id] != null ? lpBalances[activePreset.id].toFixed(6) : "—"}
+                  LP Balance:{" "}
+                  {activeLpBalanceLoading
+                    ? "…"
+                    : activeLpBalance != null
+                      ? activeLpBalance.toFixed(6)
+                      : activePreset && lpBalances[activePreset.id] != null
+                        ? lpBalances[activePreset.id].toFixed(6)
+                        : "—"}
                 </span>
               </div>
               
@@ -5206,14 +5246,30 @@ export default function App() {
                    <button 
                      className="secondaryBtn" 
                      style={{ padding: "4px 8px", fontSize: 12 }}
-                     onClick={() => setRemoveLpAmount(activePreset && lpBalances[activePreset.id] != null ? (lpBalances[activePreset.id] * 0.5).toFixed(6) : "0")}
+                     onClick={() => {
+                       const bal =
+                         activeLpBalance != null
+                           ? activeLpBalance
+                           : activePreset && lpBalances[activePreset.id] != null
+                             ? lpBalances[activePreset.id]
+                             : 0;
+                       setRemoveLpAmount((bal * 0.5).toFixed(6));
+                     }}
                    >
                      50%
                    </button>
                    <button 
                      className="secondaryBtn" 
                      style={{ padding: "4px 8px", fontSize: 12 }}
-                     onClick={() => setRemoveLpAmount(activePreset && lpBalances[activePreset.id] != null ? lpBalances[activePreset.id].toFixed(6) : "0")}
+                     onClick={() => {
+                       const bal =
+                         activeLpBalance != null
+                           ? activeLpBalance
+                           : activePreset && lpBalances[activePreset.id] != null
+                             ? lpBalances[activePreset.id]
+                             : 0;
+                       setRemoveLpAmount(bal.toFixed(6));
+                     }}
                    >
                      Max
                    </button>
