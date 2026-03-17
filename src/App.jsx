@@ -408,7 +408,9 @@ export default function App() {
           const [raw, dec] = await Promise.all([lp.balanceOf(userAddr), lp.decimals().catch(() => lpDecimals)]);
           return { human: Number(ethers.formatUnits(raw, dec)) };
         }, "activeLp.balanceOf");
-        if (!cancelled) setActiveLpBalance(human);
+        // If a cached balance exists and is higher, keep the higher value (prevents showing 0 on transient RPC issues)
+        const cached = activePreset ? Number(lpBalances?.[activePreset.id] || 0) : 0;
+        if (!cancelled) setActiveLpBalance(Math.max(human || 0, cached || 0));
       } catch (e) {
         console.warn("Active LP balance fetch failed", e);
         if (!cancelled) setActiveLpBalance(null);
@@ -448,10 +450,10 @@ export default function App() {
 
   // --- HELPER FUNCTIONS (Safe to use state now) ---
   function getReadProvider() {
-    // Prefer a higher-limit public RPC to avoid 429/-32007 rate limits in production
-    // Disable JSON-RPC batching: some free-tier providers (drpc) reject batches > 3.
+    // Primary: Arc public RPC (more reliable than free-tier DRPC timeouts in-browser)
+    // Disable JSON-RPC batching: some providers reject batches > 3.
     return new ethers.JsonRpcProvider(
-      "https://arc-testnet.drpc.org",
+      "https://rpc.testnet.arc.network",
       undefined,
       { batchMaxCount: 1 }
     );
@@ -459,9 +461,8 @@ export default function App() {
 
   const READ_RPC_URLS = useMemo(
     () => [
-      "https://arc-testnet.drpc.org",
       "https://rpc.testnet.arc.network",
-      "https://arc-testnet.drpc.org", // keep primary at the end too (some failures are transient)
+      "https://arc-testnet.drpc.org",
     ],
     []
   );
@@ -5271,7 +5272,9 @@ export default function App() {
                   {activeLpBalanceLoading
                     ? "…"
                     : activeLpBalance != null
-                      ? activeLpBalance.toFixed(6)
+                      ? activeLpBalance > 0
+                        ? activeLpBalance.toFixed(6)
+                        : "—"
                       : activePreset && lpBalances[activePreset.id] != null
                         ? lpBalances[activePreset.id].toFixed(6)
                         : "—"}
