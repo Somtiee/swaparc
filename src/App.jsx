@@ -1389,6 +1389,8 @@ export default function App() {
 
   useEffect(() => {
     let mounted = true;
+    let debounceTimer = null;
+
     async function estimateOut() {
       if (
         !swapAmount ||
@@ -1403,81 +1405,76 @@ export default function App() {
         return;
       }
 
-      try {
-        const provider = window.ethereum
-          ? new ethers.BrowserProvider(window.ethereum)
-          : new ethers.JsonRpcProvider("https://rpc.testnet.arc.network");
-
-        const fromToken = tokens.find((t) => t.symbol === swapFrom);
-        const toToken = tokens.find((t) => t.symbol === swapTo);
-        if (!fromToken || !toToken) return;
-
-        const i = tokenIndices[swapFrom];
-        const j = tokenIndices[swapTo];
-
-        const tokenIn = new ethers.Contract(
-          fromToken.address,
-          ERC20_ABI,
-          provider
-        );
-        const decimalsIn = await tokenIn.decimals();
-        const amountIn = ethers.parseUnits(swapAmount, decimalsIn);
-
-        const pool = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, provider);
-        const dy = await pool.get_dy(i, j, amountIn);
-
-        const decimalsOut = await new ethers.Contract(
-          toToken.address,
-          ERC20_ABI,
-          provider
-        )
-          .decimals()
-          .catch(() => 6);
-        const human = Number(ethers.formatUnits(dy, decimalsOut));
-
-        const formatted =
-          human >= 1000
-            ? human.toLocaleString(undefined, { maximumFractionDigits: 2 })
-            : human.toLocaleString(undefined, { maximumFractionDigits: 6 });
-
-        if (mounted) {
-          setEstimatedTo(formatted);
-          setExpectedOutputNum(human);
-          setExpectedOutputRaw(dy);
-        }
-
-        // Fetch swap pool balances for price impact and liquidity checks
+      // 400ms debounce to avoid 429 rate limit on rapid typing
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(async () => {
         try {
-          const rawBalances = await pool.getBalances();
-          const symbols = ["USDC", "EURC", "SWPRC"];
-          const nextBalances = {};
-          for (let idx = 0; idx < symbols.length && idx < rawBalances.length; idx++) {
-            const sym = symbols[idx];
-            const tok = tokens.find((t) => t.symbol === sym);
-            const dec = tok
-              ? await new ethers.Contract(tok.address, ERC20_ABI, provider).decimals().catch(() => 6)
-              : 6;
-            nextBalances[sym] = Number(ethers.formatUnits(rawBalances[idx], dec));
+          const provider = new ethers.JsonRpcProvider("https://rpc.testnet.arc.network");
+
+          const fromToken = tokens.find((t) => t.symbol === swapFrom);
+          const toToken = tokens.find((t) => t.symbol === swapTo);
+          if (!fromToken || !toToken) return;
+
+          const i = tokenIndices[swapFrom];
+          const j = tokenIndices[swapTo];
+
+          // 1. Get Decimals (Cached in local memory to save RPC calls)
+          const getDecimals = async (token) => {
+            if (token.symbol === "USDC" || token.symbol === "EURC" || token.symbol === "USDG") return 6;
+            const contract = new ethers.Contract(token.address, ERC20_ABI, provider);
+            return await contract.decimals().catch(() => 18);
+          };
+
+          const decimalsIn = await getDecimals(fromToken);
+          const amountIn = ethers.parseUnits(swapAmount, decimalsIn);
+
+          // 2. Query Pool
+          const pool = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, provider);
+          const dy = await pool.get_dy(i, j, amountIn);
+
+          const decimalsOut = await getDecimals(toToken);
+          const human = Number(ethers.formatUnits(dy, decimalsOut));
+
+          const formatted =
+            human >= 1000
+              ? human.toLocaleString(undefined, { maximumFractionDigits: 2 })
+              : human.toLocaleString(undefined, { maximumFractionDigits: 6 });
+
+          if (mounted) {
+            setEstimatedTo(formatted);
+            setExpectedOutputNum(human);
+            setExpectedOutputRaw(dy);
           }
-          if (mounted) setSwapPoolTokenBalances(nextBalances);
-        } catch (balErr) {
-          console.warn("Swap pool balances fetch failed", balErr);
-          if (mounted) setSwapPoolTokenBalances({});
+
+          // 3. Fetch swap pool balances (Consolidated to one call)
+          try {
+            const rawBalances = await pool.getBalances();
+            const symbols = ["USDC", "EURC", "SWPRC"];
+            const nextBalances = {};
+            for (let idx = 0; idx < symbols.length && idx < rawBalances.length; idx++) {
+              const sym = symbols[idx];
+              const tok = tokens.find((t) => t.symbol === sym);
+              const dec = tok ? await getDecimals(tok) : 6;
+              nextBalances[sym] = Number(ethers.formatUnits(rawBalances[idx], dec));
+            }
+            if (mounted) setSwapPoolTokenBalances(nextBalances);
+          } catch (balErr) {
+            console.warn("Swap pool balances fetch failed", balErr);
+          }
+        } catch (e) {
+          console.warn("On-chain estimate failed", e);
+          if (mounted && e.message.includes("429")) {
+            setQuote("Too many requests. Please wait a moment...");
+          }
         }
-      } catch (e) {
-        console.warn("On-chain estimate failed", e);
-        if (mounted) {
-          setEstimatedTo("—");
-          setExpectedOutputNum(null);
-          setExpectedOutputRaw(null);
-          setSwapPoolTokenBalances({});
-        }
-      }
+      }, 400); 
     }
 
     estimateOut();
+
     return () => {
       mounted = false;
+      if (debounceTimer) clearTimeout(debounceTimer);
     };
   }, [swapAmount, swapFrom, swapTo, tokens, tokenIndices]);
 
