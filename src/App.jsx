@@ -398,7 +398,8 @@ export default function App() {
 
   // --- HELPER FUNCTIONS (Safe to use state now) ---
   function getReadProvider() {
-    return new ethers.JsonRpcProvider("https://rpc.testnet.arc.network");
+    // Prefer a higher-limit public RPC to avoid 429/-32007 rate limits in production
+    return new ethers.JsonRpcProvider("https://arc-testnet.drpc.org");
   }
 
   function getActiveWalletAddress() {
@@ -567,7 +568,7 @@ export default function App() {
     let mounted = true;
     async function fetchOnChainPrices() {
       // Always use public provider for prices to avoid wallet dependencies
-      const provider = new ethers.JsonRpcProvider("https://rpc.testnet.arc.network");
+      const provider = getReadProvider();
 
       try {
         const prices = {};
@@ -848,9 +849,9 @@ export default function App() {
 
     (async () => {
       // Use fallback if window.ethereum is not available
-      const provider = window.ethereum
-        ? new ethers.BrowserProvider(window.ethereum)
-        : new ethers.JsonRpcProvider("https://rpc.testnet.arc.network");
+        const provider = window.ethereum
+          ? new ethers.BrowserProvider(window.ethereum)
+          : getReadProvider();
 
       // For Circle users, prefer the public provider for stability
       const activeProvider = isCircleMode() ? getReadProvider() : provider;
@@ -1261,8 +1262,9 @@ export default function App() {
 
           result[p.id][sym] = userShareAmount;
 
-          // Calculate USD value for this portion
-          const price = await getOnchainPriceInUSDC(provider, sym);
+          // Calculate USD value for this portion using already-fetched tokenPrices
+          // (avoid extra on-chain calls that can trigger RPC rate limits and UI flicker)
+          const price = Number(tokenPrices?.[sym] || 0);
           totalLpUsd += userShareAmount * price;
         }
       } catch (e) {
@@ -2314,7 +2316,7 @@ export default function App() {
 
       // 2. Perform Swap
       const pool = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, signer);
-      const poolReader = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, new ethers.JsonRpcProvider("https://rpc.testnet.arc.network"));
+      const poolReader = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, getReadProvider());
 
       const fromIdx = tokenIndices[fromToken.symbol];
       const toIdx = tokenIndices[toToken.symbol];

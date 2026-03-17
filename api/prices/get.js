@@ -12,6 +12,11 @@ const SYMBOL_TO_COINGECKO_ID = {
   ETH: "ethereum",
 };
 
+const CACHE_TTL_MS = 60_000; // 60s
+// Keep a small in-memory cache per serverless instance
+// shape: { [cacheKey]: { ts: number, data: object } }
+const PRICE_CACHE = globalThis.__swaparcPriceCache || (globalThis.__swaparcPriceCache = {});
+
 export default async function handler(req, res) {
   // Simple GET request
   // Query param 'symbols' is a comma-separated list of symbols
@@ -37,6 +42,12 @@ export default async function handler(req, res) {
     return res.status(200).json({});
   }
 
+  const cacheKey = ids.slice().sort().join(",");
+  const cached = PRICE_CACHE[cacheKey];
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return res.status(200).json(cached.data);
+  }
+
   try {
     const qs = `ids=${encodeURIComponent(ids.join(","))}&vs_currencies=usd`;
     const url = `https://api.coingecko.com/api/v3/simple/price?${qs}`;
@@ -52,6 +63,10 @@ export default async function handler(req, res) {
 
     if (!resp.ok) {
       console.error("[PriceProxy] CoinGecko error:", resp.status);
+      // If CoinGecko is flaky/rate-limited, serve last known good data if any
+      if (cached && cached.data) {
+        return res.status(200).json(cached.data);
+      }
       return res.status(502).json({ error: "CoinGecko unreachable" });
     }
 
@@ -69,9 +84,13 @@ export default async function handler(req, res) {
       }
     }
 
+    PRICE_CACHE[cacheKey] = { ts: Date.now(), data: result };
     return res.status(200).json(result);
   } catch (error) {
     console.error("[PriceProxy] Proxy failure:", error);
+    if (cached && cached.data) {
+      return res.status(200).json(cached.data);
+    }
     return res.status(500).json({ error: "Internal Server Error" });
   }
 }
