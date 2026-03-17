@@ -403,11 +403,11 @@ export default function App() {
 
       setActiveLpBalanceLoading(true);
       try {
-        const provider = getReadProvider();
-        const lp = new ethers.Contract(activePreset.lpToken, LP_ABI, provider);
-        const raw = await lp.balanceOf(userAddr);
-        const dec = await lp.decimals().catch(() => lpDecimals);
-        const human = Number(ethers.formatUnits(raw, dec));
+        const { human } = await withReadProviders(async (prov) => {
+          const lp = new ethers.Contract(activePreset.lpToken, LP_ABI, prov);
+          const [raw, dec] = await Promise.all([lp.balanceOf(userAddr), lp.decimals().catch(() => lpDecimals)]);
+          return { human: Number(ethers.formatUnits(raw, dec)) };
+        }, "activeLp.balanceOf");
         if (!cancelled) setActiveLpBalance(human);
       } catch (e) {
         console.warn("Active LP balance fetch failed", e);
@@ -455,6 +455,33 @@ export default function App() {
       undefined,
       { batchMaxCount: 1 }
     );
+  }
+
+  const READ_RPC_URLS = useMemo(
+    () => [
+      "https://arc-testnet.drpc.org",
+      "https://rpc.testnet.arc.network",
+      "https://arc-testnet.drpc.org", // keep primary at the end too (some failures are transient)
+    ],
+    []
+  );
+
+  function getReadProviderForUrl(url) {
+    return new ethers.JsonRpcProvider(url, undefined, { batchMaxCount: 1 });
+  }
+
+  async function withReadProviders(fn, label = "read") {
+    let lastErr = null;
+    for (const url of READ_RPC_URLS) {
+      try {
+        const provider = getReadProviderForUrl(url);
+        return await fn(provider, url);
+      } catch (e) {
+        lastErr = e;
+        console.warn(`[RPC] ${label} failed on ${url}`, e?.message || e);
+      }
+    }
+    throw lastErr || new Error(`${label} failed`);
   }
 
   function getActiveWalletAddress() {
@@ -1195,12 +1222,15 @@ export default function App() {
     const balances = {};
     for (const p of POOLS) {
       try {
-        const lp = new ethers.Contract(p.lpToken, LP_ABI, provider);
-        const raw = await lp.balanceOf(user);
-        const dec = await lp.decimals();
-        balances[p.id] = Number(ethers.formatUnits(raw, dec));
+        const { human } = await withReadProviders(async (prov) => {
+          const lp = new ethers.Contract(p.lpToken, LP_ABI, prov);
+          const [raw, dec] = await Promise.all([lp.balanceOf(user), lp.decimals()]);
+          return { human: Number(ethers.formatUnits(raw, dec)) };
+        }, `lp.balanceOf(${p.id})`);
+        balances[p.id] = human;
       } catch {
-        balances[p.id] = 0;
+        // Do NOT mask failures as "0" — that causes misleading UX (can't remove LP, etc.)
+        balances[p.id] = null;
       }
     }
     return balances;
@@ -4717,7 +4747,7 @@ export default function App() {
                           </p>
                         ) : lpLoading ? (
                           <p className="muted">Loading your positions…</p>
-                        ) : POOLS.filter((p) => lpBalances[p.id] > 0).length ===
+                        ) : POOLS.filter((p) => Number(lpBalances[p.id] || 0) > 0).length ===
                           0 ? (
                           <div className="comingSoon">
                             <p className="muted">
@@ -4731,7 +4761,7 @@ export default function App() {
                             </button>
                           </div>
                         ) : (
-                          POOLS.filter((p) => lpBalances[p.id] > 0).map((p) => (
+                          POOLS.filter((p) => Number(lpBalances[p.id] || 0) > 0).map((p) => (
                             <div key={p.id} className="positionCard card" style={{ padding: 24 }}>
                               <div className="poolHeader">
                                 <div className="poolTokens">
