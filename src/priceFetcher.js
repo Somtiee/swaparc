@@ -40,11 +40,11 @@ export async function getPrices(symbols = []) {
     return result;
   }
 
-    try {
-      const qs = `ids=${encodeURIComponent(ids.join(","))}&vs_currencies=usd`;
-      const url = `https://api.coingecko.com/api/v3/simple/price?${qs}`;
-  
-      const resp = await fetch(url, { method: "GET" });
+  try {
+    const qs = `symbols=${encodeURIComponent(symbols.join(","))}`;
+    const url = `/api/prices/get?${qs}`;
+
+    const resp = await fetch(url, { method: "GET" });
     if (!resp.ok) {
       // non-fatal: return nulls
       console.warn("priceFetcher: coingecko fetch failed", resp.status);

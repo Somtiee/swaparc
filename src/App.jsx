@@ -11,8 +11,9 @@ import { CircleSigner } from "./utils/CircleSigner";
 const ARC_CHAIN_ID_DEC = 5042002;
 const ARC_CHAIN_ID_HEX = "0x4CEF52";
 const CIRCLE_APP_ID = import.meta.env.VITE_CIRCLE_APP_ID || "";
+const CIRCLE_CLIENT_KEY = import.meta.env.VITE_CIRCLE_CLIENT_KEY || "";
 
-console.log("Circle env VITE_CIRCLE_APP_ID", CIRCLE_APP_ID);
+console.log("Circle setup:", { CIRCLE_APP_ID, hasClientKey: !!CIRCLE_CLIENT_KEY });
 
 import { W3SSdk } from "@circle-fin/w3s-pw-web-sdk";
 
@@ -444,19 +445,20 @@ export default function App() {
       return await getWithRetry();
     } catch (error) {
       console.error("[Circle] getDeviceId failed:", error);
-      let msg = "Failed to initialize device with Circle (deviceId). ";
+      let msg = "Device Security Check Failed. ";
 
       const isBrave =
         (navigator.brave && (await navigator.brave.isBrave())) || false;
+      
       if (isBrave) {
-        msg +=
-          "Brave Browser detected: Turn off 'Shields' (lion icon) for this site. ";
+        msg += "Brave Browser detected: Try turning off 'Shields' (lion icon). ";
       } else {
-        msg += "Enable third-party cookies or disable privacy extensions. ";
+        msg += "Please ensure 'www.swaparc.app' is in your Circle 'Allowed Domains'. ";
       }
 
-      if (window.location.hostname === "localhost") {
-        msg += "Also try https://127.0.0.1:3000 instead of localhost.";
+      // Check for common typo in environment variables seen in deployment
+      if (CIRCLE_CLIENT_KEY && CIRCLE_CLIENT_KEY.includes("CLIENT_KEY:")) {
+        msg += "Warning: Your Client Key on Vercel seems to have a label typo. ";
       }
 
       setEmailError(msg);
