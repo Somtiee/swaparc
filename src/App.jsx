@@ -2958,6 +2958,20 @@ export default function App() {
       } catch {
         throw new Error("Invalid LP amount");
       }
+
+      const balToCheck =
+        activeLpBalance != null
+          ? activeLpBalance
+          : activePreset && lpBalances[activePreset.id] != null
+            ? lpBalances[activePreset.id]
+            : null;
+
+      if (balToCheck == null) {
+        throw new Error("LP balance unavailable right now. Please wait a moment and try again.");
+      }
+      if (Number(removeLpAmount) > Number(balToCheck) + 1e-9) {
+        throw new Error("Not enough LP");
+      }
       let finalTxHash = null;
 
       if (isCircleMode()) {
@@ -4222,7 +4236,7 @@ export default function App() {
 
                           {/* LP Positions */}
                           {Object.keys(lpBalances).some(
-                            (k) => lpBalances[k] > 0
+                            (k) => Number(lpBalances[k] || 0) > 0
                           ) && (
                             <div>
                               <div
