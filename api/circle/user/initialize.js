@@ -9,13 +9,20 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { userToken } = req.body || {};
+    const { userToken, accountType, blockchains } = req.body || {};
     if (!userToken) {
       return res.status(400).json({ error: "Missing userToken" });
     }
 
     const baseUrl =
       process.env.CIRCLE_BASE_URL || "https://api.circle.com";
+
+    const defaultBlockchain = process.env.CIRCLE_BLOCKCHAIN || "ARC-TESTNET";
+    const normalizedBlockchains = Array.isArray(blockchains)
+      ? blockchains
+      : blockchains
+        ? [blockchains]
+        : [defaultBlockchain];
 
     const response = await fetch(
       `${baseUrl}/v1/w3s/user/initialize`,
@@ -31,6 +38,8 @@ export default async function handler(req, res) {
             typeof crypto !== "undefined" && crypto.randomUUID
               ? crypto.randomUUID()
               : `${Date.now()}-${Math.random()}`,
+          accountType: accountType || "SCA",
+          blockchains: normalizedBlockchains,
         }),
       }
     );
@@ -41,6 +50,7 @@ export default async function handler(req, res) {
         json?.error ||
         json?.message ||
         "Circle user initialization failed";
+      console.error("[initialize] API Error:", msg);
       return res.status(response.status).json({ error: msg });
     }
 
@@ -54,4 +64,3 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Internal server error" });
   }
 }
-

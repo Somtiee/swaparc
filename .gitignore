@@ -27,3 +27,10 @@ dist-ssr
 .env
 .env.local
 .env.*.local
+
+# Local debug / generated artifacts (do not commit)
+eslint-errors.*
+eslint-report.json
+lint_errors.txt
+count_output.txt
+backfill_logs_checkpoint.json

@@ -424,17 +424,39 @@ export default function App() {
       return null;
     }
 
-    const getWithRetry = async (retries = 5, delay = 2000) => {
+    // Reuse cached deviceId if present (prevents repeated SDK calls / improves UX)
+    try {
+      const cached = window.localStorage.getItem("circle_device_id") || window.localStorage.getItem("deviceId");
+      if (cached && typeof cached === "string" && cached.length > 8) {
+        setCircleDeviceId(cached);
+        return cached;
+      }
+    } catch {
+      // ignore storage failures
+    }
+
+    const getWithRetry = async (retries = 5, delayMs = 900) => {
       try {
+        setEmailStatus(`Performing device security check… (${retries + 1} attempts left)`);
         const id = await circleSdkRef.current.getDeviceId();
         if (!id) throw new Error("Received empty deviceId");
         console.log("[Circle] deviceId from sdk.getDeviceId()", id);
+        try {
+          window.localStorage.setItem("circle_device_id", id);
+          window.localStorage.setItem("deviceId", id);
+        } catch {
+          // ignore storage failures
+        }
+        setCircleDeviceId(id);
+        setEmailStatus("");
         return id;
       } catch (err) {
         if (retries > 0) {
           console.warn(`[Circle] getDeviceId failed, retrying... (${retries} left)`);
-          await new Promise((res) => setTimeout(res, delay));
-          return getWithRetry(retries - 1, delay);
+          await new Promise((res) => setTimeout(res, delayMs));
+          // Exponential backoff (caps at 6s)
+          const nextDelay = Math.min(6000, Math.floor(delayMs * 1.6));
+          return getWithRetry(retries - 1, nextDelay);
         }
         throw err;
       }
@@ -444,17 +466,19 @@ export default function App() {
       return await getWithRetry();
     } catch (error) {
       console.error("[Circle] getDeviceId failed:", error);
-      let msg = "Device Security Check Failed. ";
+      setEmailStatus("");
+      let msg = "Device security check failed. ";
 
       const isBrave =
         (navigator.brave && (await navigator.brave.isBrave())) || false;
       
       if (isBrave) {
-        msg += "Brave Browser detected: Try turning off 'Shields' (lion icon). ";
+        msg += "Brave detected: turn off Shields for this site (lion icon), then retry. ";
       } else {
-        msg += "To fix: Go to Circle Console -> Programmable Wallets -> User Controlled -> Configurator. ";
-        msg += "Add 'https://www.swaparc.app' to 'Allowed Domains'. ";
+        msg += "Please allow third‑party cookies (or disable strict tracking prevention) and retry. ";
       }
+
+      msg += "If this persists, ensure `https://www.swaparc.app` is added to Circle Allowed Domains (Configurator).";
 
       setEmailError(msg);
       return null;

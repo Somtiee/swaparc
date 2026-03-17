@@ -1,14 +1,13 @@
 import { kv } from "@vercel/kv";
 
-function getInternalBaseUrl() {
-  if (process.env.INTERNAL_API_BASE_URL) return process.env.INTERNAL_API_BASE_URL;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return "http://localhost:3000";
-}
-
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  const apiKey = process.env.CIRCLE_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ error: "Circle API key not configured" });
   }
 
   try {
@@ -16,13 +15,19 @@ export default async function handler(req, res) {
 
     if (!email || !userToken) {
       return res
-        .status(500)
+        .status(400)
         .json({ error: "email and userToken are required" });
     }
 
     const key = `circle_user_${email}`;
+    let existing = null;
 
-    const existing = await kv.get(key);
+    try {
+      existing = await kv.get(key);
+    } catch (kvError) {
+      console.warn("KV get failed, proceeding without cache:", kvError.message);
+    }
+
     if (
       existing &&
       typeof existing === "object" &&
@@ -37,23 +42,18 @@ export default async function handler(req, res) {
       });
     }
 
-    const baseUrl = getInternalBaseUrl();
-
-    try {
-      const initRes = await fetch(`${baseUrl}/api/circle/user/initialize`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userToken }),
-      });
-
-      await initRes.json().catch(() => ({}));
-    } catch {
-    }
-
-    const walletsRes = await fetch(`${baseUrl}/api/circle/user/wallets`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userToken }),
+    // Call Circle API directly instead of self-referential fetch to avoid port issues
+    const circleBaseUrl = process.env.CIRCLE_BASE_URL || "https://api.circle.com";
+    console.log(`[get-or-create-wallet] Fetching wallets from Circle API directly`);
+    
+    const walletsRes = await fetch(`${circleBaseUrl}/v1/w3s/wallets`, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        "X-User-Token": userToken,
+      },
     });
 
     const walletsJson = await walletsRes.json().catch(() => ({}));
@@ -63,10 +63,13 @@ export default async function handler(req, res) {
         walletsJson?.error ||
         walletsJson?.message ||
         "Failed to fetch Circle wallets";
+      console.error("[get-or-create-wallet] Wallet fetch failed:", msg);
       return res.status(walletsRes.status).json({ error: msg });
     }
 
-    const wallets = walletsJson?.wallets || [];
+    const data = walletsJson?.data || walletsJson || {};
+    const wallets = data.wallets || [];
+    
     if (!Array.isArray(wallets) || wallets.length === 0) {
       return res.status(404).json({ error: "No Circle wallets found" });
     }
@@ -78,11 +81,19 @@ export default async function handler(req, res) {
       blockchain: first.blockchain,
     };
 
-    await kv.set(key, wallet);
+    try {
+      await kv.set(key, wallet);
+    } catch (kvError) {
+      console.warn("KV set failed:", kvError.message);
+    }
 
     return res.status(200).json(wallet);
-  } catch {
-    return res.status(500).json({ error: "Internal server error" });
+  } catch (err) {
+    console.error("[get-or-create-wallet] Internal Error:", err);
+    return res.status(500).json({ 
+      error: "Internal server error", 
+      details: err.message 
+    });
   }
 }
 

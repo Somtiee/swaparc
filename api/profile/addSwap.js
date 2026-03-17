@@ -19,8 +19,17 @@ export default async function handler(req, res) {
       const mappedId = await kv.get(`wallet:${lowerWallet}`);
       profileKey = mappedId ? `profile:${mappedId}` : `profile:${lowerWallet}`;
     }
+    
+    // Increment stats immediately
+    const newCount = await kv.hincrby(profileKey, "swapCount", 1);
+    const newVolume = await kv.hincrbyfloat(profileKey, "swapVolume", amount);
+    
+    // Update leaderboards
+    const memberId = profileKey.replace("profile:", "");
+    await kv.zadd("leaderboard:swapCount", { score: newCount, member: memberId });
+    await kv.zadd("leaderboard:swapVolume", { score: newVolume, member: memberId });
 
-    return res.status(200).json({ success: true });
+    return res.status(200).json({ success: true, newCount, newVolume });
 
     /*
     // Fetch LP to evaluate badge
