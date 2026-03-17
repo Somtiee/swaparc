@@ -11,9 +11,8 @@ import { CircleSigner } from "./utils/CircleSigner";
 const ARC_CHAIN_ID_DEC = 5042002;
 const ARC_CHAIN_ID_HEX = "0x4CEF52";
 const CIRCLE_APP_ID = import.meta.env.VITE_CIRCLE_APP_ID || "";
-const CIRCLE_CLIENT_KEY = import.meta.env.VITE_CIRCLE_CLIENT_KEY || "";
 
-console.log("Circle setup:", { CIRCLE_APP_ID, hasClientKey: !!CIRCLE_CLIENT_KEY });
+console.log("Circle setup:", { CIRCLE_APP_ID });
 
 import { W3SSdk } from "@circle-fin/w3s-pw-web-sdk";
 
@@ -453,12 +452,8 @@ export default function App() {
       if (isBrave) {
         msg += "Brave Browser detected: Try turning off 'Shields' (lion icon). ";
       } else {
-        msg += "Please ensure 'www.swaparc.app' is in your Circle 'Allowed Domains'. ";
-      }
-
-      // Check for common typo in environment variables seen in deployment
-      if (CIRCLE_CLIENT_KEY && CIRCLE_CLIENT_KEY.includes("CLIENT_KEY:")) {
-        msg += "Warning: Your Client Key on Vercel seems to have a label typo. ";
+        msg += "To fix: Go to Circle Console -> Programmable Wallets -> User Controlled -> Configurator. ";
+        msg += "Add 'https://www.swaparc.app' to 'Allowed Domains'. ";
       }
 
       setEmailError(msg);
