@@ -426,6 +426,12 @@ body {
   margin-bottom: 16px;
 }
 
+.swapHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .swapTitle {
   margin: 0;
   font-size: 18px;
@@ -1032,9 +1038,18 @@ body {
     font-size: 16px;
   }
 
+  .swapHeaderActions {
+    gap: 6px;
+    white-space: nowrap;
+  }
+
   .slippageSettingsBtn {
-    padding: 4px 8px;
+    padding: 4px;
+    min-width: 34px;
+    height: 34px;
     gap: 5px;
+    justify-content: center;
+    border-radius: 12px;
     box-shadow:
       0 0 0 1px rgba(0, 0, 0, 0.35),
       0 6px 16px rgba(25, 115, 255, 0.25);
@@ -1045,6 +1060,7 @@ body {
   }
 
   .slippageSettingsValue {
+    display: none;
     font-size: 10px;
   }
 
@@ -1173,6 +1189,328 @@ body {
   color: #9ff6ff;
   margin-bottom: 14px;
   letter-spacing: 0.6px;
+}
+
+/* Mobile address pill (no overflow) */
+.addressPill {
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.85);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.addressPillText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.addressPillIcon {
+  opacity: 0.8;
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .addressPill {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+/* Toast */
+.toastContainer {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 9999;
+  pointer-events: none;
+  width: 100%;
+  max-width: 92vw;
+  display: flex;
+  justify-content: center;
+}
+
+.toastBubble {
+  background: rgba(14, 32, 56, 0.95);
+  color: #9ff6ff;
+  border: 1px solid rgba(0, 255, 255, 0.35);
+  box-shadow: 0 10px 30px rgba(0, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 14px;
+  animation: toastIn 0.18s ease-out both;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Remove Liquidity modal layout */
+.removeLiqModal {
+  max-width: 460px;
+  padding: 24px 28px;
+}
+
+.removeLiqTitle {
+  margin-bottom: 18px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.removeLiqCard {
+  padding: 16px 20px;
+  margin-bottom: 18px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.removeLiqHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.removeLiqQuickInline {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.removeLiqChip {
+  width: auto;
+  padding: 6px 10px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 800;
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.removeLiqChip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.removeLiqChip:active {
+  transform: translateY(0);
+}
+
+.removeLiqChipPrimary {
+  border-color: rgba(0, 240, 255, 0.25);
+  background: rgba(0, 240, 255, 0.1);
+}
+
+.removeLiqChipPrimary:hover {
+  border-color: rgba(0, 240, 255, 0.4);
+  background: rgba(0, 240, 255, 0.14);
+}
+
+.removeLiqLabel,
+.removeLiqBalance {
+  font-size: 14px;
+}
+
+.removeLiqRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.removeLiqInput {
+  font-size: 32px;
+  padding: 10px 0;
+  width: 65%;
+}
+
+/* removeLiqQuick removed (replaced by removeLiqQuickInline chips) */
+
+/* Remove-by-token inputs */
+.removeLiqTokenGrid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.removeLiqTokenCard {
+  padding: 14px 14px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+}
+
+.removeLiqTokenTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.removeLiqTokenLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.removeLiqTokenIcon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.removeLiqTokenSym {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.removeLiqTokenEst {
+  font-size: 13px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.removeLiqTokenBal {
+  color: #00f0ff;
+  font-weight: 700;
+}
+
+.removeLiqTokenInput {
+  width: 100%;
+  font-size: 28px;
+  padding: 10px 0;
+}
+
+.removeLiqEstList {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.removeLiqEstRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.removeLiqMetaRow {
+  margin-top: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+}
+
+.removeLiqError {
+  margin-top: 10px;
+  color: #ff8080;
+  background: rgba(255, 80, 80, 0.08);
+  border: 1px solid rgba(255, 80, 80, 0.2);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.removeLiqActions {
+  margin-top: 0;
+}
+
+@media (max-width: 600px) {
+  .removeLiqHead {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .removeLiqQuickInline {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .removeLiqModal {
+    padding: 16px 14px;
+    max-width: 92vw;
+  }
+  .removeLiqHead {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .removeLiqTitle {
+    font-size: 18px;
+    margin-bottom: 12px;
+  }
+  .removeLiqCard {
+    padding: 12px 12px;
+  }
+  .removeLiqTokenGrid {
+    gap: 10px;
+  }
+  .removeLiqQuickInline {
+    gap: 6px;
+  }
+  .removeLiqChip {
+    height: 28px;
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+  .removeLiqTokenCard {
+    padding: 12px 12px;
+  }
+  .removeLiqTokenInput {
+    font-size: 22px;
+    padding: 8px 0;
+  }
+  .removeLiqTokenEst {
+    font-size: 12px;
+  }
+  .removeLiqEstList {
+    margin-top: 10px;
+    gap: 6px;
+  }
+  .removeLiqEstRow {
+    font-size: 12px;
+  }
+  .removeLiqRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .removeLiqActions {
+    flex-direction: column;
+  }
+  .removeLiqActions > * {
+    width: 100%;
+  }
 }
 
 

@@ -293,6 +293,8 @@ export default function App() {
   const [lpTokenAmounts, setLpTokenAmounts] = useState({});
   const [lpBalances, setLpBalances] = useState({});
   const [lpLoading, setLpLoading] = useState(false);
+  const [lpCacheHydrated, setLpCacheHydrated] = useState(false);
+  const lastLpCacheWalletRef = useRef(null);
   const [liquiditySuccess, setLiquiditySuccess] = useState(null);
   const [lpDecimals, setLpDecimals] = useState(18);
   const [poolBalances, setPoolBalances] = useState({});
@@ -1116,12 +1118,22 @@ export default function App() {
       if (!walletAddr) return;
 
       // Fast-path: hydrate LP cache for this wallet (instant positions on reload)
+      if (lastLpCacheWalletRef.current !== walletAddr) {
+        lastLpCacheWalletRef.current = walletAddr;
+        setLpCacheHydrated(false);
+      }
+
       try {
         const key = `swaparc_lp_cache_${String(walletAddr).toLowerCase()}`;
-        const cached = JSON.parse(window.localStorage.getItem(key) || "null");
-        if (cached && cached.lpBalances && cached.lpTokenAmounts) {
-          setLpBalances(cached.lpBalances || {});
-          setLpTokenAmounts(cached.lpTokenAmounts || {});
+        const cachedRaw = window.localStorage.getItem(key);
+        if (cachedRaw) {
+          const cached = JSON.parse(cachedRaw);
+          if (cached && cached.lpBalances && cached.lpTokenAmounts) {
+            setLpBalances(cached.lpBalances || {});
+            setLpTokenAmounts(cached.lpTokenAmounts || {});
+          }
+          // Mark as hydrated if we found a cache entry (even if it has empty objects).
+          setLpCacheHydrated(true);
         }
       } catch {
         // ignore cache issues
@@ -4951,39 +4963,75 @@ export default function App() {
                       ALL
                     </button>
                   </div>
-                  {historyView === "mine" && swapHistory && swapHistory.length > 0 && (
+                  {historyView === "mine" && (
                     <div style={{ marginBottom: 14 }}>
                       <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
                         Recent swaps (app history)
                       </div>
-                      <ul className="historyList">
-                        {swapHistory.slice(0, 10).map((t) => (
-                          <li key={`${t.hash || ""}-${t.timestamp || ""}`} className="historyItem mineTx">
-                            <div className="historyLeft">
-                              <div>
-                                <strong>{t.fromAmount}</strong> {t.fromToken} →{" "}
-                                <strong>{t.toAmount}</strong> {t.toToken}
-                              </div>
-                              {t.hash && (
-                                <div className="historyMeta">
-                                  <a
-                                    href={`https://testnet.arcscan.app/tx/${t.hash}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                  >
-                                    View Tx
-                                  </a>
+                      {swapHistory && swapHistory.length > 0 ? (
+                        <>
+                          <ul className="historyList">
+                            {swapHistory.slice(startIdx, endIdx).map((t) => (
+                              <li
+                                key={`${t.hash || ""}-${t.timestamp || ""}`}
+                                className="historyItem mineTx"
+                              >
+                                <div className="historyLeft">
+                                  <div>
+                                    <strong>{t.fromAmount}</strong> {t.fromToken} →{" "}
+                                    <strong>{t.toAmount}</strong> {t.toToken}
+                                  </div>
+                                  {t.hash && (
+                                    <div className="historyMeta">
+                                      <a
+                                        href={`https://testnet.arcscan.app/tx/${t.hash}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        View Tx
+                                      </a>
+                                    </div>
+                                  )}
                                 </div>
-                              )}
-                            </div>
-                            <div className="historyRight">
-                              <div className="historyTime">
-                                {t.timestamp ? new Date(t.timestamp).toLocaleString() : "—"}
-                              </div>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
+                                <div className="historyRight">
+                                  <div className="historyTime">
+                                    {t.timestamp
+                                      ? new Date(t.timestamp).toLocaleString()
+                                      : "—"}
+                                  </div>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+
+                          <div className="paginationRow">
+                            <button
+                              className="pageBtn"
+                              disabled={txPage === 0}
+                              onClick={() =>
+                                setTxPage((p) => Math.max(0, p - 1))
+                              }
+                            >
+                              ◀ Prev
+                            </button>
+
+                            <span className="pageInfo">
+                              Page {txPage + 1} /{" "}
+                              {Math.ceil(swapHistory.length / TXS_PER_PAGE)}
+                            </span>
+
+                            <button
+                              className="pageBtn"
+                              disabled={endIdx >= swapHistory.length}
+                              onClick={() => setTxPage((p) => p + 1)}
+                            >
+                              Next ▶
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="muted">No swaps yet.</p>
+                      )}
                     </div>
                   )}
                   {txLoading ? (
@@ -5100,7 +5148,7 @@ export default function App() {
                           <p className="muted">
                             Connect wallet to view positions.
                           </p>
-                        ) : lpLoading ? (
+                        ) : lpLoading && !lpCacheHydrated ? (
                           <p className="muted">Loading your positions…</p>
                         ) : POOLS.filter((p) => Number(lpBalances[p.id] || 0) > 0).length ===
                           0 ? (
