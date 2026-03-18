@@ -391,6 +391,7 @@ export default function App() {
   });
 
   const swapHistoryWalletByHashRef = useRef(swapHistoryWalletByHash);
+  const [swapHistoryWalletByHashLoading, setSwapHistoryWalletByHashLoading] = useState(false);
 
   // Filter app-level swap history ("ONLY MINE") by the currently connected wallet.
   // This prevents mixing swaps done under wallet-connect vs Circle email smart wallet.
@@ -412,6 +413,7 @@ export default function App() {
   // Backfill walletAddress for older history items that were saved before we started storing it.
   // We resolve tx hashes to their sender address via the read RPC and cache it in localStorage.
   useEffect(() => {
+    setSwapHistoryWalletByHashLoading(false);
     const unknown = (swapHistory || [])
       .filter(
         (t) =>
@@ -424,6 +426,7 @@ export default function App() {
     if (unknown.length === 0) return;
 
     let cancelled = false;
+    setSwapHistoryWalletByHashLoading(true);
     (async () => {
       const provider = getReadProvider();
       const updates = {};
@@ -453,7 +456,9 @@ export default function App() {
         }
         return next;
       });
-    })();
+    })().finally(() => {
+      if (!cancelled) setSwapHistoryWalletByHashLoading(false);
+    });
 
     return () => {
       cancelled = true;
@@ -5111,8 +5116,15 @@ export default function App() {
                             </button>
                           </div>
                         </>
+                      ) : swapHistoryWalletByHashLoading ? (
+                        <p className="muted">
+                          Resolving saved app swap history for this wallet...
+                        </p>
                       ) : (
-                        <p className="muted">No swaps found for this wallet.</p>
+                        <p className="muted">
+                          No saved app swaps for this wallet yet. ArcScan history below
+                          may still show your swaps.
+                        </p>
                       ) : (
                         <p className="muted">Connect wallet to view your swaps.</p>
                       )}
