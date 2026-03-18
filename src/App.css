@@ -1506,10 +1506,10 @@ body {
     align-items: stretch;
   }
   .removeLiqActions {
-    flex-direction: column;
+    flex-direction: row;
   }
   .removeLiqActions > * {
-    width: 100%;
+    width: auto;
   }
 }
 
@@ -1544,6 +1544,21 @@ body {
 
 .txActions>button {
   flex: 1;
+}
+
+@media (max-width: 768px) {
+  /* Mobile: keep Cancel/Remove on a single row like desktop */
+  .removeLiqActions {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 12px;
+  }
+
+  .removeLiqActions > * {
+    height: 56px;
+    padding: 0 12px;
+    width: auto; /* override primaryBtn/secondaryBtn width: 100% */
+  }
 }
 
 
