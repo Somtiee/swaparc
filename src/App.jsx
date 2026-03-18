@@ -18,6 +18,12 @@ import { W3SSdk } from "@circle-fin/w3s-pw-web-sdk";
 
 const SWAP_POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
 
+const TOKEN_INDICES = {
+  USDC: 0,
+  EURC: 1,
+  SWPRC: 2,
+};
+
 const POOLS = [
   {
     id: "usdc-eurc",
@@ -264,11 +270,6 @@ export default function App() {
   function openFaucet() {
     window.open("https://faucet.circle.com/", "_blank");
   }
-  const tokenIndices = {
-    USDC: 0,
-    EURC: 1,
-    SWPRC: 2,
-  };
 
   // --- STATE DECLARATIONS (Moved up to avoid TDZ) ---
   const [address, setAddress] = useState(null);
@@ -279,6 +280,12 @@ export default function App() {
   const circleSdkRef = useRef(null);
   const userEmailRef = useRef(null);
   const circleExecResolverRef = useRef(null);
+  const circlePromptInFlightRef = useRef(false);
+  // Serialize all Circle contract actions (approve / swap / add / remove)
+  const circleActionQueueRef = useRef(Promise.resolve());
+  // Prevent extra Circle calls from bad UX (users spamming buttons)
+  const circleActionDepthRef = useRef(0);
+  const [circleActionsBusy, setCircleActionsBusy] = useState(false);
 
   const [activePreset, setActivePreset] = useState(null);
   const [network, setNetwork] = useState(null);
@@ -312,18 +319,26 @@ export default function App() {
   const [removeLoading, setRemoveLoading] = useState(false);
   const [activeLpBalance, setActiveLpBalance] = useState(null);
   const [activeLpBalanceLoading, setActiveLpBalanceLoading] = useState(false);
+  const [activeLpRaw, setActiveLpRaw] = useState(0n);
+  const [removeDriverSym, setRemoveDriverSym] = useState(null);
+  const [removeTokenInputs, setRemoveTokenInputs] = useState({});
+  const [removeEstimates, setRemoveEstimates] = useState({});
+  const [removeMeta, setRemoveMeta] = useState(null); // { poolRawBalances, totalLpRaw, lpDec, tokenDecs }
+  const [removeCalcError, setRemoveCalcError] = useState("");
   const [historyView, setHistoryView] = useState("mine");
   const TXS_PER_PAGE = 10;
   const [txPage, setTxPage] = useState(0);
   const startIdx = txPage * TXS_PER_PAGE;
   const endIdx = startIdx + TXS_PER_PAGE;
   const pagedTxs = poolTxs.slice(startIdx, endIdx);
-  const walletTxs = address
-    ? poolTxs.filter(
-        (tx) =>
-          tx.from?.toLowerCase() === address.toLowerCase() ||
-          tx.to?.toLowerCase() === address.toLowerCase()
-      )
+  const walletTxs = getActiveWalletAddress()
+    ? poolTxs.filter((tx) => {
+        const a = String(getActiveWalletAddress() || "").toLowerCase();
+        return (
+          tx.from?.toLowerCase() === a ||
+          tx.to?.toLowerCase() === a
+        );
+      })
     : [];
   const pagedWalletTxs = walletTxs.slice(startIdx, endIdx);
   const activeHistoryTxs = historyView === "all" ? pagedTxs : pagedWalletTxs;
@@ -365,6 +380,7 @@ export default function App() {
   const [showConnectMenu, setShowConnectMenu] = useState(false);
   const [showWalletMenu, setShowWalletMenu] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [toast, setToast] = useState(null);
   const [userEmail, setUserEmail] = useState(null);
   // circleWallet, circleWalletReady moved up
 
@@ -403,17 +419,72 @@ export default function App() {
 
       setActiveLpBalanceLoading(true);
       try {
-        const { human } = await withReadProviders(async (prov) => {
-          const lp = new ethers.Contract(activePreset.lpToken, LP_ABI, prov);
-          const [raw, dec] = await Promise.all([lp.balanceOf(userAddr), lp.decimals().catch(() => lpDecimals)]);
-          return { human: Number(ethers.formatUnits(raw, dec)) };
-        }, "activeLp.balanceOf");
+        const { human, raw, dec, lpTokenAddress } = await fetchSingleLpBalance(activePreset, userAddr);
         // If a cached balance exists and is higher, keep the higher value (prevents showing 0 on transient RPC issues)
         const cached = activePreset ? Number(lpBalances?.[activePreset.id] || 0) : 0;
-        if (!cancelled) setActiveLpBalance(Math.max(human || 0, cached || 0));
+        if (!cancelled) {
+          if (dec) setLpDecimals(Number(dec) || 18);
+          setActiveLpRaw(typeof raw === "bigint" ? raw : 0n);
+          setActiveLpBalance(Math.max(human || 0, cached || 0));
+          setRemoveLpAmount("");
+          setRemoveDriverSym(null);
+          setRemoveTokenInputs({});
+          setRemoveEstimates({});
+          setRemoveMeta(null);
+          setRemoveCalcError("");
+          console.log("[LP-Debug] active modal", {
+            poolId: activePreset.id,
+            user: userAddr,
+            lpToken: lpTokenAddress || activePreset.lpToken,
+            decimals: dec,
+            raw: (typeof raw === "bigint" ? raw : 0n).toString(),
+            human,
+            cached,
+          });
+
+          // Fetch pool + token metadata for "remove by token amount" UX
+          try {
+            const provider = getReadProvider();
+            const pool = new ethers.Contract(activePreset.poolAddress, POOL_ABI, provider);
+            const [poolRawBalances, lpTokenAddr] = await Promise.all([
+              pool.getBalances(),
+              pool.lpToken().catch(() => activePreset.lpToken),
+            ]);
+            const lp = new ethers.Contract(lpTokenAddr, LP_ABI, provider);
+            const [totalLpRaw, lpDec] = await Promise.all([
+              lp.totalSupply(),
+              lp.decimals().catch(() => 18),
+            ]);
+            const tokenDecs = {};
+            for (const sym of activePreset.tokens) {
+              const token = INITIAL_TOKENS.find((t) => t.symbol === sym);
+              if (!token) continue;
+              try {
+                const tC = new ethers.Contract(token.address, ERC20_ABI, provider);
+                tokenDecs[sym] = Number(await tC.decimals());
+              } catch {
+                tokenDecs[sym] = 18;
+              }
+            }
+            if (!cancelled) {
+              setRemoveMeta({
+                poolRawBalances,
+                totalLpRaw,
+                lpDec: Number(lpDec) || 18,
+                tokenDecs,
+                lpTokenAddr,
+              });
+            }
+          } catch (e) {
+            console.warn("[LP-Debug] remove meta fetch failed", e?.message || e);
+          }
+        }
       } catch (e) {
         console.warn("Active LP balance fetch failed", e);
-        if (!cancelled) setActiveLpBalance(null);
+        if (!cancelled) {
+          setActiveLpBalance(null);
+          setActiveLpRaw(0n);
+        }
       } finally {
         if (!cancelled) setActiveLpBalanceLoading(false);
       }
@@ -423,6 +494,103 @@ export default function App() {
       cancelled = true;
     };
   }, [showRemoveLiquidity, activePreset?.lpToken, activePreset?.id, authMode, circleWalletReady, circleWallet?.address, address, lpDecimals]);
+
+  function ceilDiv(a, b) {
+    if (b === 0n) return 0n;
+    return (a + b - 1n) / b;
+  }
+
+  function setRemoveByPct(pct) {
+    if (!activePreset || !removeMeta) return;
+    const p = Math.max(0, Math.min(100, Number(pct) || 0));
+    if (!(typeof activeLpRaw === "bigint") || activeLpRaw <= 0n) return;
+    const totalLpRaw = removeMeta.totalLpRaw ?? 0n;
+    if (!totalLpRaw || totalLpRaw <= 0n) return;
+
+    const lpRaw = (activeLpRaw * BigInt(Math.round(p * 100))) / 10000n; // basis points
+    const lpDec = Number(removeMeta.lpDec ?? lpDecimals ?? 18);
+    setRemoveLpAmount(lpRaw > 0n ? ethers.formatUnits(lpRaw, lpDec) : "");
+
+    const est = {};
+    for (let i = 0; i < (activePreset.tokens || []).length; i++) {
+      const sym = activePreset.tokens[i];
+      const decOut = Number(removeMeta.tokenDecs?.[sym] ?? 18);
+      const outRaw = (removeMeta.poolRawBalances[i] * lpRaw) / totalLpRaw;
+      est[sym] = Number.parseFloat(ethers.formatUnits(outRaw, decOut));
+    }
+    setRemoveEstimates(est);
+
+    // Default driver = first token (user can tap other input to switch)
+    const driver = activePreset.tokens?.[0];
+    if (driver) {
+      setRemoveDriverSym(driver);
+      setRemoveTokenInputs({
+        [driver]:
+          est?.[driver] != null && Number.isFinite(est[driver]) && est[driver] > 0
+            ? String(est[driver].toFixed(6))
+            : "",
+      });
+    } else {
+      setRemoveDriverSym(null);
+      setRemoveTokenInputs({});
+    }
+  }
+
+  function computeRemoveFromToken(sym, amountStr) {
+    if (!activePreset || !removeMeta) return;
+    setRemoveCalcError("");
+    const amt = String(amountStr || "").trim();
+    if (!amt) {
+      setRemoveLpAmount("");
+      setRemoveEstimates({});
+      return;
+    }
+
+    const idx = activePreset.tokens.indexOf(sym);
+    if (idx < 0) return;
+
+    const tokenDec = Number(removeMeta.tokenDecs?.[sym] ?? 18);
+    const poolRaw = removeMeta.poolRawBalances?.[idx] ?? 0n;
+    const totalLpRaw = removeMeta.totalLpRaw ?? 0n;
+    const lpDec = Number(removeMeta.lpDec ?? lpDecimals ?? 18);
+
+    if (poolRaw === 0n || totalLpRaw === 0n) {
+      setRemoveCalcError("Pool data unavailable right now. Try again in a moment.");
+      return;
+    }
+
+    let desiredRaw = 0n;
+    try {
+      desiredRaw = ethers.parseUnits(amt, tokenDec);
+    } catch {
+      setRemoveCalcError("Invalid amount format");
+      return;
+    }
+    if (desiredRaw <= 0n) {
+      setRemoveLpAmount("");
+      setRemoveEstimates({});
+      return;
+    }
+
+    // lpRawNeeded = ceil(desiredRaw * totalLpRaw / poolRawToken)
+    const lpRawNeeded = ceilDiv(desiredRaw * totalLpRaw, poolRaw);
+    if (typeof activeLpRaw === "bigint" && activeLpRaw > 0n && lpRawNeeded > activeLpRaw) {
+      setRemoveCalcError("That amount exceeds your position.");
+      return;
+    }
+
+    setRemoveLpAmount(ethers.formatUnits(lpRawNeeded, lpDec));
+
+    // Estimates for all tokens out (proportional)
+    const est = {};
+    for (let i = 0; i < activePreset.tokens.length; i++) {
+      const s = activePreset.tokens[i];
+      const decOut = Number(removeMeta.tokenDecs?.[s] ?? 18);
+      const outRaw = (removeMeta.poolRawBalances[i] * lpRawNeeded) / totalLpRaw;
+      est[s] = Number.parseFloat(ethers.formatUnits(outRaw, decOut));
+    }
+    setRemoveEstimates(est);
+  }
 
   const [profileStats, setProfileStats] = useState(null);
   const [userId, setUserId] = useState(null);
@@ -523,7 +691,7 @@ export default function App() {
 
     const getWithRetry = async (retries = 5, delayMs = 900) => {
       try {
-        setEmailStatus(`Performing device security check… (${retries + 1} attempts left)`);
+        setEmailStatus(`Performing device security check…`);
         const id = await circleSdkRef.current.getDeviceId();
         if (!id) throw new Error("Received empty deviceId");
         console.log("[Circle] deviceId from sdk.getDeviceId()", id);
@@ -553,18 +721,18 @@ export default function App() {
     } catch (error) {
       console.error("[Circle] getDeviceId failed:", error);
       setEmailStatus("");
-      let msg = "Device security check failed. ";
+      let msg = "We couldn't complete the device security check. ";
 
       const isBrave =
         (navigator.brave && (await navigator.brave.isBrave())) || false;
       
       if (isBrave) {
-        msg += "Brave detected: turn off Shields for this site (lion icon), then retry. ";
+        msg += "Brave browser detected — turn off Shields for this site (lion icon), then tap “Send OTP” again. ";
       } else {
-        msg += "Please allow third‑party cookies (or disable strict tracking prevention) and retry. ";
+        msg += "This is usually caused by strict tracking / cookie blockers. Please allow third‑party cookies (or disable strict tracking prevention) for this site, then try again. ";
       }
 
-      msg += "If this persists, ensure `https://www.swaparc.app` is added to Circle Allowed Domains (Configurator).";
+      msg += "You can also retry later; just reopen the email login and press “Send OTP” again once your settings are updated.";
 
       setEmailError(msg);
       return null;
@@ -947,6 +1115,18 @@ export default function App() {
 
       if (!walletAddr) return;
 
+      // Fast-path: hydrate LP cache for this wallet (instant positions on reload)
+      try {
+        const key = `swaparc_lp_cache_${String(walletAddr).toLowerCase()}`;
+        const cached = JSON.parse(window.localStorage.getItem(key) || "null");
+        if (cached && cached.lpBalances && cached.lpTokenAmounts) {
+          setLpBalances(cached.lpBalances || {});
+          setLpTokenAmounts(cached.lpTokenAmounts || {});
+        }
+      } catch {
+        // ignore cache issues
+      }
+
       try {
         // Always fetch balances when address is connected, regardless of tab
         const balData = await getBalances(walletAddr, activeProvider);
@@ -984,7 +1164,25 @@ export default function App() {
         console.error("Profile/Balance load error", e);
       }
     })();
-  }, [activeTab, address, circleWallet]); // Added circleWallet dependency
+  }, [activeTab, authMode, address, circleWalletReady, circleWallet?.address, circleWallet]); // include Circle readiness
+
+  useEffect(() => {
+    const walletAddr = getActiveWalletAddress();
+    if (!walletAddr || typeof window === "undefined") return;
+    try {
+      const key = `swaparc_lp_cache_${String(walletAddr).toLowerCase()}`;
+      window.localStorage.setItem(
+        key,
+        JSON.stringify({
+          ts: Date.now(),
+          lpBalances,
+          lpTokenAmounts,
+        })
+      );
+    } catch {
+      // ignore
+    }
+  }, [lpBalances, lpTokenAmounts, address, circleWallet]);
 
   useEffect(() => {
     if (!profileStats) return;
@@ -1220,15 +1418,53 @@ export default function App() {
   // around line 450.
 
 
+  async function fetchSingleLpBalance(p, user) {
+    if (!p || !user) return { human: 0, raw: 0n, dec: 18, lpTokenAddress: p?.lpToken };
+    try {
+      return await withReadProviders(async (prov, url) => {
+        const userNorm = normalizeAddress(user);
+        // Resolve LP token dynamically from pool (prevents stale preset lpToken from showing 0)
+        let lpTokenAddress = p.lpToken;
+        try {
+          const pool = new ethers.Contract(p.poolAddress, POOL_ABI, prov);
+          const resolved = await pool.lpToken().catch(() => null);
+          if (resolved && resolved !== ethers.ZeroAddress) lpTokenAddress = resolved;
+        } catch {}
+
+        const lp = new ethers.Contract(lpTokenAddress, LP_ABI, prov);
+        const raw = await lp.balanceOf(userNorm);
+        const dec = await lp.decimals().catch(() => 18);
+        const humanNum = Number.parseFloat(ethers.formatUnits(raw, dec));
+
+        console.log("[LP-Debug] balanceOf", {
+          poolId: p.id,
+          user: userNorm,
+          rpc: url,
+          lpToken: lpTokenAddress,
+          decimals: Number(dec),
+          raw: raw?.toString?.() ? raw.toString() : String(raw),
+          human: humanNum,
+        });
+
+        return {
+          human: Number.isFinite(humanNum) ? humanNum : 0,
+          raw,
+          dec: Number(dec) || 18,
+          lpTokenAddress,
+          rpcUrl: url,
+        };
+      }, `lp.balanceOf(${p.id})`);
+    } catch (e) {
+      console.warn(`[LP-Debug] fetchSingleLpBalance failed for ${p?.id}`, e?.message || e);
+      return { human: null, raw: 0n, dec: 18, lpTokenAddress: p?.lpToken };
+    }
+  }
+
   async function getAllLPBalancesData(user, provider) {
     const balances = {};
     for (const p of POOLS) {
       try {
-        const { human } = await withReadProviders(async (prov) => {
-          const lp = new ethers.Contract(p.lpToken, LP_ABI, prov);
-          const [raw, dec] = await Promise.all([lp.balanceOf(user), lp.decimals()]);
-          return { human: Number(ethers.formatUnits(raw, dec)) };
-        }, `lp.balanceOf(${p.id})`);
+        const { human } = await fetchSingleLpBalance(p, user);
         balances[p.id] = human;
       } catch {
         // Do NOT mask failures as "0" — that causes misleading UX (can't remove LP, etc.)
@@ -1383,8 +1619,8 @@ export default function App() {
     try {
       const pool = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, provider);
 
-      const fromIndex = tokenIndices[fromSymbol];
-      const usdcIndex = tokenIndices.USDC;
+      const fromIndex = TOKEN_INDICES[fromSymbol];
+      const usdcIndex = TOKEN_INDICES.USDC;
 
       const token = INITIAL_TOKENS.find((t) => t.symbol === fromSymbol);
       const tokenC = new ethers.Contract(token.address, ERC20_ABI, provider);
@@ -1498,12 +1734,13 @@ export default function App() {
 
     setTxPage(0);
 
-    if (historyView === "mine" && address) {
-      fetchUserPoolTransactions(address);
+    const a = getActiveWalletAddress();
+    if (historyView === "mine" && a) {
+      fetchUserPoolTransactions(a);
     } else {
       fetchPoolTransactions();
     }
-  }, [activeTab, historyView, address]);
+  }, [activeTab, historyView, authMode, address, circleWalletReady, circleWallet?.address]);
 
   useEffect(() => {
     let mounted = true;
@@ -1535,7 +1772,7 @@ export default function App() {
         !swapAmount ||
         Number(swapAmount) <= 0 ||
         swapFrom === swapTo ||
-        Object.keys(tokenIndices).length === 0
+        Object.keys(TOKEN_INDICES).length === 0
       ) {
         setEstimatedTo("");
         setExpectedOutputNum(null);
@@ -1554,8 +1791,8 @@ export default function App() {
           const toToken = tokens.find((t) => t.symbol === swapTo);
           if (!fromToken || !toToken) return;
 
-          const i = tokenIndices[swapFrom];
-          const j = tokenIndices[swapTo];
+          const i = TOKEN_INDICES[swapFrom];
+          const j = TOKEN_INDICES[swapTo];
 
           // 1. Get Decimals (Cached in local memory to save RPC calls)
           const getDecimals = async (token) => {
@@ -1615,7 +1852,7 @@ export default function App() {
       mounted = false;
       if (debounceTimer) clearTimeout(debounceTimer);
     };
-  }, [swapAmount, swapFrom, swapTo, tokens, tokenIndices]);
+  }, [swapAmount, swapFrom, swapTo, tokens]);
 
   useEffect(() => {
     setHighImpactConfirmed(false);
@@ -1873,13 +2110,49 @@ export default function App() {
     if (!a) return "";
     return a.slice(0, 6) + "..." + a.slice(-4);
   }
-  function isMyTx(tx) {
-    if (!address) return false;
 
-    return (
-      tx.from?.toLowerCase() === address.toLowerCase() ||
-      tx.to?.toLowerCase() === address.toLowerCase()
-    );
+  function normalizeAddress(a) {
+    if (!a) return null;
+    try {
+      return ethers.getAddress(a);
+    } catch {
+      try {
+        return ethers.getAddress(String(a).toLowerCase());
+      } catch {
+        return String(a);
+      }
+    }
+  }
+
+  async function copyAddress(addr) {
+    if (!addr) return;
+    try {
+      await navigator.clipboard.writeText(addr);
+      setToast("Address copied");
+    } catch (e) {
+      try {
+        const el = document.createElement("textarea");
+        el.value = addr;
+        el.setAttribute("readonly", "");
+        el.style.position = "fixed";
+        el.style.left = "-9999px";
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand("copy");
+        document.body.removeChild(el);
+        setToast("Address copied");
+      } catch (e2) {
+        console.warn("[Clipboard] Copy failed", e2?.message || e2);
+        setToast("Copy failed");
+      }
+    } finally {
+      setTimeout(() => setToast(null), 2500);
+    }
+  }
+  function isMyTx(tx) {
+    const a = String(getActiveWalletAddress() || "").toLowerCase();
+    if (!a) return false;
+    return tx.from?.toLowerCase() === a || tx.to?.toLowerCase() === a;
   }
 
   function formatDateTime(ts) {
@@ -1969,7 +2242,8 @@ export default function App() {
   /**
    * executeCircleContractAction
    * Production-grade helper to execute a contract action via Circle User-Controlled flow.
-   * Now accepts pre-encoded callData to match injected wallet flow exactly.
+   * All calls are serialized through a simple in-memory queue so that rapid user clicks
+   * cannot trigger overlapping Circle challenges.
    */
   async function executeCircleContractAction({
     contractAddress,
@@ -1978,67 +2252,91 @@ export default function App() {
     amount = "0",
     title = "Confirm in Circle",
   }) {
-    console.log(`[CircleTx] Initiating: ${title} on ${contractAddress}`);
-    const { userToken, encryptionKey, walletId } = requireCircleAuth();
+    const runAction = async () => {
+      console.log(`[CircleTx] Initiating: ${title} on ${contractAddress}`);
+      const { userToken, encryptionKey, walletId } = requireCircleAuth();
 
-    // 1. Initiate challenge on backend
-    const res = await fetch("/api/circle/user/execute-contract", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userToken,
-        walletId,
-        contractAddress,
-        abiFunctionSignature,
-        abiParameters,
-        amount,
-      }),
-    });
+      // 1. Initiate challenge on backend
+      const res = await fetch("/api/circle/user/execute-contract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userToken,
+          walletId,
+          contractAddress,
+          abiFunctionSignature,
+          abiParameters,
+          amount,
+        }),
+      });
 
-    const data = await res.json().catch(() => ({}));
-    
-    // Handle session expiry
-    if (res.status === 401 || (data.error && data.error.includes("Session expired"))) {
-      console.warn("Session expired, logging out...");
-      disconnectEmail();
-      alert("Session expired. Please log in again.");
-      window.location.reload();
-      return;
-    }
+      const data = await res.json().catch(() => ({}));
+      
+      // Handle session expiry
+      if (res.status === 401 || (data.error && data.error.includes("Session expired"))) {
+        console.warn("Session expired, logging out...");
+        disconnectEmail();
+        alert("Session expired. Please log in again.");
+        window.location.reload();
+        return;
+      }
 
-    if (!res.ok) {
-      console.error("[CircleTx] Initiation failed:", data);
-      throw new Error(data.error || "Failed to initiate Circle transaction");
-    }
+      if (!res.ok) {
+        console.error("[CircleTx] Initiation failed:", data);
+        throw new Error(data.error || "Failed to initiate Circle transaction");
+      }
 
-    const challengeId = data.challengeId;
-    if (!challengeId) throw new Error("No challengeId returned from backend");
+      const challengeId = data.challengeId;
+      if (!challengeId) throw new Error("No challengeId returned from backend");
 
-    // 2. Prompt user for PIN/Challenge via SDK
-    await executeCircleChallengeViaPrompt(challengeId, title);
+      // 2. Prompt user for PIN/Challenge via SDK
+      await executeCircleChallengeViaPrompt(challengeId, title);
 
-    // 3. Poll for transaction hash
-    console.log("[CircleChallenge] Polling for tx hash...");
-    const txHash = await waitForCircleTxHash(challengeId);
-    if (!txHash) {
-      throw new Error("Timeout: Transaction submitted but hash not found. Please check history.");
-    }
+      // 3. Poll for transaction hash
+      console.log("[CircleChallenge] Polling for tx hash...");
+      const txHash = await waitForCircleTxHash(challengeId);
+      if (!txHash) {
+        throw new Error("Timeout: Transaction submitted but hash not found. Please check history.");
+      }
 
-    console.log(`[CircleTx] Hash received: ${txHash}`);
+      console.log(`[CircleTx] Hash received: ${txHash}`);
 
-    // 4. Wait for on-chain confirmation (only if we have a real hash)
-    if (txHash !== "SUBMITTED") {
-      const provider = getReadProvider();
-      setQuote("Waiting for confirmation...");
-      await provider.waitForTransaction(txHash, 1, 180000);
-    } else {
-      // Challenge confirmed on-chain but hash not yet indexed by Circle API.
-      // The transaction was submitted successfully — safe to move to next step.
-      setQuote("Transaction submitted...");
-      await new Promise((r) => setTimeout(r, 3000)); // short wait for state to settle
-    }
+      // 4. Wait for on-chain confirmation (only if we have a real hash)
+      if (txHash !== "SUBMITTED") {
+        const provider = getReadProvider();
+        setQuote("Waiting for confirmation...");
+        await provider.waitForTransaction(txHash, 1, 180000);
+      } else {
+        // Challenge confirmed on-chain but hash not yet indexed by Circle API.
+        // The transaction was submitted successfully — safe to move to next step.
+        setQuote("Transaction submitted...");
+        await new Promise((r) => setTimeout(r, 3000)); // short wait for state to settle
+      }
 
-    return { hash: txHash };
+      return { hash: txHash };
+    };
+
+    // Simple FIFO queue: chain the next action off the previous promise.
+    // We also maintain a depth counter so the UI can be disabled while queued/in-flight.
+    circleActionDepthRef.current += 1;
+    setCircleActionsBusy(true);
+
+    const previous = circleActionQueueRef.current || Promise.resolve();
+    const queued = previous
+      .catch(() => {
+        // Ignore errors from previous actions when starting a new one.
+      })
+      .then(runAction)
+      .finally(() => {
+        circleActionDepthRef.current = Math.max(
+          0,
+          circleActionDepthRef.current - 1
+        );
+        setCircleActionsBusy(circleActionDepthRef.current > 0);
+      });
+
+    circleActionQueueRef.current = queued;
+    return queued;
   }
   
   // Clean up unused function initiateCircleContractExecution if present
@@ -2088,8 +2386,12 @@ export default function App() {
 
   async function executeCircleChallengeViaPrompt(challengeId, title) {
     if (!challengeId) throw new Error("Missing challengeId");
+    if (circlePromptInFlightRef.current) {
+      throw new Error("A Circle confirmation is already open. Please complete it first.");
+    }
     setCircleExecError("");
     setCircleExecLoading(false);
+    circlePromptInFlightRef.current = true;
     setCircleExecPrompt({ title: title || "Confirm in Circle", challengeId });
     return await new Promise((resolve, reject) => {
       circleExecResolverRef.current = { resolve, reject };
@@ -2107,10 +2409,12 @@ export default function App() {
       circleExecResolverRef.current = null;
       setCircleExecPrompt(null);
       setCircleExecLoading(false);
+      circlePromptInFlightRef.current = false;
       resolve(true);
     } catch (e) {
       setCircleExecLoading(false);
       setCircleExecError(e?.message || String(e));
+      circlePromptInFlightRef.current = false;
     }
   }
 
@@ -2122,6 +2426,7 @@ export default function App() {
     setCircleExecPrompt(null);
     setCircleExecLoading(false);
     setCircleExecError("");
+    circlePromptInFlightRef.current = false;
   }
 
   // initiateCircleContractExecution removed - superseded by executeCircleContractAction
@@ -2228,7 +2533,7 @@ export default function App() {
     const poolReader = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, provider);
     let expectedOut = null;
     try {
-      expectedOut = await poolReader.get_dy(tokenIndices[swapFrom], tokenIndices[swapTo], amountIn);
+      expectedOut = await poolReader.get_dy(TOKEN_INDICES[swapFrom], TOKEN_INDICES[swapTo], amountIn);
     } catch (e) {
       console.warn("[CircleRead] get_dy failed:", e);
     }
@@ -2243,14 +2548,14 @@ export default function App() {
 
     // Trade size check: swap amount must not exceed 10% of pool liquidity
     const rawBalances = await poolReader.getBalances();
-    const fromIdx = tokenIndices[swapFrom];
+    const fromIdx = TOKEN_INDICES[swapFrom];
     const poolFromBalance = rawBalances[fromIdx];
     if (poolFromBalance != null && poolFromBalance > 0n && amountIn > (poolFromBalance * 10n) / 100n) {
       throw new Error("Trade size is too large for current liquidity.");
     }
 
     // High price impact: require extra confirmation if > 25%
-    const toIdx = tokenIndices[swapTo];
+    const toIdx = TOKEN_INDICES[swapTo];
     const poolToBalance = rawBalances[toIdx];
     if (poolFromBalance != null && poolToBalance != null && poolFromBalance > 0n && poolToBalance > 0n) {
       const amountNum = Number(swapAmount) || 0;
@@ -2279,8 +2584,8 @@ export default function App() {
     // Contract does not natively support min_dy, so we pass 3 arguments
     const swapTx = buildSwapCall(
       SWAP_POOL_ADDRESS,
-      tokenIndices[swapFrom],
-      tokenIndices[swapTo],
+      TOKEN_INDICES[swapFrom],
+      TOKEN_INDICES[swapTo],
       amountIn
     );
 
@@ -2351,7 +2656,7 @@ export default function App() {
       alert("Choose different tokens to swap.");
       return;
     }
-    if (Object.keys(tokenIndices).length === 0) {
+    if (Object.keys(TOKEN_INDICES).length === 0) {
       alert("Pool not loaded – please reconnect wallet.");
       return;
     }
@@ -2378,8 +2683,8 @@ export default function App() {
       const toToken = tokens.find((t) => t.symbol === swapTo);
       if (!fromToken || !toToken) throw new Error("Token not found");
 
-      const i = tokenIndices[swapFrom];
-      const j = tokenIndices[swapTo];
+      const i = TOKEN_INDICES[swapFrom];
+      const j = TOKEN_INDICES[swapTo];
 
       // Contract instance connected to our signer
       const tokenIn = new ethers.Contract(fromToken.address, ERC20_ABI, signer);
@@ -2405,8 +2710,8 @@ export default function App() {
       const pool = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, signer);
       const poolReader = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, getReadProvider());
 
-      const fromIdx = tokenIndices[fromToken.symbol];
-      const toIdx = tokenIndices[toToken.symbol];
+      const fromIdx = TOKEN_INDICES[fromToken.symbol];
+      const toIdx = TOKEN_INDICES[toToken.symbol];
 
       let expectedOut = null;
       try {
@@ -2870,7 +3175,8 @@ export default function App() {
           const tokenContract = new ethers.Contract(token.address, ERC20_ABI, signer);
           const decimals = await tokenContract.decimals();
           const parsed = ethers.parseUnits(rawVal, decimals);
-          const allowance = await tokenContract.allowance(address, activePreset.poolAddress);
+          const ownerAddr = await signer.getAddress();
+          const allowance = await tokenContract.allowance(ownerAddr, activePreset.poolAddress);
 
           if (BigInt(allowance) < BigInt(parsed)) {
             const txApprove = await tokenContract.approve(activePreset.poolAddress, parsed);
@@ -2945,7 +3251,7 @@ export default function App() {
     }
 
     if (!removeLpAmount || Number(removeLpAmount) <= 0) {
-      alert("Enter LP amount to remove");
+      alert("Enter amount to remove");
       return;
     }
 
@@ -2953,8 +3259,8 @@ export default function App() {
       setRemoveLoading(true);
       const provider = getReadProvider();
 
-      // Use the LP token's actual decimals (varies by pool/token)
-      let lpParsed;
+      // Prefer raw LP (BigInt) when we have it (MAX/50% should always be exact)
+      let lpParsed = 0n;
       try {
         lpParsed = ethers.parseUnits(String(removeLpAmount), lpDecimals);
       } catch {
@@ -2973,6 +3279,15 @@ export default function App() {
       }
       if (Number(removeLpAmount) > Number(balToCheck) + 1e-9) {
         throw new Error("Not enough LP");
+      }
+
+      if (lpParsed <= 0n) {
+        throw new Error("Remove amount is too small (rounded to 0). Tap MAX or enter a larger amount.");
+      }
+
+      // Safety: don't allow removing more than the raw on-chain balance
+      if (typeof activeLpRaw === "bigint" && activeLpRaw > 0n && lpParsed > activeLpRaw) {
+        throw new Error("Remove amount exceeds your LP balance.");
       }
       let finalTxHash = null;
 
@@ -2996,6 +3311,7 @@ export default function App() {
           type: "remove",
           amount: removeLpAmount,
           txHash: finalTxHash,
+          removed: removeEstimates,
         });
       } else {
         // --- Injected Wallet Path ---
@@ -3012,6 +3328,7 @@ export default function App() {
           poolId: activePreset.id,
           type: "remove",
           amount: removeLpAmount,
+          removed: removeEstimates,
         });
       }
 
@@ -3250,7 +3567,7 @@ export default function App() {
                             ? circleWallet.address
                             : address;
                         if (addr) {
-                          navigator.clipboard.writeText(addr);
+                          copyAddress(addr);
                           setCopied(true);
                           setTimeout(() => setCopied(false), 2000);
                         }
@@ -3912,20 +4229,17 @@ export default function App() {
                                     </button>
                                   </div>
 
-                                  <div
-                                    className="muted"
-                                    style={{
-                                      fontSize: "0.85em",
-                                      marginTop: 4,
-                                      fontFamily: "monospace",
-                                      background: "rgba(255,255,255,0.05)",
-                                      padding: "2px 6px",
-                                      borderRadius: 4,
-                                      display: "inline-block",
-                                    }}
+                                  <button
+                                    type="button"
+                                    className="addressPill"
+                                    onClick={() => copyAddress(getActiveWalletAddress())}
+                                    title="Tap to copy"
                                   >
-                                    {shortAddr(address)}
-                                  </div>
+                                    <span className="addressPillText">
+                                      {shortAddr(getActiveWalletAddress())}
+                                    </span>
+                                    <span className="addressPillIcon">📋</span>
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -4371,17 +4685,28 @@ export default function App() {
                 <>
                   <div className="swapCardHeader">
                     <h2 className="swapTitle">Swap</h2>
-                    <button
-                      type="button"
-                      className="slippageSettingsBtn"
-                      onClick={() => setShowSlippagePanel((v) => !v)}
-                      aria-label="Slippage settings"
-                    >
-                      <span className="slippageSettingsIcon">⚙</span>
-                      <span className="slippageSettingsValue">
-                        {Number(swapSummary.slippageRaw || slippageTolerance).toFixed(1)}%
-                      </span>
-                    </button>
+                    <div className="swapHeaderActions">
+                      <button
+                        type="button"
+                        className="slippageSettingsBtn"
+                        onClick={() => setActiveTab("history")}
+                        aria-label="Swap history"
+                        title="History"
+                      >
+                        <span className="slippageSettingsIcon">🕘</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="slippageSettingsBtn"
+                        onClick={() => setShowSlippagePanel((v) => !v)}
+                        aria-label="Slippage settings"
+                      >
+                        <span className="slippageSettingsIcon">⚙</span>
+                        <span className="slippageSettingsValue">
+                          {Number(swapSummary.slippageRaw || slippageTolerance).toFixed(1)}%
+                        </span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="swapRowClean">
@@ -4570,9 +4895,13 @@ export default function App() {
                     <button
                       className="primaryBtn neon-btn"
                       onClick={performSwap}
-                      disabled={swapSummary.tradeSizeTooLarge || (swapSummary.isExtremeImpact && !highImpactConfirmed)}
+                      disabled={
+                        circleActionsBusy ||
+                        swapSummary.tradeSizeTooLarge ||
+                        (swapSummary.isExtremeImpact && !highImpactConfirmed)
+                      }
                     >
-                      Swap
+                      {circleActionsBusy ? "Please wait..." : "Swap"}
                     </button>
                   </div>
 
@@ -4582,21 +4911,6 @@ export default function App() {
                     </p>
                   )}
 
-                  <div
-                    style={{
-                      marginTop: 24,
-                      display: "flex",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <button
-                      className="secondaryBtn"
-                      style={{ fontSize: 13, padding: "8px 16px" }}
-                      onClick={() => setActiveTab("history")}
-                    >
-                      View Swap History
-                    </button>
-                  </div>
                 </>
               )}
               {activeTab === "history" && (
@@ -4637,6 +4951,41 @@ export default function App() {
                       ALL
                     </button>
                   </div>
+                  {historyView === "mine" && swapHistory && swapHistory.length > 0 && (
+                    <div style={{ marginBottom: 14 }}>
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+                        Recent swaps (app history)
+                      </div>
+                      <ul className="historyList">
+                        {swapHistory.slice(0, 10).map((t) => (
+                          <li key={`${t.hash || ""}-${t.timestamp || ""}`} className="historyItem mineTx">
+                            <div className="historyLeft">
+                              <div>
+                                <strong>{t.fromAmount}</strong> {t.fromToken} →{" "}
+                                <strong>{t.toAmount}</strong> {t.toToken}
+                              </div>
+                              {t.hash && (
+                                <div className="historyMeta">
+                                  <a
+                                    href={`https://testnet.arcscan.app/tx/${t.hash}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    View Tx
+                                  </a>
+                                </div>
+                              )}
+                            </div>
+                            <div className="historyRight">
+                              <div className="historyTime">
+                                {t.timestamp ? new Date(t.timestamp).toLocaleString() : "—"}
+                              </div>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {txLoading ? (
                     <p className="muted">Loading pool transactions...</p>
                   ) : poolTxs.length === 0 ? (
@@ -5117,10 +5466,28 @@ export default function App() {
               )}
 
             {liquiditySuccess.type === "remove" && (
-              <div className="txRow">
-                <span>LP Removed</span>
-                <strong>{liquiditySuccess.amount}</strong>
-              </div>
+              <>
+                {liquiditySuccess.removed && Object.keys(liquiditySuccess.removed).length > 0 ? (
+                  Object.entries(liquiditySuccess.removed).map(([sym, amt]) => (
+                    <div key={sym} className="txRow">
+                      <span>{sym} Removed</span>
+                      <strong>
+                        {(() => {
+                          const v = Number(amt || 0);
+                          if (!Number.isFinite(v) || v <= 0) return amt;
+                          if (v < 0.0001) return "<0.0001";
+                          return v.toFixed(4);
+                        })()}
+                      </strong>
+                    </div>
+                  ))
+                ) : (
+                  <div className="txRow">
+                    <span>Removed</span>
+                    <strong>Success</strong>
+                  </div>
+                )}
+              </>
             )}
 
             <div className="txActions">
@@ -5241,9 +5608,9 @@ export default function App() {
               <button
                 className="primaryBtn"
                 onClick={handleAddLiquidity}
-                disabled={liqLoading}
+                disabled={liqLoading || circleActionsBusy}
               >
-                {liqLoading ? "Supplying..." : "Supply Liquidity"}
+                {liqLoading ? "Supplying..." : circleActionsBusy ? "Please wait..." : "Supply Liquidity"}
               </button>
             </div>
           </div>
@@ -5252,86 +5619,141 @@ export default function App() {
 
       {showRemoveLiquidity && (
         <div className="modalOverlay">
-          <div className="txModal liquidityModal card" style={{ maxWidth: 460, padding: "24px 28px" }}>
-            <h3 style={{ marginBottom: 24, fontSize: 22, fontWeight: 600 }}>Remove Liquidity</h3>
+          <div className="txModal liquidityModal card removeLiqModal">
+            <h3 className="removeLiqTitle">Remove Liquidity</h3>
 
-            <div className="card" style={{ padding: "16px 20px", marginBottom: 24, background: "rgba(0,0,0,0.2)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-                <span className="muted" style={{ fontSize: 14 }}>Amount to Remove</span>
-                <span className="muted" style={{ fontSize: 14 }}>
-                  LP Balance:{" "}
-                  {activeLpBalanceLoading
-                    ? "…"
-                    : activeLpBalance != null
-                      ? activeLpBalance > 0
-                        ? activeLpBalance.toFixed(6)
-                        : "—"
-                      : activePreset && lpBalances[activePreset.id] != null
-                        ? lpBalances[activePreset.id].toFixed(6)
-                        : "—"}
+            <div className="card removeLiqCard">
+              <div className="removeLiqHead">
+                <span className="muted removeLiqLabel">
+                  Withdraw amounts
                 </span>
-              </div>
-              
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                <input
-                  className="swapInput"
-                  placeholder="0.00"
-                  value={removeLpAmount}
-                  onChange={(e) => setRemoveLpAmount(e.target.value)}
-                  style={{ fontSize: 32, padding: 0, width: "65%" }}
-                />
-                <div style={{ display: "flex", gap: 8 }}>
-                   <button 
-                     className="secondaryBtn" 
-                     style={{ padding: "4px 8px", fontSize: 12 }}
-                     onClick={() => {
-                       const bal =
-                         activeLpBalance != null
-                           ? activeLpBalance
-                           : activePreset && lpBalances[activePreset.id] != null
-                             ? lpBalances[activePreset.id]
-                             : 0;
-                       setRemoveLpAmount((bal * 0.5).toFixed(6));
-                     }}
-                   >
-                     50%
-                   </button>
-                   <button 
-                     className="secondaryBtn" 
-                     style={{ padding: "4px 8px", fontSize: 12 }}
-                     onClick={() => {
-                       const bal =
-                         activeLpBalance != null
-                           ? activeLpBalance
-                           : activePreset && lpBalances[activePreset.id] != null
-                             ? lpBalances[activePreset.id]
-                             : 0;
-                       setRemoveLpAmount(bal.toFixed(6));
-                     }}
-                   >
-                     Max
-                   </button>
+                <div className="removeLiqQuickInline" aria-label="Quick withdraw">
+                  <button className="removeLiqChip" type="button" onClick={() => setRemoveByPct(25)}>
+                    25%
+                  </button>
+                  <button className="removeLiqChip" type="button" onClick={() => setRemoveByPct(50)}>
+                    50%
+                  </button>
+                  <button className="removeLiqChip" type="button" onClick={() => setRemoveByPct(75)}>
+                    75%
+                  </button>
+                  <button className="removeLiqChip removeLiqChipPrimary" type="button" onClick={() => setRemoveByPct(100)}>
+                    MAX
+                  </button>
                 </div>
               </div>
+
+              <div className="removeLiqRow">
+                <div className="removeLiqTokenGrid">
+                  {(activePreset?.tokens || []).map((sym) => {
+                    const isDriver = removeDriverSym == null || removeDriverSym === sym;
+                    const hasDriver = removeDriverSym != null;
+                    const disabled = hasDriver && !isDriver;
+
+                    const lpPos = lpTokenAmounts?.[activePreset?.id]?.[sym];
+                    const lpPosStr =
+                      lpPos != null && Number.isFinite(Number(lpPos))
+                        ? Number(lpPos) < 0.0001 && Number(lpPos) > 0
+                          ? "<0.0001"
+                          : Number(lpPos).toFixed(4)
+                        : "—";
+
+                    const displayValue = disabled
+                      ? (removeEstimates?.[sym] != null && Number.isFinite(removeEstimates[sym])
+                          ? String(removeEstimates[sym].toFixed(4))
+                          : "")
+                      : (removeTokenInputs?.[sym] || "");
+
+                    return (
+                      <div key={sym} className="card removeLiqTokenCard">
+                        <div className="removeLiqTokenTop">
+                          <div className="removeLiqTokenLeft">
+                            <img src={TOKEN_LOGOS[sym]} alt={sym} className="removeLiqTokenIcon" />
+                            <span className="removeLiqTokenSym">{sym}</span>
+                          </div>
+                          <span className="muted removeLiqTokenEst">
+                            LP Bal:{" "}
+                            <span className="removeLiqTokenBal">{lpPosStr}</span>
+                          </span>
+                        </div>
+
+                        <div className="removeLiqTokenRow">
+                          <input
+                            className={`swapInput removeLiqTokenInput ${disabled ? "readOnly" : ""}`}
+                            inputMode="decimal"
+                            placeholder="0.00"
+                            value={displayValue}
+                            disabled={disabled}
+                            onFocus={() => {
+                              if (!disabled) return;
+                              // Switch driver to this token
+                              setRemoveDriverSym(sym);
+                              setRemoveTokenInputs({ [sym]: "" });
+                              setRemoveEstimates({});
+                              setRemoveLpAmount("");
+                            }}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setRemoveDriverSym(sym);
+                              setRemoveTokenInputs({ [sym]: v });
+                              computeRemoveFromToken(sym, v);
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {Object.keys(removeEstimates || {}).length > 0 && (
+                <div className="removeLiqEstList">
+                  {(activePreset?.tokens || []).map((sym) => (
+                    <div key={sym} className="removeLiqEstRow">
+                      <span className="muted">Withdraws</span>
+                      <strong>
+                        {removeEstimates?.[sym] != null && Number.isFinite(removeEstimates[sym])
+                          ? removeEstimates[sym] < 0.0001 && removeEstimates[sym] > 0
+                            ? `<0.0001 ${sym}`
+                            : `${removeEstimates[sym].toFixed(4)} ${sym}`
+                          : `— ${sym}`}
+                      </strong>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {removeCalcError && <div className="removeLiqError">{removeCalcError}</div>}
             </div>
 
-            <div className="txActions">
-              <button
-                className="secondaryBtn"
-                onClick={() => { setShowRemoveLiquidity(false); setRemoveLpAmount(""); }}
-              >
+            <div className="txActions removeLiqActions">
+              <button className="secondaryBtn" onClick={() => { setShowRemoveLiquidity(false); setRemoveLpAmount(""); }}>
                 Cancel
               </button>
-
               <button
                 className="primaryBtn"
                 onClick={handleRemoveLiquidity}
-                disabled={removeLoading || !removeLpAmount || Number(removeLpAmount) <= 0}
+                disabled={
+                  circleActionsBusy ||
+                  removeLoading ||
+                  !removeLpAmount ||
+                  Number(removeLpAmount) <= 0
+                }
               >
-                {removeLoading ? "Removing..." : "Remove"}
+                {removeLoading
+                  ? "Removing..."
+                  : circleActionsBusy
+                    ? "Please wait..."
+                    : "Remove"}
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="toastContainer" role="status" aria-live="polite">
+          <div className="toastBubble">{toast}</div>
         </div>
       )}
     </div>
