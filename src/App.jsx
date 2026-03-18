@@ -379,6 +379,86 @@ export default function App() {
     topSwapCount: [],
     topLPProvided: [],
   });
+
+  const [swapHistoryWalletByHash, setSwapHistoryWalletByHash] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem("swaparc_swap_history_walletByHash");
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const swapHistoryWalletByHashRef = useRef(swapHistoryWalletByHash);
+
+  // Filter app-level swap history ("ONLY MINE") by the currently connected wallet.
+  // This prevents mixing swaps done under wallet-connect vs Circle email smart wallet.
+  const activeHistoryWalletAddrLower = String(getActiveWalletAddress() || "").toLowerCase();
+  const mineAppHistoryTxs =
+    activeHistoryWalletAddrLower
+      ? (swapHistory || []).filter(
+          (t) => {
+            const resolvedWallet = t.walletAddress || swapHistoryWalletByHash[t.hash];
+            return String(resolvedWallet || "").toLowerCase() === activeHistoryWalletAddrLower;
+          }
+        )
+      : [];
+
+  useEffect(() => {
+    swapHistoryWalletByHashRef.current = swapHistoryWalletByHash;
+  }, [swapHistoryWalletByHash]);
+
+  // Backfill walletAddress for older history items that were saved before we started storing it.
+  // We resolve tx hashes to their sender address via the read RPC and cache it in localStorage.
+  useEffect(() => {
+    const unknown = (swapHistory || [])
+      .filter(
+        (t) =>
+          t.hash &&
+          !t.walletAddress &&
+          !swapHistoryWalletByHashRef.current[t.hash]
+      )
+      .slice(0, 20);
+
+    if (unknown.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      const provider = getReadProvider();
+      const updates = {};
+
+      for (const item of unknown) {
+        try {
+          const tx = await provider.getTransaction(item.hash);
+          if (tx?.from) updates[item.hash] = tx.from;
+        } catch {
+          // ignore individual failures; we'll keep whatever we can resolve
+        }
+      }
+
+      if (cancelled) return;
+      const updateKeys = Object.keys(updates);
+      if (updateKeys.length === 0) return;
+
+      setSwapHistoryWalletByHash((prev) => {
+        const next = { ...(prev || {}), ...updates };
+        try {
+          window.localStorage.setItem(
+            "swaparc_swap_history_walletByHash",
+            JSON.stringify(next)
+          );
+        } catch {
+          // ignore storage failures
+        }
+        return next;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [swapHistory]);
   const [showConnectMenu, setShowConnectMenu] = useState(false);
   const [showWalletMenu, setShowWalletMenu] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -2621,6 +2701,7 @@ export default function App() {
       hash: txHash,
       timestamp: Date.now(),
       status: "success",
+      walletAddress: walletAddr,
     };
 
     setSwapHistory((prev) => [pendingTx, ...prev]);
@@ -2783,7 +2864,8 @@ export default function App() {
           txUrl: `https://testnet.arcscan.app/tx/${tx.hash}`,
           hash: tx.hash,
           timestamp: Date.now(),
-          status: "pending"
+          status: "pending",
+          walletAddress: await signer.getAddress(),
       };
       
       // Add to local history immediately
@@ -4968,10 +5050,10 @@ export default function App() {
                       <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
                         Recent swaps (app history)
                       </div>
-                      {swapHistory && swapHistory.length > 0 ? (
+                      {activeHistoryWalletAddrLower ? mineAppHistoryTxs.length > 0 ? (
                         <>
                           <ul className="historyList">
-                            {swapHistory.slice(startIdx, endIdx).map((t) => (
+                            {mineAppHistoryTxs.slice(startIdx, endIdx).map((t) => (
                               <li
                                 key={`${t.hash || ""}-${t.timestamp || ""}`}
                                 className="historyItem mineTx"
@@ -5017,12 +5099,12 @@ export default function App() {
 
                             <span className="pageInfo">
                               Page {txPage + 1} /{" "}
-                              {Math.ceil(swapHistory.length / TXS_PER_PAGE)}
+                              {Math.ceil(mineAppHistoryTxs.length / TXS_PER_PAGE)}
                             </span>
 
                             <button
                               className="pageBtn"
-                              disabled={endIdx >= swapHistory.length}
+                              disabled={endIdx >= mineAppHistoryTxs.length}
                               onClick={() => setTxPage((p) => p + 1)}
                             >
                               Next ▶
@@ -5030,7 +5112,9 @@ export default function App() {
                           </div>
                         </>
                       ) : (
-                        <p className="muted">No swaps yet.</p>
+                        <p className="muted">No swaps found for this wallet.</p>
+                      ) : (
+                        <p className="muted">Connect wallet to view your swaps.</p>
                       )}
                     </div>
                   )}
