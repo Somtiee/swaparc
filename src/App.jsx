@@ -4534,24 +4534,6 @@ export default function App() {
                             Wallet Portfolio
                           </h3>
 
-                          {/* Wallet Address */}
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              marginBottom: 15,
-                              fontSize: "0.9em",
-                              background: "rgba(255,255,255,0.03)",
-                              padding: "8px 12px",
-                              borderRadius: 8,
-                            }}
-                          >
-                            <span className="muted">Address</span>
-                            <span className="addressValue">
-                              {address}
-                            </span>
-                          </div>
-
                           {/* Total Value */}
                           <div
                             style={{ marginBottom: 20, textAlign: "center" }}
@@ -4721,53 +4703,7 @@ export default function App() {
                       )}
 
                       {/* Circle Wallet Placeholder */}
-                      {authMode === "email" && (
-                        <div
-                          className="neon-card"
-                          style={{
-                            textAlign: "left",
-                            marginBottom: 20,
-                            padding: 20,
-                          }}
-                        >
-                          <h3 style={{ marginTop: 0 }}>Circle Wallet</h3>
-                          {circleWalletReady && circleWallet ? (
-                            <>
-                              <div
-                                style={{
-                                  display: "flex",
-                                  justifyContent: "space-between",
-                                  marginBottom: 10,
-                                  fontSize: "0.9em",
-                                }}
-                              >
-                                <span className="muted">Address</span>
-                                <span className="addressValue">
-                                  {circleWallet.address}
-                                </span>
-                              </div>
-                              <div
-                                style={{
-                                  display: "flex",
-                                  justifyContent: "space-between",
-                                  marginBottom: 6,
-                                  fontSize: "0.9em",
-                                }}
-                              >
-                                <span className="muted">Blockchain</span>
-                                <span>{circleWallet.blockchain}</span>
-                              </div>
-                              <div className="muted addressValue" style={{ fontSize: "0.8em" }}>
-                                Wallet ID: {circleWallet.walletId}
-                              </div>
-                            </>
-                          ) : (
-                            <p style={{ color: "cyan", fontWeight: "bold" }}>
-                              Provisioning Circle Smart Wallet...
-                            </p>
-                          )}
-                        </div>
-                      )}
+                      {/* Circle wallet details removed (not user-facing value) */}
 
                       <p className="muted" style={{ marginTop: 20 }}>
                         {authMode === "wallet"
