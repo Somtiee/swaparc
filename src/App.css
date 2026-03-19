@@ -314,7 +314,8 @@ body {
 
 .tokenselect {
   position: relative;
-  display: inline-block;
+  display: inline-flex;
+  justify-content: flex-end;
   pointer-events: auto;
 }
 
@@ -328,7 +329,10 @@ body {
   background: rgba(255, 255, 255, 0.02);
   color: #f3fbff;
   cursor: pointer;
-  min-width: 120px;
+  min-width: 132px;
+  height: 40px;
+  line-height: 1;
+  justify-content: space-between;
 }
 
 .tokenBadgeSmall {
@@ -356,8 +360,9 @@ body {
 .tokendropdown {
   position: absolute;
   top: 46px;
-  left: 0;
-  width: 320px;
+  right: 0;
+  left: auto;
+  width: min(320px, 86vw);
   background: rgba(6, 20, 45, 0.96);
   backdrop-filter: blur(6px);
   border: 1px solid rgba(120, 160, 255, 0.12);
@@ -719,14 +724,25 @@ body {
   }
 
   .connectCTA {
-    padding: 6px 10px;
+    height: 36px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
     font-size: 12px;
     margin-left: 0;
     flex-shrink: 1;
   }
 
   .hamburgerBtn {
-    padding: 6px 8px;
+    height: 36px;
+    width: 36px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
     font-size: 18px;
   }
 }
@@ -781,8 +797,9 @@ body {
   }
 
   .tokendropdown {
-    left: 0;
-    width: 100%;
+    right: 0;
+    left: auto;
+    width: min(360px, 92vw);
     top: 56px;
   }
 }
@@ -818,8 +835,9 @@ body {
   }
 
   .tokendropdown {
-    width: 100%;
-    left: 0;
+    right: 0;
+    left: auto;
+    width: min(360px, 92vw);
   }
 
   button,
