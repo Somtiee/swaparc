@@ -1708,6 +1708,56 @@ export default function App() {
       setTxLoading(false);
     }
   }
+
+  async function fetchPoolTransactionsData() {
+    const res = await fetch(
+      `https://testnet.arcscan.app/api?module=account&action=txlist&address=${SWAP_POOL_ADDRESS}&sort=desc`
+    );
+    const data = await res.json();
+    if (data.status !== "1") return [];
+    return Array.isArray(data.result) ? data.result : [];
+  }
+
+  async function fetchCircleMinePoolTransactions(circleAddr) {
+    if (!circleAddr) return;
+    setTxLoading(true);
+    try {
+      // Start from the pool's tx list (fast), then filter by logs that contain the Circle wallet address.
+      // This works even when a relayer submits the tx, as long as the pool emits an indexed address in logs.
+      const poolList = await fetchPoolTransactionsData();
+      const recent = poolList.slice(0, 250); // keep it bounded for mobile/RPC reliability
+
+      const provider = getReadProvider();
+      const addrTopic = ethers.zeroPadValue(circleAddr, 32).toLowerCase();
+      const poolLower = SWAP_POOL_ADDRESS.toLowerCase();
+
+      const matches = [];
+      for (const tx of recent) {
+        const hash = tx?.hash;
+        if (!hash) continue;
+        try {
+          const receipt = await provider.getTransactionReceipt(hash);
+          const ok = receipt?.logs?.some((l) => {
+            if (!l?.address) return false;
+            if (String(l.address).toLowerCase() !== poolLower) return false;
+            const topics = Array.isArray(l.topics) ? l.topics : [];
+            return topics.some((t) => String(t || "").toLowerCase() === addrTopic);
+          });
+          if (ok) matches.push(tx);
+        } catch {
+          // ignore single-tx failures; continue
+        }
+      }
+
+      setPoolTxs(matches);
+    } catch (err) {
+      console.error("Failed to fetch Circle mine txs", err);
+      setPoolTxs([]);
+    } finally {
+      setTxLoading(false);
+    }
+  }
+
   async function fetchUserPoolTransactions(userAddress) {
     if (!userAddress) return;
 
@@ -1748,7 +1798,11 @@ export default function App() {
 
     const a = getActiveWalletAddress();
     if (historyView === "mine" && a) {
-      fetchUserPoolTransactions(a);
+      if (authMode === "email") {
+        fetchCircleMinePoolTransactions(a);
+      } else {
+        fetchUserPoolTransactions(a);
+      }
     } else {
       fetchPoolTransactions();
     }
