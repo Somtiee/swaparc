@@ -1718,38 +1718,69 @@ export default function App() {
     return Array.isArray(data.result) ? data.result : [];
   }
 
+  async function arcscanJson(params) {
+    const qs = new URLSearchParams(params);
+    const res = await fetch(`https://testnet.arcscan.app/api?${qs.toString()}`);
+    return await res.json();
+  }
+
+  async function arcscanLatestBlockNumber() {
+    try {
+      const data = await arcscanJson({ module: "proxy", action: "eth_blockNumber" });
+      const hex = data?.result;
+      if (typeof hex === "string" && hex.startsWith("0x")) return Number(BigInt(hex));
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
+  async function arcscanSwapLogTxHashesForUser(userAddr) {
+    if (!userAddr) return [];
+    // Curve-style stable swap pools often emit TokenExchange with buyer indexed.
+    // We use ArcScan getLogs for performance (avoids per-tx receipt RPC calls).
+    const latest = await arcscanLatestBlockNumber();
+    const fromBlock = latest != null ? Math.max(0, latest - 250_000) : 0;
+
+    const topic0 = ethers.id(
+      "TokenExchange(address,uint256,uint256,uint256,uint256)"
+    );
+    const topic1 = ethers.zeroPadValue(userAddr, 32);
+
+    const data = await arcscanJson({
+      module: "logs",
+      action: "getLogs",
+      fromBlock: String(fromBlock),
+      toBlock: "latest",
+      address: SWAP_POOL_ADDRESS,
+      topic0,
+      topic1,
+    });
+
+    const logs = Array.isArray(data?.result) ? data.result : [];
+    const hashes = [];
+    for (const l of logs) {
+      const h = l?.transactionHash;
+      if (typeof h === "string" && h.startsWith("0x")) hashes.push(h);
+    }
+    return hashes;
+  }
+
   async function fetchCircleMinePoolTransactions(circleAddr) {
     if (!circleAddr) return;
     setTxLoading(true);
     try {
-      // Start from the pool's tx list (fast), then filter by logs that contain the Circle wallet address.
-      // This works even when a relayer submits the tx, as long as the pool emits an indexed address in logs.
-      const poolList = await fetchPoolTransactionsData();
-      const recent = poolList.slice(0, 250); // keep it bounded for mobile/RPC reliability
+      const [poolList, logHashes] = await Promise.all([
+        fetchPoolTransactionsData(),
+        arcscanSwapLogTxHashesForUser(circleAddr),
+      ]);
 
-      const provider = getReadProvider();
-      const addrTopic = ethers.zeroPadValue(circleAddr, 32).toLowerCase();
-      const poolLower = SWAP_POOL_ADDRESS.toLowerCase();
+      const hashSet = new Set(logHashes.map((h) => String(h).toLowerCase()));
+      const filtered = poolList.filter((tx) =>
+        hashSet.has(String(tx?.hash || "").toLowerCase())
+      );
 
-      const matches = [];
-      for (const tx of recent) {
-        const hash = tx?.hash;
-        if (!hash) continue;
-        try {
-          const receipt = await provider.getTransactionReceipt(hash);
-          const ok = receipt?.logs?.some((l) => {
-            if (!l?.address) return false;
-            if (String(l.address).toLowerCase() !== poolLower) return false;
-            const topics = Array.isArray(l.topics) ? l.topics : [];
-            return topics.some((t) => String(t || "").toLowerCase() === addrTopic);
-          });
-          if (ok) matches.push(tx);
-        } catch {
-          // ignore single-tx failures; continue
-        }
-      }
-
-      setPoolTxs(matches);
+      setPoolTxs(filtered);
     } catch (err) {
       console.error("Failed to fetch Circle mine txs", err);
       setPoolTxs([]);
