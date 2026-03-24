@@ -7,16 +7,22 @@ import swprcLogo from "./assets/swprc.jpg";
 import "./App.css";
 import { getPrices } from "./priceFetcher";
 import { CircleSigner } from "./utils/CircleSigner";
+import { deriveStealthPayment } from "./utils/stealthAddress";
 
 const ARC_CHAIN_ID_DEC = 5042002;
 const ARC_CHAIN_ID_HEX = "0x4CEF52";
 const CIRCLE_APP_ID = import.meta.env.VITE_CIRCLE_APP_ID || "";
+/** Default read RPC for ARC Testnet (no API key). Override with VITE_ARC_RPC_URL. */
+const ARC_PUBLIC_RPC = "https://rpc.testnet.arc.network";
 
 console.log("Circle setup:", { CIRCLE_APP_ID });
 
 import { W3SSdk } from "@circle-fin/w3s-pw-web-sdk";
 
 const SWAP_POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
+const STEALTH_PAYMENTS_ADDRESS =
+  import.meta.env.VITE_STEALTH_PAYMENTS_ADDRESS || "";
+const ARCPAY_PLACEHOLDER_MODE = true;
 
 const TOKEN_INDICES = {
   USDC: 0,
@@ -70,6 +76,9 @@ const ERC20_ABI = [
   "function symbol() view returns (string)",
   "function approve(address spender, uint256 amount) returns (bool)",
   "function allowance(address owner, address spender) view returns (uint256)",
+];
+const STEALTH_PAYMENTS_ABI = [
+  "function announceERC20Payment(address token,address stealthAddress,uint256 amount,bytes ephemeralPubKey,bytes1 viewTag,bytes32 metadataHash)",
 ];
 const TOKEN_LOGOS = {
   USDC: usdcLogo,
@@ -348,6 +357,83 @@ export default function App() {
     historyView === "all" ? poolTxs.length : walletTxs.length;
   const [txLoading, setTxLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("swap");
+  const [arcpayModule, setArcpayModule] = useState("bills");
+  const [bills, setBills] = useState(() => {
+    try {
+      const raw = localStorage.getItem("privpay_bills");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [billHistory, setBillHistory] = useState(() => {
+    try {
+      const raw = localStorage.getItem("privpay_bill_history");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [billForm, setBillForm] = useState({
+    name: "",
+    token: "USDC",
+    amount: "",
+    receiverSpendPublicKey: "",
+    receiverViewPublicKey: "",
+    frequency: "monthly",
+    customIntervalSeconds: "",
+    recurring: true,
+  });
+  const [billCreateError, setBillCreateError] = useState("");
+  const [billCreateStatus, setBillCreateStatus] = useState("");
+  const [billBusyId, setBillBusyId] = useState(null);
+  const [billsView, setBillsView] = useState("upcoming");
+  const [editingBillId, setEditingBillId] = useState(null);
+  const [payrollCompanies, setPayrollCompanies] = useState(() => {
+    try {
+      const raw = localStorage.getItem("privpay_payroll_companies");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [payrollEmployees, setPayrollEmployees] = useState(() => {
+    try {
+      const raw = localStorage.getItem("privpay_payroll_employees");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [payrollHistory, setPayrollHistory] = useState(() => {
+    try {
+      const raw = localStorage.getItem("privpay_payroll_history");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [selectedCompanyId, setSelectedCompanyId] = useState("");
+  const [companyForm, setCompanyForm] = useState({
+    name: "",
+    token: "USDC",
+    defaultFrequency: "monthly",
+  });
+  const [employeeForm, setEmployeeForm] = useState({
+    companyId: "",
+    name: "",
+    role: "",
+    receiverSpendPublicKey: "",
+    receiverViewPublicKey: "",
+    salary: "",
+    frequency: "monthly",
+    customIntervalSeconds: "",
+    recurring: true,
+  });
+  const [payrollStatus, setPayrollStatus] = useState("");
+  const [payrollError, setPayrollError] = useState("");
+  const [payrollBusyCompanyId, setPayrollBusyCompanyId] = useState(null);
+  const [editingEmployeeId, setEditingEmployeeId] = useState(null);
   const [poolsView, setPoolsView] = useState("positions");
   const [swapHistory, setSwapHistory] = useState(() => {
     try {
@@ -620,23 +706,23 @@ export default function App() {
 
   // --- HELPER FUNCTIONS (Safe to use state now) ---
   function getReadProvider() {
-    // Primary: Alchemy (reliable + higher limits than public RPC)
-    // Disable JSON-RPC batching: some providers reject batches > 3.
-    return new ethers.JsonRpcProvider(
-      "https://arc-testnet.g.alchemy.com/v2/1WWSAbr2aJ6weaYUt5RfD8aLvQ8g3GHa",
-      undefined,
-      { batchMaxCount: 1 }
-    );
+    // Use public ARC RPC by default so the app stays up without paid third‑party plans.
+    // Optional: set VITE_ARC_RPC_URL (single provider) or add VITE_ALCHEMY_ARC_RPC_URL for fallbacks.
+    const url =
+      import.meta.env.VITE_ARC_RPC_URL || ARC_PUBLIC_RPC;
+    return new ethers.JsonRpcProvider(url, undefined, { batchMaxCount: 1 });
   }
 
-  const READ_RPC_URLS = useMemo(
-    () => [
-      "https://arc-testnet.g.alchemy.com/v2/1WWSAbr2aJ6weaYUt5RfD8aLvQ8g3GHa",
-      "https://rpc.testnet.arc.network",
-      "https://arc-testnet.drpc.org",
-    ],
-    []
-  );
+  const READ_RPC_URLS = useMemo(() => {
+    const urls = [];
+    const primary = import.meta.env.VITE_ARC_RPC_URL?.trim();
+    if (primary) urls.push(primary);
+    urls.push(ARC_PUBLIC_RPC);
+    const alchemy = import.meta.env.VITE_ALCHEMY_ARC_RPC_URL?.trim();
+    if (alchemy) urls.push(alchemy);
+    urls.push("https://arc-testnet.drpc.org");
+    return [...new Set(urls)];
+  }, []);
 
   function getReadProviderForUrl(url) {
     return new ethers.JsonRpcProvider(url, undefined, { batchMaxCount: 1 });
@@ -1995,6 +2081,619 @@ export default function App() {
       console.warn("Failed to persist history", e);
     }
   }, [swapHistory]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("privpay_bills", JSON.stringify(bills));
+    } catch {
+      // ignore
+    }
+  }, [bills]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("privpay_bill_history", JSON.stringify(billHistory));
+    } catch {
+      // ignore
+    }
+  }, [billHistory]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "privpay_payroll_companies",
+        JSON.stringify(payrollCompanies)
+      );
+    } catch {
+      // ignore
+    }
+  }, [payrollCompanies]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "privpay_payroll_employees",
+        JSON.stringify(payrollEmployees)
+      );
+    } catch {
+      // ignore
+    }
+  }, [payrollEmployees]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "privpay_payroll_history",
+        JSON.stringify(payrollHistory)
+      );
+    } catch {
+      // ignore
+    }
+  }, [payrollHistory]);
+
+  useEffect(() => {
+    const owner = getActiveWalletAddress();
+    if (!owner) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/payments/payroll/get?owner=${encodeURIComponent(owner)}`);
+        const j = await r.json();
+        if (!r.ok || !j?.ok || cancelled || !j?.state) return;
+        setPayrollCompanies(Array.isArray(j.state.companies) ? j.state.companies : []);
+        setPayrollEmployees(Array.isArray(j.state.employees) ? j.state.employees : []);
+        setPayrollHistory(Array.isArray(j.state.history) ? j.state.history : []);
+      } catch {
+        // keep local state fallback
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authMode, address, circleWalletReady, circleWallet?.address]);
+
+  useEffect(() => {
+    const owner = getActiveWalletAddress();
+    if (!owner) return;
+    const t = setTimeout(() => {
+      fetch("/api/payments/payroll/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          owner,
+          state: {
+            companies: payrollCompanies,
+            employees: payrollEmployees,
+            history: payrollHistory.slice(0, 500),
+          },
+        }),
+      }).catch(() => {});
+    }, 450);
+    return () => clearTimeout(t);
+  }, [payrollCompanies, payrollEmployees, payrollHistory, authMode, address, circleWalletReady, circleWallet?.address]);
+
+  useEffect(() => {
+    if (selectedCompanyId) return;
+    if (payrollCompanies.length === 0) return;
+    const first = payrollCompanies[0];
+    setSelectedCompanyId(first.id);
+    setEmployeeForm((prev) => ({
+      ...prev,
+      companyId: first.id,
+      frequency: prev.frequency || first.defaultFrequency || "monthly",
+    }));
+  }, [payrollCompanies, selectedCompanyId]);
+
+  function nextDateByFrequency({ frequency, customIntervalSeconds, fromDate = new Date() }) {
+    const d = new Date(fromDate);
+    const f = String(frequency || "").toLowerCase();
+    switch (f) {
+      case "daily":
+        d.setUTCDate(d.getUTCDate() + 1);
+        break;
+      case "weekly":
+        d.setUTCDate(d.getUTCDate() + 7);
+        break;
+      case "bi-weekly":
+        d.setUTCDate(d.getUTCDate() + 14);
+        break;
+      case "monthly":
+        d.setUTCMonth(d.getUTCMonth() + 1);
+        break;
+      case "quarterly":
+        d.setUTCMonth(d.getUTCMonth() + 3);
+        break;
+      case "yearly":
+        d.setUTCFullYear(d.getUTCFullYear() + 1);
+        break;
+      case "custom": {
+        const secs = Number(customIntervalSeconds || 0);
+        if (Number.isFinite(secs) && secs > 0) {
+          d.setUTCSeconds(d.getUTCSeconds() + secs);
+        }
+        break;
+      }
+      default:
+        d.setUTCMonth(d.getUTCMonth() + 1);
+    }
+    return d.toISOString();
+  }
+
+  function getTokenBySymbol(symbol) {
+    return INITIAL_TOKENS.find((t) => t.symbol === symbol) || null;
+  }
+
+  async function executeStealthTokenPayment({
+    tokenSymbol,
+    amount,
+    receiverSpendPublicKey,
+    receiverViewPublicKey,
+    metadata = {},
+  }) {
+    if (!STEALTH_PAYMENTS_ADDRESS) {
+      throw new Error(
+        "Missing VITE_STEALTH_PAYMENTS_ADDRESS. Deploy StealthPayments contract and set env."
+      );
+    }
+
+    const token = getTokenBySymbol(tokenSymbol);
+    if (!token) throw new Error(`Unsupported token: ${tokenSymbol}`);
+
+    const stealth = deriveStealthPayment({
+      receiverSpendPublicKey,
+      receiverViewPublicKey,
+    });
+
+    const metadataHash = ethers.keccak256(
+      ethers.toUtf8Bytes(JSON.stringify(metadata || {}))
+    );
+    const walletAddr = getActiveWalletAddress();
+    if (!walletAddr) throw new Error("Connect wallet first");
+
+    const provider = getReadProvider();
+    const tokenReader = new ethers.Contract(token.address, ERC20_ABI, provider);
+    const decimals = await tokenReader.decimals().catch(() => 18);
+    const amountUnits = ethers.parseUnits(String(amount), Number(decimals) || 18);
+
+    if (isCircleMode()) {
+      const allowance = await tokenReader.allowance(walletAddr, STEALTH_PAYMENTS_ADDRESS);
+      if (allowance < amountUnits) {
+        const approveTx = buildApproveCall(
+          token.address,
+          STEALTH_PAYMENTS_ADDRESS,
+          ethers.MaxUint256
+        );
+        await executeCircleContractAction({
+          contractAddress: approveTx.contractAddress,
+          abiFunctionSignature: approveTx.abiFunctionSignature,
+          abiParameters: approveTx.abiParameters,
+          title: `Approve ${token.symbol} for stealth payments`,
+        });
+      }
+
+      const { hash } = await executeCircleContractAction({
+        contractAddress: STEALTH_PAYMENTS_ADDRESS,
+        abiFunctionSignature:
+          "announceERC20Payment(address,address,uint256,bytes,bytes1,bytes32)",
+        abiParameters: [
+          token.address,
+          stealth.stealthAddress,
+          amountUnits.toString(),
+          stealth.ephemeralPublicKey,
+          stealth.viewTag,
+          metadataHash,
+        ],
+        title: "Confirm private payment in Circle",
+      });
+
+      return { txHash: hash, stealth, metadataHash };
+    }
+
+    const signer = await getSigner();
+    const tokenContract = new ethers.Contract(token.address, ERC20_ABI, signer);
+    const allowance = await tokenContract.allowance(await signer.getAddress(), STEALTH_PAYMENTS_ADDRESS);
+    if (allowance < amountUnits) {
+      const txA = await tokenContract.approve(STEALTH_PAYMENTS_ADDRESS, ethers.MaxUint256);
+      await txA.wait();
+    }
+
+    const stealthContract = new ethers.Contract(
+      STEALTH_PAYMENTS_ADDRESS,
+      STEALTH_PAYMENTS_ABI,
+      signer
+    );
+    const tx = await stealthContract.announceERC20Payment(
+      token.address,
+      stealth.stealthAddress,
+      amountUnits,
+      stealth.ephemeralPublicKey,
+      stealth.viewTag,
+      metadataHash
+    );
+    await tx.wait();
+    return { txHash: tx.hash, stealth, metadataHash };
+  }
+
+  async function createBill() {
+    setBillCreateError("");
+    setBillCreateStatus("");
+    try {
+      const amountNum = Number(billForm.amount);
+      if (!billForm.name.trim()) throw new Error("Bill name is required");
+      if (!Number.isFinite(amountNum) || amountNum <= 0) {
+        throw new Error("Enter a valid amount");
+      }
+      if (!billForm.receiverSpendPublicKey.trim() || !billForm.receiverViewPublicKey.trim()) {
+        throw new Error("Receiver spend/view public keys are required");
+      }
+      if (
+        billForm.frequency === "custom" &&
+        (!Number.isFinite(Number(billForm.customIntervalSeconds)) ||
+          Number(billForm.customIntervalSeconds) <= 0)
+      ) {
+        throw new Error("Custom interval seconds must be greater than 0");
+      }
+
+      const createdAt = new Date().toISOString();
+      const nextExecutionAt = nextDateByFrequency({
+        frequency: billForm.frequency,
+        customIntervalSeconds: billForm.customIntervalSeconds,
+        fromDate: new Date(),
+      });
+      const bill = {
+        id: editingBillId || `bill_${crypto.randomUUID()}`,
+        name: billForm.name.trim(),
+        token: billForm.token,
+        amount: amountNum,
+        receiverSpendPublicKey: billForm.receiverSpendPublicKey.trim(),
+        receiverViewPublicKey: billForm.receiverViewPublicKey.trim(),
+        frequency: billForm.frequency,
+        customIntervalSeconds:
+          billForm.frequency === "custom"
+            ? Number(billForm.customIntervalSeconds)
+            : null,
+        recurring: !!billForm.recurring,
+        nextExecutionAt,
+        lastPaidAt: null,
+        createdAt,
+      };
+      setBills((prev) =>
+        editingBillId
+          ? prev.map((b) => (b.id === editingBillId ? { ...b, ...bill } : b))
+          : [bill, ...prev]
+      );
+
+      // Optional backend registration for recurring engine.
+      if (bill.recurring && getActiveWalletAddress()) {
+        fetch("/api/payments/recurring/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: bill.id,
+            payerAddress: getActiveWalletAddress(),
+            receiverSpendPublicKey: bill.receiverSpendPublicKey,
+            receiverViewPublicKey: bill.receiverViewPublicKey,
+            amount: bill.amount,
+            tokenAddress:
+              INITIAL_TOKENS.find((t) => t.symbol === bill.token)?.address || "",
+            frequency: bill.frequency,
+            customIntervalSeconds: bill.customIntervalSeconds,
+          }),
+        }).catch(() => {});
+      }
+
+      setBillCreateStatus(editingBillId ? "Bill updated" : "Bill created");
+      setEditingBillId(null);
+      setBillForm((p) => ({
+        ...p,
+        name: "",
+        amount: "",
+        receiverSpendPublicKey: "",
+        receiverViewPublicKey: "",
+        customIntervalSeconds: "",
+      }));
+    } catch (e) {
+      setBillCreateError(e.message || "Failed to create bill");
+    }
+  }
+
+  async function payBillNow(bill) {
+    if (!bill) return;
+    setBillBusyId(bill.id);
+    try {
+      const { stealth, txHash } = await executeStealthTokenPayment({
+        tokenSymbol: bill.token,
+        amount: bill.amount,
+        receiverSpendPublicKey: bill.receiverSpendPublicKey,
+        receiverViewPublicKey: bill.receiverViewPublicKey,
+        metadata: { kind: "bill", billId: bill.id, billName: bill.name, ts: Date.now() },
+      });
+      const nowIso = new Date().toISOString();
+
+      const log = {
+        id: `billtx_${crypto.randomUUID()}`,
+        billId: bill.id,
+        billName: bill.name,
+        token: bill.token,
+        amount: bill.amount,
+        stealthAddress: stealth.stealthAddress,
+        ephemeralPublicKey: stealth.ephemeralPublicKey,
+        viewTag: stealth.viewTag,
+        status: "submitted",
+        txHash,
+        createdAt: nowIso,
+      };
+      setBillHistory((prev) => [log, ...prev]);
+
+      setBills((prev) =>
+        prev.map((b) => {
+          if (b.id !== bill.id) return b;
+          return {
+            ...b,
+            lastPaidAt: nowIso,
+            nextExecutionAt: b.recurring
+              ? nextDateByFrequency({
+                  frequency: b.frequency,
+                  customIntervalSeconds: b.customIntervalSeconds,
+                  fromDate: new Date(nowIso),
+                })
+              : b.nextExecutionAt,
+          };
+        })
+      );
+    } catch (e) {
+      setBillHistory((prev) => [
+        {
+          id: `billtx_${crypto.randomUUID()}`,
+          billId: bill.id,
+          billName: bill.name,
+          token: bill.token,
+          amount: bill.amount,
+          status: "failed",
+          error: e.message || "Stealth payment generation failed",
+          createdAt: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+    } finally {
+      setBillBusyId(null);
+    }
+  }
+
+  function editBill(bill) {
+    setEditingBillId(bill.id);
+    setBillsView("create");
+    setBillForm({
+      name: bill.name || "",
+      token: bill.token || "USDC",
+      amount: String(bill.amount || ""),
+      receiverSpendPublicKey: bill.receiverSpendPublicKey || "",
+      receiverViewPublicKey: bill.receiverViewPublicKey || "",
+      frequency: bill.frequency || "monthly",
+      customIntervalSeconds:
+        bill.frequency === "custom" ? String(bill.customIntervalSeconds || "") : "",
+      recurring: !!bill.recurring,
+    });
+  }
+
+  function deleteBill(billId) {
+    setBills((prev) => prev.filter((b) => b.id !== billId));
+  }
+
+  function createCompanyProfile() {
+    setPayrollError("");
+    setPayrollStatus("");
+    try {
+      if (!companyForm.name.trim()) throw new Error("Company name is required");
+      const company = {
+        id: `co_${crypto.randomUUID()}`,
+        name: companyForm.name.trim(),
+        token: companyForm.token,
+        defaultFrequency: companyForm.defaultFrequency,
+        createdAt: new Date().toISOString(),
+      };
+      setPayrollCompanies((prev) => [company, ...prev]);
+      setSelectedCompanyId(company.id);
+      setEmployeeForm((prev) => ({
+        ...prev,
+        companyId: company.id,
+        frequency: company.defaultFrequency,
+      }));
+      setCompanyForm((prev) => ({ ...prev, name: "" }));
+      setPayrollStatus("Company profile created");
+    } catch (e) {
+      setPayrollError(e.message || "Failed to create company profile");
+    }
+  }
+
+  function addPayrollEmployee() {
+    setPayrollError("");
+    setPayrollStatus("");
+    try {
+      const companyId = employeeForm.companyId || selectedCompanyId;
+      if (!companyId) throw new Error("Select a company first");
+      if (!employeeForm.name.trim()) throw new Error("Employee name is required");
+      if (!employeeForm.role.trim()) throw new Error("Role is required");
+      const salaryNum = Number(employeeForm.salary);
+      if (!Number.isFinite(salaryNum) || salaryNum <= 0) {
+        throw new Error("Salary must be a positive number");
+      }
+      if (
+        !employeeForm.receiverSpendPublicKey.trim() ||
+        !employeeForm.receiverViewPublicKey.trim()
+      ) {
+        throw new Error("Employee spend/view public keys are required");
+      }
+      if (
+        employeeForm.frequency === "custom" &&
+        (!Number.isFinite(Number(employeeForm.customIntervalSeconds)) ||
+          Number(employeeForm.customIntervalSeconds) <= 0)
+      ) {
+        throw new Error("Custom interval seconds must be greater than 0");
+      }
+
+      const nextRunAt = nextDateByFrequency({
+        frequency: employeeForm.frequency,
+        customIntervalSeconds: employeeForm.customIntervalSeconds,
+        fromDate: new Date(),
+      });
+
+      const employee = {
+        id: editingEmployeeId || `emp_${crypto.randomUUID()}`,
+        companyId,
+        name: employeeForm.name.trim(),
+        role: employeeForm.role.trim(),
+        receiverSpendPublicKey: employeeForm.receiverSpendPublicKey.trim(),
+        receiverViewPublicKey: employeeForm.receiverViewPublicKey.trim(),
+        salary: salaryNum,
+        frequency: employeeForm.frequency,
+        customIntervalSeconds:
+          employeeForm.frequency === "custom"
+            ? Number(employeeForm.customIntervalSeconds)
+            : null,
+        recurring: !!employeeForm.recurring,
+        nextRunAt,
+        lastPaidAt: null,
+        status: "active",
+        createdAt: new Date().toISOString(),
+      };
+      setPayrollEmployees((prev) =>
+        editingEmployeeId
+          ? prev.map((e) => (e.id === editingEmployeeId ? { ...e, ...employee } : e))
+          : [employee, ...prev]
+      );
+      setEmployeeForm((prev) => ({
+        ...prev,
+        name: "",
+        role: "",
+        receiverSpendPublicKey: "",
+        receiverViewPublicKey: "",
+        salary: "",
+        customIntervalSeconds: "",
+      }));
+      setEditingEmployeeId(null);
+      setPayrollStatus(editingEmployeeId ? "Employee updated" : "Employee added");
+    } catch (e) {
+      setPayrollError(e.message || "Failed to add employee");
+    }
+  }
+
+  async function runBulkPayroll(companyId) {
+    if (!companyId) return;
+    setPayrollBusyCompanyId(companyId);
+    setPayrollError("");
+    setPayrollStatus("");
+    try {
+      const company = payrollCompanies.find((c) => c.id === companyId);
+      if (!company) throw new Error("Company not found");
+      const now = new Date();
+      const dueEmployees = payrollEmployees.filter(
+        (e) =>
+          e.companyId === companyId &&
+          e.status === "active" &&
+          e.recurring &&
+          e.nextRunAt &&
+          new Date(e.nextRunAt).getTime() <= now.getTime()
+      );
+
+      if (dueEmployees.length === 0) {
+        setPayrollStatus("No due salary runs right now.");
+        return;
+      }
+
+      const logs = [];
+      const paidAt = now.toISOString();
+      for (const emp of dueEmployees) {
+        try {
+          const { stealth, txHash } = await executeStealthTokenPayment({
+            tokenSymbol: company.token,
+            amount: emp.salary,
+            receiverSpendPublicKey: emp.receiverSpendPublicKey,
+            receiverViewPublicKey: emp.receiverViewPublicKey,
+            metadata: {
+              kind: "payroll",
+              companyId,
+              employeeId: emp.id,
+              employeeName: emp.name,
+              ts: Date.now(),
+            },
+          });
+          logs.push({
+            id: `pr_${crypto.randomUUID()}`,
+            companyId,
+            companyName: company.name,
+            employeeId: emp.id,
+            employeeName: emp.name,
+            role: emp.role,
+            token: company.token,
+            amount: emp.salary,
+            status: "submitted",
+            stealthAddress: stealth.stealthAddress,
+            ephemeralPublicKey: stealth.ephemeralPublicKey,
+            viewTag: stealth.viewTag,
+            txHash,
+            createdAt: paidAt,
+          });
+        } catch (e) {
+          logs.push({
+            id: `pr_${crypto.randomUUID()}`,
+            companyId,
+            companyName: company.name,
+            employeeId: emp.id,
+            employeeName: emp.name,
+            role: emp.role,
+            token: company.token,
+            amount: emp.salary,
+            status: "failed",
+            error: e.message || "Stealth generation failed",
+            createdAt: paidAt,
+          });
+        }
+      }
+
+      setPayrollHistory((prev) => [...logs, ...prev]);
+      setPayrollEmployees((prev) =>
+        prev.map((e) => {
+          if (!dueEmployees.some((d) => d.id === e.id)) return e;
+          return {
+            ...e,
+            lastPaidAt: paidAt,
+            nextRunAt: nextDateByFrequency({
+              frequency: e.frequency,
+              customIntervalSeconds: e.customIntervalSeconds,
+              fromDate: new Date(paidAt),
+            }),
+          };
+        })
+      );
+
+      setPayrollStatus(`Bulk payroll submitted for ${dueEmployees.length} employee(s).`);
+    } catch (e) {
+      setPayrollError(e.message || "Failed to run payroll");
+    } finally {
+      setPayrollBusyCompanyId(null);
+    }
+  }
+
+  function editEmployee(emp) {
+    setEditingEmployeeId(emp.id);
+    setEmployeeForm({
+      companyId: emp.companyId || "",
+      name: emp.name || "",
+      role: emp.role || "",
+      receiverSpendPublicKey: emp.receiverSpendPublicKey || "",
+      receiverViewPublicKey: emp.receiverViewPublicKey || "",
+      salary: String(emp.salary || ""),
+      frequency: emp.frequency || "monthly",
+      customIntervalSeconds:
+        emp.frequency === "custom" ? String(emp.customIntervalSeconds || "") : "",
+      recurring: !!emp.recurring,
+    });
+  }
+
+  function deleteEmployee(employeeId) {
+    setPayrollEmployees((prev) => prev.filter((e) => e.id !== employeeId));
+  }
 
   function setPercentAmount(percent) {
     const bal = balances[swapFrom];
@@ -5365,25 +6064,747 @@ export default function App() {
                 </div>
               )}
               {activeTab === "arcpay" && (
-                <div
-                  className="neon-card"
-                  style={{
-                    boxShadow: "0 0 20px rgba(0, 150, 255, 0.4)",
-                    border: "1px solid rgba(0, 150, 255, 0.6)",
-                    textAlign: "center",
-                    padding: "60px 20px",
-                  }}
-                >
-                  <h2 style={{ fontSize: 32, marginBottom: 16 }}>ARCPAY</h2>
-                  <p
-                    style={{
-                      fontSize: 18,
-                      letterSpacing: 4,
-                      opacity: 0.8,
-                    }}
-                  >
-                    Wallet Dashboard
-                  </p>
+                <div className="billsWrap">
+                  {ARCPAY_PLACEHOLDER_MODE ? (
+                    <div className="arcpayPlaceholderCard">
+                      <div className="arcpayPlaceholderInner">
+                        <h2>ARCPAY</h2>
+                        <p>Wallet Dashboard</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                  {!STEALTH_PAYMENTS_ADDRESS && (
+                    <div className="envWarningBanner">
+                      Stealth contract not configured. Set <code>VITE_STEALTH_PAYMENTS_ADDRESS</code> to enable onchain bill/payroll payments.
+                    </div>
+                  )}
+                  <div className="historyToggleRow">
+                    <button
+                      className={`historyToggleBtn ${arcpayModule === "bills" ? "active" : ""}`}
+                      onClick={() => setArcpayModule("bills")}
+                    >
+                      BILLS
+                    </button>
+                    <button
+                      className={`historyToggleBtn ${arcpayModule === "payroll" ? "active" : ""}`}
+                      onClick={() => setArcpayModule("payroll")}
+                    >
+                      PAYROLL
+                    </button>
+                  </div>
+
+                  {arcpayModule === "bills" && (
+                    <>
+                      <div className="historyToggleRow">
+                        <button
+                          className={`historyToggleBtn ${billsView === "create" ? "active" : ""}`}
+                          onClick={() => setBillsView("create")}
+                        >
+                          CREATE
+                        </button>
+                        <button
+                          className={`historyToggleBtn ${billsView === "upcoming" ? "active" : ""}`}
+                          onClick={() => setBillsView("upcoming")}
+                        >
+                          UPCOMING
+                        </button>
+                        <button
+                          className={`historyToggleBtn ${billsView === "history" ? "active" : ""}`}
+                          onClick={() => setBillsView("history")}
+                        >
+                          HISTORY
+                        </button>
+                      </div>
+
+                      {billsView === "create" && (
+                      <div className="neon-card billsCreateCard">
+                        <div className="billsTitleRow">
+                          <h2 className="billsTitle">BILLS</h2>
+                          <span className="billsSubtitle">Private + Programmable Payments</span>
+                        </div>
+
+                        <div className="billsGrid">
+                          <label className="billsField">
+                            <span>Bill Name</span>
+                            <input
+                              className="billsInput"
+                              value={billForm.name}
+                              onChange={(e) =>
+                                setBillForm((p) => ({ ...p, name: e.target.value }))
+                              }
+                              placeholder="Internet Subscription"
+                            />
+                          </label>
+
+                          <label className="billsField">
+                            <span>Token</span>
+                            <select
+                              className="billsInput"
+                              value={billForm.token}
+                              onChange={(e) =>
+                                setBillForm((p) => ({ ...p, token: e.target.value }))
+                              }
+                            >
+                              {["USDC", "EURC", "SWPRC"].map((sym) => (
+                                <option key={sym} value={sym}>
+                                  {sym}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <label className="billsField">
+                            <span>Amount</span>
+                            <input
+                              className="billsInput"
+                              type="number"
+                              min="0"
+                              step="0.0001"
+                              value={billForm.amount}
+                              onChange={(e) =>
+                                setBillForm((p) => ({ ...p, amount: e.target.value }))
+                              }
+                              placeholder="0.00"
+                            />
+                          </label>
+
+                          <label className="billsField">
+                            <span>Schedule</span>
+                            <select
+                              className="billsInput"
+                              value={billForm.frequency}
+                              onChange={(e) =>
+                                setBillForm((p) => ({ ...p, frequency: e.target.value }))
+                              }
+                            >
+                              <option value="daily">Daily</option>
+                              <option value="weekly">Weekly</option>
+                              <option value="bi-weekly">Bi-Weekly</option>
+                              <option value="monthly">Monthly</option>
+                              <option value="quarterly">Quarterly</option>
+                              <option value="yearly">Yearly</option>
+                              <option value="custom">Custom</option>
+                            </select>
+                          </label>
+
+                          {billForm.frequency === "custom" && (
+                            <label className="billsField billsFieldFull">
+                              <span>Custom interval (seconds)</span>
+                              <input
+                                className="billsInput"
+                                type="number"
+                                min="1"
+                                value={billForm.customIntervalSeconds}
+                                onChange={(e) =>
+                                  setBillForm((p) => ({
+                                    ...p,
+                                    customIntervalSeconds: e.target.value,
+                                  }))
+                                }
+                                placeholder="86400"
+                              />
+                            </label>
+                          )}
+
+                          <label className="billsField billsFieldFull">
+                            <span>Recipient Spend Public Key</span>
+                            <input
+                              className="billsInput mono"
+                              value={billForm.receiverSpendPublicKey}
+                              onChange={(e) =>
+                                setBillForm((p) => ({
+                                  ...p,
+                                  receiverSpendPublicKey: e.target.value,
+                                }))
+                              }
+                              placeholder="0x02..."
+                            />
+                          </label>
+
+                          <label className="billsField billsFieldFull">
+                            <span>Recipient View Public Key</span>
+                            <input
+                              className="billsInput mono"
+                              value={billForm.receiverViewPublicKey}
+                              onChange={(e) =>
+                                setBillForm((p) => ({
+                                  ...p,
+                                  receiverViewPublicKey: e.target.value,
+                                }))
+                              }
+                              placeholder="0x03..."
+                            />
+                          </label>
+                        </div>
+
+                        <div className="billsActionsRow">
+                          <label className="billsToggle">
+                            <input
+                              type="checkbox"
+                              checked={billForm.recurring}
+                              onChange={(e) =>
+                                setBillForm((p) => ({ ...p, recurring: e.target.checked }))
+                              }
+                            />
+                            <span>Recurring</span>
+                          </label>
+                          <button className="primaryBtn billsCreateBtn" onClick={createBill}>
+                            {editingBillId ? "Update Bill" : "Create Bill"}
+                          </button>
+                          {editingBillId && (
+                            <button
+                              className="secondaryBtn billsPayBtn"
+                              onClick={() => {
+                                setEditingBillId(null);
+                                setBillForm((p) => ({
+                                  ...p,
+                                  name: "",
+                                  amount: "",
+                                  receiverSpendPublicKey: "",
+                                  receiverViewPublicKey: "",
+                                  customIntervalSeconds: "",
+                                }));
+                              }}
+                            >
+                              Cancel Edit
+                            </button>
+                          )}
+                        </div>
+
+                        {billCreateError && <p className="quote billsErr">{billCreateError}</p>}
+                        {billCreateStatus && <p className="quote billsOk">{billCreateStatus}</p>}
+                      </div>
+                      )}
+
+                      {billsView === "upcoming" && (
+                      <div className="neon-card billsListCard">
+                        <h3 className="billsSectionTitle">Upcoming Payments</h3>
+                        {bills.length === 0 ? (
+                          <p className="muted">No bills created yet.</p>
+                        ) : (
+                          <div className="billsItems">
+                            {bills
+                              .slice()
+                              .sort(
+                                (a, b) =>
+                                  new Date(a.nextExecutionAt).getTime() -
+                                  new Date(b.nextExecutionAt).getTime()
+                              )
+                              .map((bill) => (
+                                <div className="billsItem" key={bill.id}>
+                                  <div className="billsItemTop">
+                                    <div>
+                                      <strong>{bill.name}</strong>
+                                      <div className="muted billsMeta">
+                                        {bill.amount} {bill.token}
+                                      </div>
+                                    </div>
+                                    <div className="billsNext">
+                                      Next:{" "}
+                                      {bill.nextExecutionAt
+                                        ? new Date(bill.nextExecutionAt).toLocaleString()
+                                        : "—"}
+                                    </div>
+                                  </div>
+                                  <div className="billsItemBottom">
+                                    <label className="billsToggle small">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!bill.recurring}
+                                        onChange={(e) =>
+                                          setBills((prev) =>
+                                            prev.map((b) =>
+                                              b.id === bill.id
+                                                ? { ...b, recurring: e.target.checked }
+                                                : b
+                                            )
+                                          )
+                                        }
+                                      />
+                                      <span>Recurring</span>
+                                    </label>
+                                    <button
+                                      className="secondaryBtn billsPayBtn"
+                                      disabled={billBusyId === bill.id}
+                                      onClick={() => payBillNow(bill)}
+                                    >
+                                      {billBusyId === bill.id ? "Processing..." : "Pay Now"}
+                                    </button>
+                                    <button
+                                      className="secondaryBtn billsPayBtn"
+                                      onClick={() => editBill(bill)}
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      className="secondaryBtn billsPayBtn"
+                                      onClick={() => deleteBill(bill.id)}
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                      )}
+
+                      {billsView === "history" && (
+                      <div className="neon-card billsHistoryCard">
+                        <h3 className="billsSectionTitle">Payment History</h3>
+                        {billHistory.length === 0 ? (
+                          <p className="muted">No payment history yet.</p>
+                        ) : (
+                          <ul className="historyList">
+                            {billHistory.slice(0, 50).map((h) => (
+                              <li className="historyItem" key={h.id}>
+                                <div className="historyLeft">
+                                  <div>
+                                    <strong>{h.billName || "Bill Payment"}</strong>
+                                  </div>
+                                  <div className="muted">
+                                    {h.amount} {h.token} • {h.status}
+                                  </div>
+                                  {h.stealthAddress && (
+                                    <div className="muted billsStealthAddr">
+                                      Stealth: {shortAddr(h.stealthAddress)}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="historyRight">
+                                  {h.createdAt
+                                    ? new Date(h.createdAt).toLocaleString()
+                                    : "—"}
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                      )}
+                    </>
+                  )}
+
+                  {arcpayModule === "payroll" && (
+                    <>
+                      <div className="neon-card payrollDashboardCard">
+                        <h2 className="billsTitle" style={{ marginBottom: 12 }}>PAYROLL</h2>
+                        {(() => {
+                          const selectedCompany = payrollCompanies.find((c) => c.id === selectedCompanyId) || null;
+                          const companyEmployees = selectedCompany
+                            ? payrollEmployees.filter((e) => e.companyId === selectedCompany.id)
+                            : [];
+                          const dueCount = companyEmployees.filter(
+                            (e) =>
+                              e.status === "active" &&
+                              e.recurring &&
+                              e.nextRunAt &&
+                              new Date(e.nextRunAt).getTime() <= Date.now()
+                          ).length;
+                          const monthlyEstimate = companyEmployees.reduce(
+                            (acc, e) => acc + Number(e.salary || 0),
+                            0
+                          );
+                          return (
+                            <div className="payrollKpiGrid">
+                              <div className="payrollKpiCard">
+                                <span className="muted">Companies</span>
+                                <strong>{payrollCompanies.length}</strong>
+                              </div>
+                              <div className="payrollKpiCard">
+                                <span className="muted">Employees</span>
+                                <strong>{companyEmployees.length}</strong>
+                              </div>
+                              <div className="payrollKpiCard">
+                                <span className="muted">Due Runs</span>
+                                <strong>{dueCount}</strong>
+                              </div>
+                              <div className="payrollKpiCard">
+                                <span className="muted">Salary Total</span>
+                                <strong>
+                                  {selectedCompany?.token || "USDC"} {monthlyEstimate.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                                </strong>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      <div className="neon-card billsCreateCard">
+                        <h3 className="billsSectionTitle">Create Company Profile</h3>
+                        <div className="billsGrid">
+                          <label className="billsField">
+                            <span>Company Name</span>
+                            <input
+                              className="billsInput"
+                              value={companyForm.name}
+                              onChange={(e) =>
+                                setCompanyForm((p) => ({ ...p, name: e.target.value }))
+                              }
+                              placeholder="Acme Inc."
+                            />
+                          </label>
+                          <label className="billsField">
+                            <span>Payroll Token</span>
+                            <select
+                              className="billsInput"
+                              value={companyForm.token}
+                              onChange={(e) =>
+                                setCompanyForm((p) => ({ ...p, token: e.target.value }))
+                              }
+                            >
+                              {["USDC", "EURC", "SWPRC"].map((sym) => (
+                                <option key={sym} value={sym}>
+                                  {sym}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="billsField">
+                            <span>Default Schedule</span>
+                            <select
+                              className="billsInput"
+                              value={companyForm.defaultFrequency}
+                              onChange={(e) =>
+                                setCompanyForm((p) => ({
+                                  ...p,
+                                  defaultFrequency: e.target.value,
+                                }))
+                              }
+                            >
+                              <option value="weekly">Weekly</option>
+                              <option value="bi-weekly">Bi-Weekly</option>
+                              <option value="monthly">Monthly</option>
+                              <option value="quarterly">Quarterly</option>
+                            </select>
+                          </label>
+                        </div>
+                        <div className="billsActionsRow">
+                          <button className="primaryBtn billsCreateBtn" onClick={createCompanyProfile}>
+                            Create Company
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="neon-card billsCreateCard">
+                        <h3 className="billsSectionTitle">Add Employee</h3>
+                        <div className="billsGrid">
+                          <label className="billsField billsFieldFull">
+                            <span>Company</span>
+                            <select
+                              className="billsInput"
+                              value={employeeForm.companyId || selectedCompanyId}
+                              onChange={(e) => {
+                                setSelectedCompanyId(e.target.value);
+                                setEmployeeForm((p) => ({ ...p, companyId: e.target.value }));
+                              }}
+                            >
+                              <option value="">Select company</option>
+                              {payrollCompanies.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <label className="billsField">
+                            <span>Name</span>
+                            <input
+                              className="billsInput"
+                              value={employeeForm.name}
+                              onChange={(e) =>
+                                setEmployeeForm((p) => ({ ...p, name: e.target.value }))
+                              }
+                              placeholder="Jane Doe"
+                            />
+                          </label>
+
+                          <label className="billsField">
+                            <span>Role</span>
+                            <input
+                              className="billsInput"
+                              value={employeeForm.role}
+                              onChange={(e) =>
+                                setEmployeeForm((p) => ({ ...p, role: e.target.value }))
+                              }
+                              placeholder="Designer"
+                            />
+                          </label>
+
+                          <label className="billsField">
+                            <span>Salary</span>
+                            <input
+                              className="billsInput"
+                              type="number"
+                              min="0"
+                              step="0.0001"
+                              value={employeeForm.salary}
+                              onChange={(e) =>
+                                setEmployeeForm((p) => ({ ...p, salary: e.target.value }))
+                              }
+                              placeholder="5000"
+                            />
+                          </label>
+
+                          <label className="billsField">
+                            <span>Schedule</span>
+                            <select
+                              className="billsInput"
+                              value={employeeForm.frequency}
+                              onChange={(e) =>
+                                setEmployeeForm((p) => ({ ...p, frequency: e.target.value }))
+                              }
+                            >
+                              <option value="daily">Daily</option>
+                              <option value="weekly">Weekly</option>
+                              <option value="bi-weekly">Bi-Weekly</option>
+                              <option value="monthly">Monthly</option>
+                              <option value="quarterly">Quarterly</option>
+                              <option value="yearly">Yearly</option>
+                              <option value="custom">Custom</option>
+                            </select>
+                          </label>
+
+                          {employeeForm.frequency === "custom" && (
+                            <label className="billsField billsFieldFull">
+                              <span>Custom interval (seconds)</span>
+                              <input
+                                className="billsInput"
+                                type="number"
+                                min="1"
+                                value={employeeForm.customIntervalSeconds}
+                                onChange={(e) =>
+                                  setEmployeeForm((p) => ({
+                                    ...p,
+                                    customIntervalSeconds: e.target.value,
+                                  }))
+                                }
+                                placeholder="86400"
+                              />
+                            </label>
+                          )}
+
+                          <label className="billsField billsFieldFull">
+                            <span>Spend Public Key</span>
+                            <input
+                              className="billsInput mono"
+                              value={employeeForm.receiverSpendPublicKey}
+                              onChange={(e) =>
+                                setEmployeeForm((p) => ({
+                                  ...p,
+                                  receiverSpendPublicKey: e.target.value,
+                                }))
+                              }
+                              placeholder="0x02..."
+                            />
+                          </label>
+
+                          <label className="billsField billsFieldFull">
+                            <span>View Public Key</span>
+                            <input
+                              className="billsInput mono"
+                              value={employeeForm.receiverViewPublicKey}
+                              onChange={(e) =>
+                                setEmployeeForm((p) => ({
+                                  ...p,
+                                  receiverViewPublicKey: e.target.value,
+                                }))
+                              }
+                              placeholder="0x03..."
+                            />
+                          </label>
+                        </div>
+                        <div className="billsActionsRow">
+                          <label className="billsToggle">
+                            <input
+                              type="checkbox"
+                              checked={employeeForm.recurring}
+                              onChange={(e) =>
+                                setEmployeeForm((p) => ({ ...p, recurring: e.target.checked }))
+                              }
+                            />
+                            <span>Recurring</span>
+                          </label>
+                          <button className="primaryBtn billsCreateBtn" onClick={addPayrollEmployee}>
+                            {editingEmployeeId ? "Update Employee" : "Add Employee"}
+                          </button>
+                          {editingEmployeeId && (
+                            <button
+                              className="secondaryBtn billsPayBtn"
+                              onClick={() => {
+                                setEditingEmployeeId(null);
+                                setEmployeeForm((p) => ({
+                                  ...p,
+                                  name: "",
+                                  role: "",
+                                  receiverSpendPublicKey: "",
+                                  receiverViewPublicKey: "",
+                                  salary: "",
+                                  customIntervalSeconds: "",
+                                }));
+                              }}
+                            >
+                              Cancel Edit
+                            </button>
+                          )}
+                        </div>
+                        {payrollError && <p className="quote billsErr">{payrollError}</p>}
+                        {payrollStatus && <p className="quote billsOk">{payrollStatus}</p>}
+                      </div>
+
+                      <div className="neon-card billsListCard">
+                        <h3 className="billsSectionTitle">Upcoming Salary Runs</h3>
+                        {(() => {
+                          const companyId = selectedCompanyId || payrollCompanies[0]?.id || "";
+                          const company = payrollCompanies.find((c) => c.id === companyId);
+                          const rows = payrollEmployees
+                            .filter((e) => !companyId || e.companyId === companyId)
+                            .filter((e) => e.status === "active")
+                            .slice()
+                            .sort(
+                              (a, b) =>
+                                new Date(a.nextRunAt).getTime() - new Date(b.nextRunAt).getTime()
+                            );
+
+                          return (
+                            <>
+                              {company && (
+                                <div className="payrollHeaderActions">
+                                  <div className="muted">
+                                    {company.name} • {company.token}
+                                  </div>
+                                  <button
+                                    className="secondaryBtn billsPayBtn"
+                                    disabled={payrollBusyCompanyId === company.id}
+                                    onClick={() => runBulkPayroll(company.id)}
+                                  >
+                                    {payrollBusyCompanyId === company.id
+                                      ? "Running..."
+                                      : "Run Bulk Payroll"}
+                                  </button>
+                                </div>
+                              )}
+                              {rows.length === 0 ? (
+                                <p className="muted">No upcoming salary runs.</p>
+                              ) : (
+                                <div className="billsItems">
+                                  {rows.map((e) => (
+                                    <div className="billsItem" key={e.id}>
+                                      <div className="billsItemTop">
+                                        <div>
+                                          <strong>{e.name}</strong>
+                                          <div className="muted billsMeta">
+                                            {e.role} • {e.salary}{" "}
+                                            {company?.token ||
+                                              payrollCompanies.find((c) => c.id === e.companyId)?.token ||
+                                              "USDC"}
+                                          </div>
+                                        </div>
+                                        <div className="billsNext">
+                                          Next:{" "}
+                                          {e.nextRunAt
+                                            ? new Date(e.nextRunAt).toLocaleString()
+                                            : "—"}
+                                        </div>
+                                      </div>
+                                      <div className="billsItemBottom">
+                                        <label className="billsToggle small">
+                                          <input
+                                            type="checkbox"
+                                            checked={!!e.recurring}
+                                            onChange={(evt) =>
+                                              setPayrollEmployees((prev) =>
+                                                prev.map((x) =>
+                                                  x.id === e.id
+                                                    ? { ...x, recurring: evt.target.checked }
+                                                    : x
+                                                )
+                                              )
+                                            }
+                                          />
+                                          <span>Recurring</span>
+                                        </label>
+                                        <button
+                                          className="secondaryBtn billsPayBtn"
+                                          onClick={() => editEmployee(e)}
+                                        >
+                                          Edit
+                                        </button>
+                                        <button
+                                          className="secondaryBtn billsPayBtn"
+                                          onClick={() => deleteEmployee(e.id)}
+                                        >
+                                          Delete
+                                        </button>
+                                        <button
+                                          className="secondaryBtn billsPayBtn"
+                                          onClick={() =>
+                                            setPayrollEmployees((prev) =>
+                                              prev.map((x) =>
+                                                x.id === e.id
+                                                  ? {
+                                                      ...x,
+                                                      status:
+                                                        x.status === "active"
+                                                          ? "paused"
+                                                          : "active",
+                                                    }
+                                                  : x
+                                              )
+                                            )
+                                          }
+                                        >
+                                          {e.status === "active" ? "Pause" : "Resume"}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </div>
+
+                      <div className="neon-card billsHistoryCard">
+                        <h3 className="billsSectionTitle">Payroll History</h3>
+                        {payrollHistory.length === 0 ? (
+                          <p className="muted">No payroll history yet.</p>
+                        ) : (
+                          <ul className="historyList">
+                            {payrollHistory.slice(0, 80).map((h) => (
+                              <li className="historyItem" key={h.id}>
+                                <div className="historyLeft">
+                                  <div>
+                                    <strong>{h.employeeName}</strong>{" "}
+                                    <span className="muted">({h.role})</span>
+                                  </div>
+                                  <div className="muted">
+                                    {h.amount} {h.token} • {h.status}
+                                  </div>
+                                  {h.stealthAddress && (
+                                    <div className="muted billsStealthAddr">
+                                      Stealth: {shortAddr(h.stealthAddress)}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="historyRight">
+                                  {h.createdAt
+                                    ? new Date(h.createdAt).toLocaleString()
+                                    : "—"}
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </>
+                  )}
+                    </>
+                  )}
                 </div>
               )}
             </div>
