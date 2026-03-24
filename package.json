@@ -11,11 +11,13 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "indexer": "node scripts/liveSwapIndexer.js"
+    "indexer": "node scripts/liveSwapIndexer.js",
+    "deploy:stealth": "node scripts/deployStealthPayments.mjs"
   },
   "dependencies": {
     "@circle-fin/developer-controlled-wallets": "^10.1.0",
     "@circle-fin/w3s-pw-web-sdk": "^1.1.11",
+    "@noble/secp256k1": "^3.0.0",
     "@vercel/kv": "^1.0.1",
     "@walletconnect/ethereum-provider": "^2.23.1",
     "@walletconnect/modal": "^2.7.0",
@@ -23,7 +25,8 @@
     "ethers": "^6.15.0",
     "express": "^5.2.1",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "solc": "^0.8.34"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
