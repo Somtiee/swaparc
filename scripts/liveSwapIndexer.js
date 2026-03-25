@@ -5,6 +5,10 @@ import { kv } from "@vercel/kv";
 const PRIMARY_RPC_URL =
   process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network";
 const FALLBACK_RPC_URL = process.env.ARC_RPC_URL_FALLBACK || null;
+const TERTIARY_RPC_URL = process.env.ARC_RPC_URL_TERTIARY || null;
+const GET_DY_MIN_INTERVAL_MS = Number(
+  process.env.INDEXER_GET_DY_MIN_INTERVAL_MS || 120
+);
 const SWAP_POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
 const POOL_ABI = [
   "function get_dy(uint256 i, uint256 j, uint256 dx) view returns (uint256)"
@@ -14,18 +18,29 @@ const network = ethers.Network.from({
   name: "arc-testnet",
   chainId: 5042002,
 });
-const primaryProvider = new ethers.JsonRpcProvider(PRIMARY_RPC_URL, network);
-const fallbackProvider = FALLBACK_RPC_URL
-  ? new ethers.JsonRpcProvider(FALLBACK_RPC_URL, network)
-  : null;
-const primaryPool = new ethers.Contract(
-  SWAP_POOL_ADDRESS,
-  POOL_ABI,
-  primaryProvider
+
+function createProvider(url) {
+  return new ethers.JsonRpcProvider(url, network, {
+    batchMaxCount: 1,
+    staticNetwork: network,
+  });
+}
+
+const rpcEntries = [
+  { label: "primary", url: PRIMARY_RPC_URL },
+  ...(FALLBACK_RPC_URL ? [{ label: "fallback", url: FALLBACK_RPC_URL }] : []),
+  ...(TERTIARY_RPC_URL ? [{ label: "tertiary", url: TERTIARY_RPC_URL }] : []),
+].map((entry) => ({
+  ...entry,
+  provider: createProvider(entry.url),
+}));
+
+const poolsByUrl = new Map(
+  rpcEntries.map((r) => [r.url, new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, r.provider)])
 );
-const fallbackPool =
-  fallbackProvider &&
-  new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, fallbackProvider);
+
+const getDyCache = new Map();
+let lastGetDyAtMs = 0;
 const iface = new ethers.Interface([
   "function swap(uint256 i,uint256 j,uint256 dx)"
 ]);
@@ -39,33 +54,53 @@ function sleep(ms) {
 }
 
 async function getBlockNumberWithFallback() {
-  try {
-    return await primaryProvider.getBlockNumber();
-  } catch (e) {
-    if (fallbackProvider) {
+  let lastErr = null;
+  for (const entry of rpcEntries) {
+    try {
+      return await entry.provider.getBlockNumber();
+    } catch (e) {
+      lastErr = e;
       console.warn(
-        "Primary RPC getBlockNumber failed, using fallback:",
+        `[RPC] ${entry.label} getBlockNumber failed:`,
         e?.message || e
       );
-      return await fallbackProvider.getBlockNumber();
     }
-    throw e;
   }
+  throw lastErr || new Error("All RPC providers failed getBlockNumber");
+}
+
+async function throttleGetDy() {
+  const now = Date.now();
+  const waitMs = lastGetDyAtMs + GET_DY_MIN_INTERVAL_MS - now;
+  if (waitMs > 0) {
+    await sleep(waitMs);
+  }
+  lastGetDyAtMs = Date.now();
 }
 
 async function getDyWithFallback(i, dx) {
-  try {
-    return await primaryPool.get_dy(i, USDC_INDEX, dx);
-  } catch (e) {
-    if (fallbackPool) {
+  const cacheKey = `${i}:${dx.toString()}`;
+  if (getDyCache.has(cacheKey)) {
+    return getDyCache.get(cacheKey);
+  }
+
+  let lastErr = null;
+  for (const entry of rpcEntries) {
+    try {
+      await throttleGetDy();
+      const pool = poolsByUrl.get(entry.url);
+      const out = await pool.get_dy(i, USDC_INDEX, dx);
+      getDyCache.set(cacheKey, out);
+      return out;
+    } catch (e) {
+      lastErr = e;
       console.warn(
-        "Primary RPC get_dy failed, using fallback:",
+        `[RPC] ${entry.label} get_dy failed:`,
         e?.message || e
       );
-      return await fallbackPool.get_dy(i, USDC_INDEX, dx);
     }
-    throw e;
   }
+  throw lastErr || new Error("All RPC providers failed get_dy");
 }
 
 async function getStartingBlock() {
@@ -94,6 +129,7 @@ async function fetchNewTransactions(fromBlock) {
   let startBlock = fromBlock;
   let lastProcessedBlock = fromBlock;
   const walletDeltas = new Map(); // wallet -> { count: number, volume: number }
+  getDyCache.clear();
 
   while (true) {
     const url =
@@ -185,9 +221,7 @@ async function startLiveIndexer() {
   }
 
   console.log(
-    `Connected to primary RPC ${PRIMARY_RPC_URL}${
-      FALLBACK_RPC_URL ? ` (fallback: ${FALLBACK_RPC_URL})` : ""
-    }`
+    `Connected RPCs: ${rpcEntries.map((r) => `${r.label}:${r.url}`).join(" | ")}`
   );
   console.log(`Tracking swaps on ${SWAP_POOL_ADDRESS} via Arcscan...`);
 
