@@ -1,4 +1,14 @@
 {
+  "crons": [
+    {
+      "path": "/api/payments/recurring/run",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/payments/payroll/run",
+      "schedule": "*/5 * * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/",
