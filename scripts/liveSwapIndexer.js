@@ -48,6 +48,11 @@ const iface = new ethers.Interface([
 const USDC_INDEX = 0;
 const ARCSCAN_API = "https://testnet.arcscan.app/api";
 const INDEXER_STATE_KEY = "swapIndexer:lastBlock";
+const ru = String(process.env.REDIS_URL || "").trim();
+const hasRedis = ru.startsWith("redis://") || ru.startsWith("rediss://");
+const hasUpstash =
+  String(process.env.KV_REST_API_URL || "").trim() &&
+  String(process.env.KV_REST_API_TOKEN || "").trim();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -215,10 +220,13 @@ async function fetchNewTransactions(fromBlock) {
 async function startLiveIndexer() {
   console.log("Starting Live Swap Indexer (Arcscan tail mode)...");
 
-  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
-    console.error("Missing KV_REST_API_URL or KV_REST_API_TOKEN in env");
+  if (!hasRedis && !hasUpstash) {
+    console.error(
+      "Missing REDIS_URL (recommended) or KV_REST_API_URL + KV_REST_API_TOKEN in env"
+    );
     process.exit(1);
   }
+  console.log(`KV mode: ${hasRedis ? "REDIS_URL" : "KV_REST"}`);
 
   console.log(
     `Connected RPCs: ${rpcEntries.map((r) => `${r.label}:${r.url}`).join(" | ")}`
