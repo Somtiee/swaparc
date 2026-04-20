@@ -1,4 +1,4 @@
-import { kv } from "@vercel/kv";
+import { kv } from "../../../lib/server/kv.js";
 
 const MEMORY = globalThis.__privpayPayrollMemory || (globalThis.__privpayPayrollMemory = {});
 

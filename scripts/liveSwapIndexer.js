@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { ethers } from "ethers";
-import { kv } from "@vercel/kv";
+import { kv } from "../lib/server/kv.js";
 
 const PRIMARY_RPC_URL =
   process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network";

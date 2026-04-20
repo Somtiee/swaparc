@@ -1,4 +1,4 @@
-import { kv } from "@vercel/kv";
+import { kv } from "../../lib/server/kv.js";
 // import { startIndexer } from "../indexers/swapIndexer.js";
 
 // if (!globalThis.__swapIndexerStarted) {
@@ -11,39 +11,42 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { userId } = req.query;
+  try {
+    const { userId } = req.query;
 
-  let key = `profile:${userId}`;
-  if (userId && userId.startsWith("0x")) {
-    const lower = userId.toLowerCase();
-    // Prefer wallet-based key
-    key = `profile:${lower}`;
-    // Fallback to mapped legacy ID if wallet profile missing
-    const mapped = await kv.get(`wallet:${lower}`);
-    const walletProfile = await kv.hgetall(key);
-    if (!walletProfile && mapped) {
-      key = `profile:${mapped}`;
+    let key = `profile:${userId}`;
+    if (userId && userId.startsWith("0x")) {
+      const lower = userId.toLowerCase();
+      // Prefer wallet-based key
+      key = `profile:${lower}`;
+      // Fallback to mapped legacy ID if wallet profile missing
+      const mapped = await kv.get(`wallet:${lower}`);
+      const walletProfile = await kv.hgetall(key);
+      if (!walletProfile && mapped) {
+        key = `profile:${mapped}`;
+      }
     }
-  }
 
-  const profile = await kv.hgetall(key);
-  console.log(`[API] Profile lookup for ${userId} (key: ${key}):`, profile ? "Found" : "Not Found");
+    const profile = await kv.hgetall(key);
 
-  if (profile && profile.badges && typeof profile.badges === 'string') {
-    try {
-      profile.badges = JSON.parse(profile.badges);
-    } catch (e) {}
-  }
+    if (profile && profile.badges && typeof profile.badges === 'string') {
+      try {
+        profile.badges = JSON.parse(profile.badges);
+      } catch (e) {}
+    }
 
-  if (!profile) {
+    if (!profile) {
+      return res.status(200).json({
+        success: false,
+        message: "Profile not found"
+      });
+    }
+
     return res.status(200).json({
-      success: false,
-      message: "Profile not found"
+      success: true,
+      profile
     });
+  } catch (error) {
+    return res.status(500).json({ error: "Internal Server Error" });
   }
-
-  return res.status(200).json({
-    success: true,
-    profile
-  });
 }

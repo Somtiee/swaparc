@@ -1,4 +1,4 @@
-import { kv } from "@vercel/kv";
+import { kv } from "../../lib/server/kv.js";
 import { ethers } from "ethers";
 import { getPrices } from "../../src/priceFetcher.js";
 

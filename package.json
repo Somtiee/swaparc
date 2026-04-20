@@ -7,12 +7,22 @@
     "node": ">=18"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k \"node server.js\" \"vite\"",
+    "dev:ui": "vite",
+    "dev:api": "node server.js",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "indexer": "node scripts/liveSwapIndexer.js",
-    "deploy:stealth": "node scripts/deployStealthPayments.mjs"
+    "deploy:stealth": "node scripts/deployStealthPayments.mjs",
+    "deploy:pool": "node scripts/deployPrivacyPool.mjs",
+    "deploy:recurring-automation": "node scripts/deployRecurringAutomation.mjs",
+    "privpay:deployer-address": "node scripts/printDeployerAddress.mjs",
+    "bootstrap:privpay-env": "node scripts/bootstrapPrivpayEnv.mjs",
+    "privpay:zk-artifacts": "node scripts/setupPrivpayZkArtifacts.mjs",
+    "migrate:kv-redis": "node scripts/migrateRedisToRedis.mjs",
+    "circuit:privpay:compile": "node scripts/compilePrivpayCircuit.mjs",
+    "circuit:privpay:prove": "node scripts/privpayProveCli.mjs"
   },
   "dependencies": {
     "@circle-fin/developer-controlled-wallets": "^10.1.0",
@@ -21,11 +31,14 @@
     "@vercel/kv": "^1.0.1",
     "@walletconnect/ethereum-provider": "^2.23.1",
     "@walletconnect/modal": "^2.7.0",
+    "circomlibjs": "^0.1.7",
     "dotenv": "^16.4.5",
     "ethers": "^6.15.0",
     "express": "^5.2.1",
+    "ioredis": "^5.10.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "snarkjs": "^0.7.6",
     "solc": "^0.8.34"
   },
   "devDependencies": {
@@ -35,6 +48,8 @@
     "@vitejs/plugin-basic-ssl": "^2.1.4",
     "@vitejs/plugin-react": "^5.1.0",
     "buffer": "^6.0.3",
+    "circomlib": "^2.0.5",
+    "concurrently": "^9.2.1",
     "crypto-browserify": "^3.12.0",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",

@@ -1,19 +1,22 @@
 import "dotenv/config";
 import { ethers } from "ethers";
-import { createClient } from "@vercel/kv";
+import { createClient } from "../lib/server/kv.js";
 import fs from "fs";
 import path from "path";
 
-// 1. Setup KV Connection
-if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
-  console.error("Missing KV_REST_API_URL or KV_REST_API_TOKEN in .env");
+const ru = String(process.env.REDIS_URL || "").trim();
+const hasRedis = ru.startsWith("redis://") || ru.startsWith("rediss://");
+const hasUpstash =
+  String(process.env.KV_REST_API_URL || "").trim() &&
+  String(process.env.KV_REST_API_TOKEN || "").trim();
+if (!hasRedis && !hasUpstash) {
+  console.error(
+    "Missing REDIS_URL (recommended) or KV_REST_API_URL + KV_REST_API_TOKEN in .env"
+  );
   process.exit(1);
 }
 
-const kv = createClient({
-  url: process.env.KV_REST_API_URL,
-  token: process.env.KV_REST_API_TOKEN,
-});
+const kv = createClient();
 
 const SWAP_POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
 const USDC_ADDRESS = "0x3600000000000000000000000000000000000000".toLowerCase();

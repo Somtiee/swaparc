@@ -1,15 +1,19 @@
 import "dotenv/config";
-import { createClient } from "@vercel/kv";
+import { createClient } from "../lib/server/kv.js";
 
-if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
-  console.error("Missing KV_REST_API_URL or KV_REST_API_TOKEN in .env");
+const ru = String(process.env.REDIS_URL || "").trim();
+const hasRedis = ru.startsWith("redis://") || ru.startsWith("rediss://");
+const hasUpstash =
+  String(process.env.KV_REST_API_URL || "").trim() &&
+  String(process.env.KV_REST_API_TOKEN || "").trim();
+if (!hasRedis && !hasUpstash) {
+  console.error(
+    "Missing REDIS_URL (recommended) or KV_REST_API_URL + KV_REST_API_TOKEN in .env"
+  );
   process.exit(1);
 }
 
-const kv = createClient({
-  url: process.env.KV_REST_API_URL.trim(),
-  token: process.env.KV_REST_API_TOKEN.trim(),
-});
+const kv = createClient();
 
 async function main() {
   console.log("Starting Early Swaparcer check...");

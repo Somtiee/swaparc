@@ -1,5 +1,4 @@
-import { kv } from "@vercel/kv";
-import { deriveStealthPayment } from "../../src/utils/stealthAddress.js";
+import { kv } from "../../../lib/server/kv.js";
 
 const MEMORY = {
   schedules: new Map(),
@@ -42,6 +41,49 @@ function addMonthsSafe(date, months) {
   return out;
 }
 
+function advanceExecutionDateOnce({
+  frequency,
+  customIntervalSeconds,
+  fromDate,
+}) {
+  const f = String(frequency || "").toLowerCase();
+  if (!SUPPORTED_FREQUENCIES.has(f)) {
+    throw new Error(`Unsupported frequency: ${frequency}`);
+  }
+  const cursor = new Date(fromDate);
+  if (!Number.isFinite(cursor.getTime())) {
+    throw new Error("Invalid execution date cursor");
+  }
+  switch (f) {
+    case "daily":
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+      break;
+    case "weekly":
+      cursor.setUTCDate(cursor.getUTCDate() + 7);
+      break;
+    case "bi-weekly":
+      cursor.setUTCDate(cursor.getUTCDate() + 14);
+      break;
+    case "monthly":
+      return addMonthsSafe(cursor, 1).toISOString();
+    case "quarterly":
+      return addMonthsSafe(cursor, 3).toISOString();
+    case "yearly":
+      return addMonthsSafe(cursor, 12).toISOString();
+    case "custom": {
+      const secs = Number(customIntervalSeconds || 0);
+      if (!Number.isFinite(secs) || secs <= 0) {
+        throw new Error("customIntervalSeconds must be > 0 for custom frequency");
+      }
+      cursor.setUTCSeconds(cursor.getUTCSeconds() + secs);
+      break;
+    }
+    default:
+      throw new Error(`Unsupported frequency: ${f}`);
+  }
+  return cursor.toISOString();
+}
+
 export function computeNextExecutionDate({
   frequency,
   customIntervalSeconds,
@@ -49,51 +91,21 @@ export function computeNextExecutionDate({
   startAt,
   now = new Date(),
 }) {
-  const f = String(frequency || "").toLowerCase();
-  if (!SUPPORTED_FREQUENCIES.has(f)) {
-    throw new Error(`Unsupported frequency: ${frequency}`);
-  }
-
   const baseline = parseDate(lastExecutionAt, parseDate(startAt, now));
-  const cursor = new Date(baseline);
+  if (!baseline || !Number.isFinite(baseline.getTime())) {
+    throw new Error("Invalid baseline date for recurring execution");
+  }
   const nowDate = new Date(now);
 
-  const advance = () => {
-    switch (f) {
-      case "daily":
-        cursor.setUTCDate(cursor.getUTCDate() + 1);
-        break;
-      case "weekly":
-        cursor.setUTCDate(cursor.getUTCDate() + 7);
-        break;
-      case "bi-weekly":
-        cursor.setUTCDate(cursor.getUTCDate() + 14);
-        break;
-      case "monthly":
-        return addMonthsSafe(cursor, 1);
-      case "quarterly":
-        return addMonthsSafe(cursor, 3);
-      case "yearly":
-        return addMonthsSafe(cursor, 12);
-      case "custom": {
-        const secs = Number(customIntervalSeconds || 0);
-        if (!Number.isFinite(secs) || secs <= 0) {
-          throw new Error("customIntervalSeconds must be > 0 for custom frequency");
-        }
-        cursor.setUTCSeconds(cursor.getUTCSeconds() + secs);
-        break;
-      }
-      default:
-        throw new Error(`Unsupported frequency: ${f}`);
-    }
-    return cursor;
-  };
-
-  let next = new Date(cursor);
-  while (next.getTime() <= nowDate.getTime()) {
-    next = new Date(advance());
+  let next = new Date(baseline).toISOString();
+  while (new Date(next).getTime() <= nowDate.getTime()) {
+    next = advanceExecutionDateOnce({
+      frequency,
+      customIntervalSeconds,
+      fromDate: next,
+    });
   }
-  return next.toISOString();
+  return next;
 }
 
 async function kvSafe(fn, fallbackValue) {
@@ -187,8 +199,6 @@ async function releaseScheduleLock(lock) {
 function validateScheduleInput(input) {
   const required = [
     "payerAddress",
-    "receiverSpendPublicKey",
-    "receiverViewPublicKey",
     "amount",
     "tokenAddress",
     "frequency",
@@ -218,6 +228,16 @@ function validateScheduleInput(input) {
   if (input.startAt && !isValidDate(input.startAt)) {
     throw new Error("startAt must be a valid ISO date");
   }
+
+  const recipientWallet = String(input.recipientWallet || "").trim();
+  const spendKey = String(input.receiverSpendPublicKey || "").trim();
+  const viewKey = String(input.receiverViewPublicKey || "").trim();
+  const hasStealthKeys = !!(spendKey && viewKey);
+  if (!recipientWallet && !hasStealthKeys) {
+    throw new Error(
+      "Missing required recipient details: provide recipientWallet (ZK pool route) or receiverSpendPublicKey + receiverViewPublicKey (stealth route)."
+    );
+  }
 }
 
 function buildRetryDate(now, attempts, backoffSeconds) {
@@ -232,9 +252,14 @@ export class RecurringPaymentEngine {
   constructor({
     executionHandler,
     maxBatchSize = 50,
+    maxCatchupPerRun = Number(process.env.RECURRING_MAX_CATCHUP_PER_RUN || 3),
   } = {}) {
     this.executionHandler = executionHandler || this.defaultExecutionHandler.bind(this);
     this.maxBatchSize = maxBatchSize;
+    this.maxCatchupPerRun = Math.max(
+      1,
+      Math.min(20, Number.isFinite(Number(maxCatchupPerRun)) ? Number(maxCatchupPerRun) : 3)
+    );
   }
 
   async createSchedule(input) {
@@ -249,6 +274,9 @@ export class RecurringPaymentEngine {
       payerAddress: input.payerAddress,
       receiverSpendPublicKey: input.receiverSpendPublicKey,
       receiverViewPublicKey: input.receiverViewPublicKey,
+      recipientWallet: input.recipientWallet
+        ? String(input.recipientWallet).trim()
+        : "",
       amount: Number(input.amount),
       tokenAddress: input.tokenAddress,
       frequency,
@@ -276,25 +304,30 @@ export class RecurringPaymentEngine {
     return await getAllSchedules();
   }
 
+  async getScheduleById(id) {
+    return await getSchedule(id);
+  }
+
   async listPaymentLogs(limit = 100) {
     return await listPaymentLogs(limit);
   }
 
-  async defaultExecutionHandler(schedule) {
-    // Stealth generation is deterministic per execution and creates a one-time address.
-    const stealth = deriveStealthPayment({
-      receiverSpendPublicKey: schedule.receiverSpendPublicKey,
-      receiverViewPublicKey: schedule.receiverViewPublicKey,
-    });
-
-    return {
-      paymentId: `pay_${crypto.randomUUID()}`,
-      stealthAddress: stealth.stealthAddress,
-      ephemeralPublicKey: stealth.ephemeralPublicKey,
-      viewTag: stealth.viewTag,
-      status: "submitted",
-      txHash: null, // integrators can fill this with on-chain tx hash
+  async cancelSchedule(scheduleId) {
+    const current = await getSchedule(scheduleId);
+    if (!current) return null;
+    const updated = {
+      ...current,
+      status: "cancelled",
+      updatedAt: new Date().toISOString(),
     };
+    await putSchedule(updated);
+    return updated;
+  }
+
+  async defaultExecutionHandler(schedule) {
+    throw new Error(
+      `Recurring execution is not wired for on-chain payments (schedule ${schedule?.id || "unknown"}).`
+    );
   }
 
   async executeSchedule(scheduleId, now = new Date()) {
@@ -315,57 +348,80 @@ export class RecurringPaymentEngine {
         return { skipped: true, reason: "not-due", scheduleId };
       }
 
+      let working = schedule;
+      const logs = [];
       try {
-        const result = await this.executionHandler(schedule);
-        const executedAt = now.toISOString();
-        const nextExecutionAt = computeNextExecutionDate({
-          frequency: schedule.frequency,
-          customIntervalSeconds: schedule.customIntervalSeconds,
-          lastExecutionAt: executedAt,
-          startAt: schedule.startAt,
-          now,
-        });
+        let catchupLimited = false;
 
-        const updated = {
-          ...schedule,
-          retryCount: 0,
-          lastExecutionAt: executedAt,
-          lastFailureAt: null,
-          failureReason: null,
-          nextExecutionAt,
-          updatedAt: executedAt,
-        };
-        await putSchedule(updated);
+        for (let idx = 0; idx < this.maxCatchupPerRun; idx += 1) {
+          const dueAt = new Date(working.nextExecutionAt);
+          if (!Number.isFinite(dueAt.getTime()) || dueAt.getTime() > now.getTime()) {
+            break;
+          }
+          const result = await this.executionHandler(working);
+          const executedAt = new Date().toISOString();
+          const nextExecutionAt = advanceExecutionDateOnce({
+            frequency: working.frequency,
+            customIntervalSeconds: working.customIntervalSeconds,
+            fromDate: working.nextExecutionAt,
+          });
+          const updated = {
+            ...working,
+            retryCount: 0,
+            lastExecutionAt: executedAt,
+            lastFailureAt: null,
+            failureReason: null,
+            nextExecutionAt,
+            updatedAt: executedAt,
+          };
+          await putSchedule(updated);
 
-        const logEntry = {
-          id: `log_${crypto.randomUUID()}`,
-          scheduleId: schedule.id,
-          payerAddress: schedule.payerAddress,
-          tokenAddress: schedule.tokenAddress,
-          amount: schedule.amount,
-          status: "success",
-          executedAt,
-          result,
+          const logEntry = {
+            id: `log_${crypto.randomUUID()}`,
+            scheduleId: updated.id,
+            payerAddress: updated.payerAddress,
+            tokenAddress: updated.tokenAddress,
+            amount: updated.amount,
+            status: "success",
+            executedAt,
+            scheduledFor: dueAt.toISOString(),
+            result,
+          };
+          await appendPaymentLog(logEntry);
+          logs.push(logEntry);
+          working = updated;
+        }
+
+        catchupLimited =
+          logs.length >= this.maxCatchupPerRun &&
+          new Date(working.nextExecutionAt).getTime() <= now.getTime();
+        if (!logs.length) {
+          return { skipped: true, reason: "not-due", scheduleId };
+        }
+        return {
+          schedule: working,
+          log: logs[logs.length - 1],
+          logs,
+          catchupExecutions: logs.length,
+          catchupLimited,
         };
-        await appendPaymentLog(logEntry);
-        return { schedule: updated, log: logEntry };
       } catch (err) {
-        const retryCount = Number(schedule.retryCount || 0) + 1;
-        const maxRetries = Number(schedule.maxRetries || 5);
+        const retryCount = Number(working.retryCount || 0) + 1;
+        const maxRetries = Number(working.maxRetries || 5);
         const hardFailed = retryCount > maxRetries;
         const nowIso = now.toISOString();
         const updated = {
-          ...schedule,
+          ...working,
           retryCount,
           lastFailureAt: nowIso,
           failureReason: err?.message || String(err),
           status: hardFailed ? "failed" : "active",
           nextExecutionAt: hardFailed
-            ? schedule.nextExecutionAt
+            ? working.nextExecutionAt
             : buildRetryDate(
                 now,
                 retryCount,
-                Number(schedule.retryBackoffSeconds || 60)
+                Number(working.retryBackoffSeconds || 60)
               ),
           updatedAt: nowIso,
         };
@@ -373,17 +429,23 @@ export class RecurringPaymentEngine {
 
         const logEntry = {
           id: `log_${crypto.randomUUID()}`,
-          scheduleId: schedule.id,
-          payerAddress: schedule.payerAddress,
-          tokenAddress: schedule.tokenAddress,
-          amount: schedule.amount,
+          scheduleId: working.id,
+          payerAddress: working.payerAddress,
+          tokenAddress: working.tokenAddress,
+          amount: working.amount,
           status: hardFailed ? "failed" : "retry",
           executedAt: nowIso,
           error: updated.failureReason,
           retryCount,
+          catchupExecutions: logs.length,
         };
         await appendPaymentLog(logEntry);
-        return { schedule: updated, log: logEntry };
+        return {
+          schedule: updated,
+          log: logEntry,
+          logs: logs.length ? [...logs, logEntry] : [logEntry],
+          catchupExecutions: logs.length,
+        };
       }
     } finally {
       await releaseScheduleLock(lock);
@@ -404,6 +466,7 @@ export class RecurringPaymentEngine {
     const summary = {
       checked: all.length,
       due: due.length,
+      executed: 0,
       success: 0,
       retry: 0,
       failed: 0,
@@ -424,12 +487,15 @@ export class RecurringPaymentEngine {
         summary.details.push(v);
       } else if (v?.log?.status === "success") {
         summary.success += 1;
+        summary.executed += Number(v?.catchupExecutions || 1);
         summary.details.push(v);
       } else if (v?.log?.status === "retry") {
         summary.retry += 1;
+        summary.executed += Number(v?.catchupExecutions || 0);
         summary.details.push(v);
       } else if (v?.log?.status === "failed") {
         summary.failed += 1;
+        summary.executed += Number(v?.catchupExecutions || 0);
         summary.details.push(v);
       } else {
         summary.details.push(v);
