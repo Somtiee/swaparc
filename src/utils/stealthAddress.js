@@ -24,6 +24,21 @@ function hashToScalar(inputBytes) {
   return scalar;
 }
 
+function secureRandomScalarBytes() {
+  // Prefer platform CSPRNG directly; fallback to noble helper.
+  const webCrypto = globalThis?.crypto;
+  if (webCrypto && typeof webCrypto.getRandomValues === "function") {
+    // Rejection sample to fit secp256k1 scalar range (1..n-1)
+    for (let i = 0; i < 64; i += 1) {
+      const bytes = new Uint8Array(32);
+      webCrypto.getRandomValues(bytes);
+      const n = bytesToBigInt(bytes);
+      if (n > 0n && n < CURVE_N) return bytes;
+    }
+  }
+  return secpUtils.randomPrivateKey();
+}
+
 function normalizePublicKey(pubKeyHex) {
   const raw = ethers.getBytes(pubKeyHex);
   if (raw.length !== 33 && raw.length !== 65) {
@@ -32,10 +47,16 @@ function normalizePublicKey(pubKeyHex) {
   return ethers.hexlify(raw);
 }
 
+// noble/secp256k1 v3 Point.fromHex only accepts bare hex strings (no 0x, no Uint8Array)
+function toPointHex(input) {
+  if (typeof input === "string") return input.replace(/^0x/i, "");
+  return ethers.hexlify(input).slice(2);
+}
+
 function pubKeyToAddress(pubKeyBytesUncompressed) {
   const full = ethers.getBytes(pubKeyBytesUncompressed);
   const uncompressed =
-    full.length === 65 ? full : Point.fromHex(full).toRawBytes(false);
+    full.length === 65 ? full : Point.fromHex(toPointHex(full)).toBytes(false);
   const hash = ethers.keccak256(uncompressed.slice(1));
   return ethers.getAddress(`0x${hash.slice(-40)}`);
 }
@@ -44,8 +65,8 @@ function pubKeyToAddress(pubKeyBytesUncompressed) {
  * Generate receiver key material (store private keys securely).
  */
 export function generateStealthReceiverKeys() {
-  const spendPrivateKey = ethers.hexlify(secpUtils.randomPrivateKey());
-  const viewPrivateKey = ethers.hexlify(secpUtils.randomPrivateKey());
+  const spendPrivateKey = ethers.hexlify(secureRandomScalarBytes());
+  const viewPrivateKey = ethers.hexlify(secureRandomScalarBytes());
 
   const spendPublicKey = ethers.hexlify(getPublicKey(ethers.getBytes(spendPrivateKey), true));
   const viewPublicKey = ethers.hexlify(getPublicKey(ethers.getBytes(viewPrivateKey), true));
@@ -75,21 +96,21 @@ export function deriveStealthPayment({
   const ephPriv =
     ephemeralPrivateKey != null
       ? ethers.getBytes(ephemeralPrivateKey)
-      : secpUtils.randomPrivateKey();
+      : secureRandomScalarBytes();
   const ephPrivBigInt = bytesToBigInt(ephPriv);
 
   // R = rG (ephemeral public key)
   const ephemeralPublicKey = ethers.hexlify(getPublicKey(ephPriv, true));
 
   // S = r * V (V = receiver view public key)
-  const sharedPoint = Point.fromHex(viewPub).multiply(ephPrivBigInt);
-  const sharedScalar = hashToScalar(sharedPoint.toRawBytes(true));
+  const sharedPoint = Point.fromHex(toPointHex(viewPub)).multiply(ephPrivBigInt);
+  const sharedScalar = hashToScalar(sharedPoint.toBytes(true));
 
   // P_stealth = P_spend + H(S)*G
-  const stealthPoint = Point.fromHex(spendPub).add(Point.BASE.multiply(sharedScalar));
-  const stealthPublicKeyCompressed = ethers.hexlify(stealthPoint.toRawBytes(true));
-  const stealthPublicKeyUncompressed = ethers.hexlify(stealthPoint.toRawBytes(false));
-  const stealthAddress = pubKeyToAddress(stealthPoint.toRawBytes(false));
+  const stealthPoint = Point.fromHex(toPointHex(spendPub)).add(Point.BASE.multiply(sharedScalar));
+  const stealthPublicKeyCompressed = ethers.hexlify(stealthPoint.toBytes(true));
+  const stealthPublicKeyUncompressed = ethers.hexlify(stealthPoint.toBytes(false));
+  const stealthAddress = pubKeyToAddress(stealthPoint.toBytes(false));
 
   // Optional 1-byte hint to accelerate scanning
   const viewTag = ethers.hexlify(bigIntTo32Bytes(sharedScalar).slice(0, 1));
@@ -122,16 +143,16 @@ export function scanStealthAnnouncement({
   const ephPub = normalizePublicKey(ephemeralPublicKey);
   const viewPriv = bytesToBigInt(ethers.getBytes(receiverViewPrivateKey));
 
-  const sharedPoint = Point.fromHex(ephPub).multiply(viewPriv);
-  const sharedScalar = hashToScalar(sharedPoint.toRawBytes(true));
+  const sharedPoint = Point.fromHex(toPointHex(ephPub)).multiply(viewPriv);
+  const sharedScalar = hashToScalar(sharedPoint.toBytes(true));
   const localViewTag = ethers.hexlify(bigIntTo32Bytes(sharedScalar).slice(0, 1));
 
   if (announcedViewTag && localViewTag.toLowerCase() !== announcedViewTag.toLowerCase()) {
     return { match: false, reason: "view-tag-mismatch" };
   }
 
-  const stealthPoint = Point.fromHex(spendPub).add(Point.BASE.multiply(sharedScalar));
-  const localStealthAddress = pubKeyToAddress(stealthPoint.toRawBytes(false));
+  const stealthPoint = Point.fromHex(toPointHex(spendPub)).add(Point.BASE.multiply(sharedScalar));
+  const localStealthAddress = pubKeyToAddress(stealthPoint.toBytes(false));
   const match =
     localStealthAddress.toLowerCase() === String(announcedStealthAddress).toLowerCase();
 
@@ -140,7 +161,7 @@ export function scanStealthAnnouncement({
     localStealthAddress,
     localViewTag,
     sharedSecretScalar: `0x${sharedScalar.toString(16)}`,
-    stealthPublicKeyCompressed: ethers.hexlify(stealthPoint.toRawBytes(true)),
+    stealthPublicKeyCompressed: ethers.hexlify(stealthPoint.toBytes(true)),
   };
 }
 
@@ -157,15 +178,15 @@ export function deriveStealthPrivateKey({
   const viewPriv = bytesToBigInt(ethers.getBytes(receiverViewPrivateKey));
   const ephPub = normalizePublicKey(ephemeralPublicKey);
 
-  const sharedPoint = Point.fromHex(ephPub).multiply(viewPriv);
-  const sharedScalar = hashToScalar(sharedPoint.toRawBytes(true));
+  const sharedPoint = Point.fromHex(toPointHex(ephPub)).multiply(viewPriv);
+  const sharedScalar = hashToScalar(sharedPoint.toBytes(true));
 
   const stealthPriv = (spendPriv + sharedScalar) % CURVE_N;
   if (stealthPriv === 0n) throw new Error("Derived invalid stealth private key");
 
   const stealthPrivateKey = ethers.hexlify(bigIntTo32Bytes(stealthPriv));
   const stealthPublicKey = ethers.hexlify(getPublicKey(ethers.getBytes(stealthPrivateKey), true));
-  const stealthAddress = pubKeyToAddress(Point.fromHex(stealthPublicKey).toRawBytes(false));
+  const stealthAddress = pubKeyToAddress(Point.fromHex(toPointHex(stealthPublicKey)).toBytes(false));
 
   return {
     stealthPrivateKey,

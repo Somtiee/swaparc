@@ -1,3 +1,10 @@
+import {
+  assertNotExpired,
+  assertReplayProtected,
+  requestDigestHex,
+  secureRandomHex,
+} from "../../security/hardening.js";
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -18,6 +25,9 @@ export default async function handler(req, res) {
       contractAddress,
       abiFunctionSignature,
       abiParameters,
+      callData,
+      requestTimestampMs,
+      requestNonce,
     } = req.body || {};
 
     // ---- FORENSIC LOG: Incoming payload ----
@@ -26,29 +36,57 @@ export default async function handler(req, res) {
       contractAddress,
       abiFunctionSignature,
       abiParameters: JSON.stringify(abiParameters),
+      hasCallData: typeof callData === "string" && callData.startsWith("0x"),
       isNestedArray: Array.isArray(abiParameters) && abiParameters.some(Array.isArray),
       receivedKeys,
     });
 
-    // Validate required fields (abiParameters can be an empty array for no-arg functions)
-    if (!userToken || !walletId || !contractAddress || !abiFunctionSignature || !Array.isArray(abiParameters)) {
+    const hasAbi = !!abiFunctionSignature && Array.isArray(abiParameters);
+    const hasCallData = typeof callData === "string" && /^0x[0-9a-fA-F]*$/.test(callData);
+    if (!userToken || !walletId || !contractAddress || (!hasAbi && !hasCallData) || (hasAbi && hasCallData)) {
       console.error("[CircleTx] Validation failed:", {
         hasUserToken: !!userToken,
         hasWalletId: !!walletId,
         hasContractAddress: !!contractAddress,
         hasAbiFunctionSignature: !!abiFunctionSignature,
         abiParametersIsArray: Array.isArray(abiParameters),
+        hasCallData,
       });
       return res.status(400).json({
         error: "Missing required parameters",
         code: 400,
-        details: "userToken, walletId, contractAddress, abiFunctionSignature, abiParameters (array) are required",
+        details:
+          "userToken, walletId, contractAddress, and either (abiFunctionSignature + abiParameters[]) or callData are required",
         payloadKeys: receivedKeys,
       });
     }
 
     const baseUrl = process.env.CIRCLE_BASE_URL || "https://api.circle.com";
-    const requestId = req.headers["x-request-id"] || crypto.randomUUID();
+    const requestId =
+      String(req.headers["x-request-id"] || "").trim() ||
+      secureRandomHex(16).replace(/^0x/, "");
+
+    // Replay + expiration checks to prevent duplicate signed execution requests.
+    const nonce = String(requestNonce || secureRandomHex(12));
+    const ts = Number(requestTimestampMs || Date.now());
+    assertNotExpired({
+      requestTimestampMs: ts,
+      maxAgeMs: 2 * 60 * 1000,
+    });
+    const digest = requestDigestHex({
+      walletId,
+      contractAddress: String(contractAddress).toLowerCase(),
+      abiFunctionSignature: hasAbi ? abiFunctionSignature : "callData",
+      abiParameters: hasAbi ? abiParameters : [callData],
+      nonce,
+      ts,
+    });
+    await assertReplayProtected({
+      scope: "circle-contract-execution",
+      idempotencyKey: requestId,
+      digest,
+      ttlSeconds: 10 * 60,
+    });
 
     // ---- Build the exact body that Circle's User-Controlled contractExecution expects ----
     // Per Circle docs: feeLevel is a TOP-LEVEL string: "LOW" | "MEDIUM" | "HIGH"
@@ -57,10 +95,14 @@ export default async function handler(req, res) {
       idempotencyKey: requestId,
       walletId,
       contractAddress,
-      abiFunctionSignature,
-      abiParameters,
       feeLevel: "MEDIUM",
     };
+    if (hasAbi) {
+      body.abiFunctionSignature = abiFunctionSignature;
+      body.abiParameters = abiParameters;
+    } else {
+      body.callData = callData;
+    }
 
     // ---- FORENSIC LOG: Outbound body ----
     console.log("[CircleTx] FORENSIC OUTBOUND BODY:", JSON.stringify(body, null, 2));
@@ -93,8 +135,12 @@ export default async function handler(req, res) {
       });
     }
 
-    console.log("[CircleTx] Challenge created:", executeJson.data?.challengeId);
-    return res.status(200).json({ challengeId: executeJson.data?.challengeId });
+    const d = executeJson.data || {};
+    console.log("[CircleTx] Challenge created:", d.challengeId, "transactionId:", d.id || d.transactionId);
+    return res.status(200).json({
+      challengeId: d.challengeId,
+      transactionId: d.id || d.transactionId || null,
+    });
   } catch (err) {
     console.error("[CircleTx] Internal Error:", err);
     return res.status(500).json({

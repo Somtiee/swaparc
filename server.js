@@ -1,7 +1,7 @@
 import express from "express";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { config } from "dotenv";
 
 config();
@@ -12,7 +12,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = 3005;
 
-app.use(express.json());
+app.use(express.json({ limit: "4mb" }));
 
 // Log requests
 app.use((req, res, next) => {
@@ -35,7 +35,7 @@ async function registerRoutes(dir, basePath = "/api") {
       const routePath = `${basePath}/${routeName}`.replace("//", "/");
       
       try {
-        const module = await import(`file://${fullPath}`);
+        const module = await import(pathToFileURL(fullPath).href);
         if (module.default) {
           console.log(`   Mapped: ${routePath}`);
           app.all(routePath, async (req, res) => {

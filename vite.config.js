@@ -37,6 +37,8 @@ export default defineConfig({
       "stream-browserify",
       "buffer",
       "process",
+      "snarkjs",
+      "circomlibjs",
     ],
   },
 });

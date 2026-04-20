@@ -34,3 +34,12 @@ eslint-report.json
 lint_errors.txt
 count_output.txt
 backfill_logs_checkpoint.json
+
+# ZK / circom build artifacts (large)
+build/privpay/*.r1cs
+build/privpay/*.zkey
+build/privpay/*.ptau
+build/privpay/pot*_*.ptau
+build/privpay/**/*_final.ptau
+*.ptau
+tools/circom.exe

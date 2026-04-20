@@ -45,7 +45,7 @@ body {
 
 .app-container.hybrid-center {
   width: 100%;
-  max-width: 1150px;
+  max-width: 1320px;
   padding: 18px;
   animation: fadeIn 400ms ease both;
   position: relative;
@@ -422,6 +422,18 @@ body {
   max-width: 520px;
   width: 100%;
   margin: 0 auto;
+}
+
+.swapCardCentered.privpayWideCard {
+  width: min(94vw, 1240px);
+  max-width: 1240px;
+}
+
+@media (max-width: 1024px) {
+  .swapCardCentered.privpayWideCard {
+    width: 100%;
+    max-width: 100%;
+  }
 }
 
 .swapCardHeader {
@@ -1156,7 +1168,434 @@ body {
   color: #ffe7bc;
 }
 
-.arcpayPlaceholderCard {
+.privpayAccessCard {
+  border-radius: 14px;
+  border: 1px solid rgba(124, 197, 255, 0.22);
+  background: linear-gradient(180deg, rgba(16, 36, 64, 0.75), rgba(10, 24, 48, 0.75));
+  padding: 14px;
+  margin-bottom: 12px;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.privpayAccessCard.pro {
+  border-color: rgba(74, 214, 148, 0.42);
+  box-shadow: 0 8px 26px rgba(36, 173, 116, 0.16);
+}
+
+.privpayAccessTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.privpayAccessBottom {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.privpayStatusPill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.privpayStatusPill.pro {
+  color: #d8ffe9;
+  border: 1px solid rgba(96, 230, 168, 0.5);
+  background: rgba(35, 180, 116, 0.18);
+}
+
+.privpayStatusPill.locked {
+  color: #ffd7a0;
+  border: 1px solid rgba(255, 180, 80, 0.45);
+  background: rgba(255, 165, 0, 0.08);
+}
+
+.privpayUpgradeCard {
+  margin-top: 12px;
+  border: 1px solid rgba(124, 197, 255, 0.2);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(13, 30, 56, 0.55);
+  animation: fadeSlideUp 0.22s ease;
+}
+
+.privpayToolsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.privpayActionRow {
+  flex-wrap: wrap;
+}
+
+.privpaySwitch {
+  position: relative;
+  width: 52px;
+  height: 30px;
+  display: inline-flex;
+}
+
+.privpaySwitch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.privpaySwitch span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(255, 180, 80, 0.2);
+  border: 1px solid rgba(255, 180, 80, 0.5);
+  transition: all 180ms ease;
+}
+
+.privpaySwitch span::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ffd7a0;
+  transition: transform 180ms ease, background 180ms ease;
+}
+
+.privpaySwitch input:checked + span {
+  background: rgba(35, 180, 116, 0.24);
+  border-color: rgba(96, 230, 168, 0.6);
+}
+
+.privpaySwitch input:checked + span::after {
+  transform: translateX(22px);
+  background: #7dffc6;
+}
+
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* privpay module — exchange-grade layout */
+.privpayModule {
+  width: 100%;
+  max-width: 1220px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.privpayAccessHeadline {
+  min-width: 0;
+  flex: 1;
+}
+
+.privpayBrandMark {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: rgba(140, 180, 255, 0.95);
+  margin-bottom: 4px;
+}
+
+.privpayProHeading {
+  margin: 0 0 6px 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: #f0f4ff;
+}
+
+.privpayProSub {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  max-width: 36rem;
+}
+
+.privpayAccessCTA {
+  flex-direction: column;
+  align-items: stretch !important;
+  gap: 12px !important;
+  margin-top: 14px;
+}
+
+.privpayProHint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.privpayBtnPrimary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  padding: 11px 18px;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  color: #0b0e11;
+  background: linear-gradient(180deg, #fcd535 0%, #f0b90b 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.22) inset;
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+
+.privpayBtnPrimary:hover:not(:disabled) {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
+.privpayBtnPrimary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.privpayBtnPrimaryWide {
+  width: 100%;
+}
+
+.privpayBtnSecondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 11px 14px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  color: #eaecef;
+  background: rgba(255, 255, 255, 0.04);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.privpayBtnSecondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.privpayBtnSecondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.privpayUpgradeLead {
+  margin: 0 0 14px 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(200, 215, 235, 0.92);
+}
+
+.privpayUpgradeError {
+  margin: 12px 0 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #f6465d;
+}
+
+.privpayUpgradeOk {
+  margin: 12px 0 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #0ecb81;
+}
+
+.privpayPanel {
+  border-radius: 16px !important;
+  padding: 20px !important;
+  background: linear-gradient(180deg, rgba(18, 22, 32, 0.92), rgba(11, 14, 20, 0.94)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.privpayPanelCompact {
+  padding: 16px 18px !important;
+}
+
+.privpayPanelTitle {
+  margin: 0 0 4px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #f0f4ff;
+}
+
+.privpayPanelDesc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  max-width: 40ch;
+}
+
+.privpaySectionTitle {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 14px !important;
+  color: #f0f4ff;
+}
+
+.privpayFormHeader {
+  margin-bottom: 18px;
+}
+
+.privpayFormTitle {
+  font-size: 1.25rem !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em;
+}
+
+.privpayFormSubtitle {
+  display: block;
+  margin-top: 6px;
+  max-width: 42ch;
+  line-height: 1.45;
+  font-size: 13px !important;
+}
+
+.privpayLabel {
+  font-size: 11px !important;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(148, 170, 200, 0.95) !important;
+}
+
+.privpayInput {
+  height: 44px !important;
+  border-radius: 8px !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background: rgba(0, 0, 0, 0.25) !important;
+}
+
+/* Payments Claim: keep monospace body readable on dark cards (overrides UA / theme on textarea). */
+textarea.privpayInput.poolClaimTextarea {
+  min-height: 4.5rem !important;
+  height: auto !important;
+  padding: 10px 12px !important;
+  color: #d8ecff !important;
+  caret-color: #9eefff !important;
+  background: rgba(0, 0, 0, 0.38) !important;
+  line-height: 1.45 !important;
+}
+
+.privpayRecoveryGrid {
+  margin-top: 8px;
+  gap: 14px !important;
+}
+
+.privpayDualActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.privpayFinePrint {
+  margin: 14px 0 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.privpaySegmentRow {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.privpaySegmentRowSub {
+  margin-bottom: 16px;
+}
+
+.privpaySegBtn {
+  flex: 1;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(200, 210, 225, 0.85);
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.privpaySegBtn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.privpaySegBtn.active {
+  color: #0b0e11;
+  background: linear-gradient(180deg, #fcd535 0%, #f0b90b 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset;
+}
+
+.privpaySegBtnSm {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .privpayDualActions {
+    grid-template-columns: 1fr;
+  }
+
+  .privpayModule {
+    max-width: 100%;
+  }
+
+  .privpayAccessTop {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}
+
+.privpayBtnGhost {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  color: #eaecef;
+  background: rgba(255, 255, 255, 0.04);
+  transition: background 0.15s ease, border-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.privpayBtnGhost:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.privpayPlaceholderCard {
   border-radius: 18px;
   border: 1px solid rgba(65, 163, 255, 0.32);
   box-shadow: 0 0 42px rgba(17, 89, 176, 0.28);
@@ -1168,7 +1607,7 @@ body {
   justify-content: center;
 }
 
-.arcpayPlaceholderInner {
+.privpayPlaceholderInner {
   width: min(760px, 100%);
   min-height: 230px;
   border: 1px solid rgba(31, 156, 255, 0.78);
@@ -1180,14 +1619,14 @@ body {
   gap: 8px;
 }
 
-.arcpayPlaceholderInner h2 {
+.privpayPlaceholderInner h2 {
   margin: 0;
   font-size: clamp(38px, 7vw, 50px);
   letter-spacing: 0.08em;
   color: #d5e6ff;
 }
 
-.arcpayPlaceholderInner p {
+.privpayPlaceholderInner p {
   margin: 0;
   font-size: clamp(18px, 3vw, 28px);
   letter-spacing: 0.22em;
@@ -1195,12 +1634,12 @@ body {
 }
 
 @media (max-width: 768px) {
-  .arcpayPlaceholderCard {
+  .privpayPlaceholderCard {
     min-height: 240px;
     padding: 14px;
   }
 
-  .arcpayPlaceholderInner {
+  .privpayPlaceholderInner {
     min-height: 190px;
   }
 }
@@ -1795,10 +2234,29 @@ body {
   gap: 14px;
 }
 
+.billsWorkspaceTop {
+  display: grid;
+  grid-template-columns: minmax(340px, 1fr) minmax(360px, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.billsHistoryCentered {
+  width: min(100%, 1120px);
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .billsCreateCard,
 .billsListCard,
 .billsHistoryCard {
   padding: 16px 16px;
+  border: 1px solid rgba(134, 176, 255, 0.14);
+  background: linear-gradient(
+    180deg,
+    rgba(10, 27, 57, 0.94) 0%,
+    rgba(7, 20, 45, 0.94) 100%
+  );
 }
 
 .billsTitleRow {
@@ -1847,6 +2305,41 @@ body {
   background: rgba(255, 255, 255, 0.03);
   color: #eef7ff;
   padding: 0 10px;
+  /* Native dropdown follows OS theme unless options are styled; keeps list readable on Windows/Chrome. */
+  color-scheme: dark;
+  background-color: rgba(15, 23, 41, 0.98);
+}
+
+select.billsInput option,
+.billsInput option {
+  background-color: #0f1729;
+  color: #eef7ff;
+}
+
+.billsInputDatetime {
+  color-scheme: dark;
+  /* Avoid zero intrinsic size quirks; helps native pickers anchor near the field. */
+  min-height: 40px;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.billsDatetimeBlock {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  z-index: 2;
+  transform: none;
+}
+
+.billsHint {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(200, 220, 255, 0.65);
 }
 
 .billsInput.mono {
@@ -1881,6 +2374,7 @@ body {
 
 .billsSectionTitle {
   margin: 0 0 10px 0;
+  letter-spacing: 0.2px;
 }
 
 .billsItems {
@@ -1892,8 +2386,8 @@ body {
 .billsItem {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  padding: 12px;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 14px;
 }
 
 .billsItemTop {
@@ -1919,6 +2413,15 @@ body {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.billsItemActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
 }
 
 .billsStealthAddr {
@@ -1936,6 +2439,12 @@ body {
 
 .payrollDashboardCard {
   padding: 16px 16px;
+  border: 1px solid rgba(134, 176, 255, 0.14);
+  background: linear-gradient(
+    180deg,
+    rgba(10, 27, 57, 0.94) 0%,
+    rgba(7, 20, 45, 0.94) 100%
+  );
 }
 
 .payrollKpiGrid {
@@ -1958,6 +2467,26 @@ body {
   font-size: 18px;
 }
 
+.payrollKpiAction {
+  appearance: none;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  color: inherit;
+  font: inherit;
+}
+
+.payrollKpiAction.active,
+.payrollKpiAction:hover {
+  border-color: rgba(110, 172, 255, 0.8);
+  box-shadow: 0 0 0 1px rgba(67, 132, 255, 0.35) inset;
+}
+
+.payrollKpiAction .muted,
+.payrollKpiAction strong {
+  color: #e8f3ff;
+}
+
 .payrollHeaderActions {
   margin-bottom: 12px;
   display: flex;
@@ -1966,22 +2495,259 @@ body {
   gap: 10px;
 }
 
+.payrollWorkspace {
+  display: grid;
+  grid-template-columns: minmax(340px, 1fr) minmax(420px, 1.2fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.payrollLeftPane,
+.payrollRightPane {
+  display: grid;
+  gap: 14px;
+}
+
 .historyItem {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 12px;
 }
 
 .historyLeft {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .historyRight {
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   text-align: right;
   font-size: 12px;
-  opacity: 0.8;
+  opacity: 0.9;
+}
+
+.historyRightTimestamp {
+  font-size: 12px;
+  line-height: 1.35;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.historyRightActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.payrollDashboardCard .privpayFormHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px 20px;
+}
+
+.payrollCompanyField {
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: min(100%, 360px);
+}
+
+.historyHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.historyHeaderActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.historyHeaderActions .billsPayBtn {
+  min-width: 142px;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.exportModeSelect {
+  min-width: 150px;
+  height: 36px;
+  font-size: 13px;
+}
+
+.historySelect {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #98b9dd;
+}
+
+.historySelect input {
+  accent-color: #2e6ef6;
+}
+
+.paginationBar {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding-top: 12px;
+}
+
+.paginationMeta {
+  color: #a5c8ea;
+  font-size: 12px;
+  letter-spacing: 0.15px;
+}
+
+.paginationBtn {
+  min-width: 86px;
+}
+
+.resolvedPill {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(89, 255, 166, 0.65);
+  background: rgba(41, 209, 122, 0.16);
+  color: #a8ffd4;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  box-shadow: 0 0 14px rgba(89, 255, 166, 0.35);
+  animation: resolvedBlink 1.25s ease-in-out infinite;
+}
+
+.claimedPill {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(87, 186, 255, 0.65);
+  background: rgba(61, 131, 255, 0.16);
+  color: #b8e3ff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  box-shadow: 0 0 14px rgba(87, 186, 255, 0.35);
+  animation: claimedBlink 1.25s ease-in-out infinite;
+}
+
+@keyframes resolvedBlink {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 12px rgba(89, 255, 166, 0.3);
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 22px rgba(89, 255, 166, 0.6);
+  }
+}
+
+@keyframes claimedBlink {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 12px rgba(87, 186, 255, 0.3);
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 22px rgba(120, 200, 255, 0.55);
+  }
+}
+
+.historyStatusLegend {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  line-height: 1.45;
+  color: #b8c9d9;
+}
+
+.historyLegendLine {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.historyLegendLine:first-child {
+  margin-top: 0;
+}
+
+.historyLegendSwatch {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  border-radius: 3px;
+}
+
+.historyLegendSwatchClaimed {
+  background: rgba(130, 200, 255, 0.5);
+  border: 1px solid rgba(150, 215, 255, 0.85);
+  box-shadow: 0 0 10px rgba(120, 200, 255, 0.45);
+  animation: historyLegendClaimedBlink 1.25s ease-in-out infinite;
+}
+
+.historyLegendSwatchResolved {
+  background: rgba(110, 230, 165, 0.5);
+  border: 1px solid rgba(130, 255, 190, 0.8);
+  box-shadow: 0 0 10px rgba(100, 220, 150, 0.45);
+  animation: historyLegendResolvedBlink 1.25s ease-in-out infinite;
+}
+
+@keyframes historyLegendClaimedBlink {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 8px rgba(120, 200, 255, 0.35);
+  }
+  50% {
+    opacity: 0.5;
+    box-shadow: 0 0 18px rgba(140, 210, 255, 0.65);
+  }
+}
+
+@keyframes historyLegendResolvedBlink {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 8px rgba(100, 220, 150, 0.35);
+  }
+  50% {
+    opacity: 0.5;
+    box-shadow: 0 0 18px rgba(120, 255, 180, 0.6);
+  }
 }
 
 .historyTime {
@@ -2008,6 +2774,164 @@ body {
 .historyToggleBtn.active {
   background: linear-gradient(90deg, #2e6ef6, #1b4fd8);
   color: white;
+}
+
+.privpayModuleSwitchRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.privpayPrimaryPills {
+  display: inline-flex;
+  gap: 10px;
+}
+
+.privpayModulePill {
+  padding: 8px 16px;
+  min-width: 120px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #d9ebff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.privpayModulePill.active {
+  background: linear-gradient(90deg, #2e6ef6, #1b4fd8);
+  border-color: rgba(110, 172, 255, 0.8);
+  color: #fff;
+}
+
+.privpayClaimPill {
+  min-width: 84px;
+  padding: 6px 12px;
+  font-size: 12px;
+  opacity: 0.92;
+}
+
+.receiptModal {
+  position: relative;
+  width: min(760px, 92vw);
+  border-radius: 18px;
+  border: 1px solid rgba(104, 189, 255, 0.35);
+  background: radial-gradient(1200px 400px at -10% -20%, rgba(38, 127, 255, 0.18), transparent 60%),
+    linear-gradient(180deg, rgba(7, 25, 53, 0.98), rgba(7, 18, 38, 0.98));
+  box-shadow: 0 0 0 1px rgba(112, 196, 255, 0.18), 0 18px 60px rgba(22, 96, 255, 0.35);
+  padding: 18px;
+}
+
+.receiptGlow {
+  position: absolute;
+  inset: -2px;
+  pointer-events: none;
+  border-radius: 18px;
+  background: linear-gradient(120deg, rgba(0, 240, 255, 0.25), rgba(56, 122, 255, 0.2), rgba(0, 240, 255, 0.25));
+  filter: blur(16px);
+  opacity: 0.5;
+}
+
+.receiptHeader {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.receiptTitle {
+  margin: 0;
+  font-size: 24px;
+  color: #e8f7ff;
+}
+
+.receiptSub {
+  margin: 4px 0 0;
+  color: #9cc8ea;
+  font-size: 13px;
+}
+
+.receiptAutoNote {
+  margin: 6px 0 0;
+  color: #a5ffde;
+  font-size: 12px;
+}
+
+.receiptPill {
+  border-radius: 999px;
+  border: 1px solid rgba(108, 219, 255, 0.45);
+  background: rgba(40, 167, 255, 0.18);
+  color: #c9f1ff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 12px;
+}
+
+.receiptGrid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.receiptField {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.receiptField span {
+  font-size: 12px;
+  color: #93b9db;
+}
+
+.receiptField strong {
+  color: #e9f7ff;
+  font-size: 14px;
+}
+
+.receiptField code {
+  color: #9eefff;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.receiptClaimWrap {
+  margin-top: 12px;
+  border: 1px solid rgba(108, 219, 255, 0.28);
+  background: rgba(15, 30, 60, 0.65);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.receiptClaimHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #a9d7ff;
+}
+
+.receiptClaimCode {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(4, 12, 27, 0.95);
+  color: #d8ecff;
+  padding: 10px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
 }
 
 .mineTx {
@@ -2068,15 +2992,85 @@ body {
     align-items: stretch;
   }
 
-  .billsCreateBtn,
-  .billsPayBtn {
+  .privpayAccessTop,
+  .privpayAccessBottom,
+  .privpayToolsHeader {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .billsCreateBtn {
     width: 100%;
+  }
+
+  /* PRIVPAY: full-width CTAs in stacked toolbars; keep Tx/Receipt side-by-side in history */
+  .billsItemActions .billsPayBtn,
+  .payrollHeaderActions .billsPayBtn {
+    width: 100%;
+  }
+
+  .billsWrap .historyRightActions .billsPayBtn,
+  .billsWrap .historyRightActions a.billsPayBtn {
+    width: auto;
+    flex: 1 1 calc(50% - 4px);
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .billsWrap .historyItem {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .billsWrap .historyRight {
+    align-items: stretch;
+    text-align: left;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    padding-top: 10px;
+    margin-top: 2px;
+  }
+
+  .billsWrap .historyRightTimestamp {
+    text-align: left;
+  }
+
+  .billsWrap .historyRightActions {
+    justify-content: stretch;
+  }
+
+  .swapCardCentered.privpayWideCard.card {
+    padding: 16px max(12px, env(safe-area-inset-right)) 16px max(12px, env(safe-area-inset-left));
+  }
+
+  .payrollDashboardCard .privpayFormHeader {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .payrollCompanyField {
+    max-width: none;
+    flex-basis: auto;
+  }
+
+  .exportModeSelect {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .historyStatusLegend {
+    font-size: 11px;
+    padding: 8px 10px;
   }
 
   .billsItemTop,
   .billsItemBottom {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .billsItemActions {
+    width: 100%;
+    margin-left: 0;
   }
 
   .payrollKpiGrid {
@@ -2088,8 +3082,116 @@ body {
     align-items: stretch;
   }
 
+  .payrollWorkspace {
+    grid-template-columns: 1fr;
+  }
+
+  .billsWorkspaceTop {
+    grid-template-columns: 1fr;
+  }
+
+  .privpayModuleSwitchRow {
+    flex-wrap: wrap;
+  }
+
+  .privpayPrimaryPills {
+    width: 100%;
+  }
+
+  .privpayModulePill {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .privpayClaimPill {
+    flex: 0 0 auto;
+    width: auto;
+  }
+
+  .historyHeaderRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .historyHeaderActions {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: stretch;
+    width: 100%;
+  }
+
+  .historyHeaderActions .billsPayBtn {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .paginationBar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .paginationBtn {
+    width: 100%;
+  }
+
   .desktopOnly {
     display: none;
+  }
+
+  .receiptGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .privpayModuleSwitchRow {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .privpayPrimaryPills {
+    display: flex;
+    width: 100%;
+  }
+
+  .privpayModulePill {
+    min-height: 44px;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  .privpayClaimPill {
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 14px;
+    font-size: 13px;
+    opacity: 1;
+  }
+
+  .payrollKpiGrid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .payrollKpiCard {
+    padding: 12px;
+  }
+
+  .payrollKpiCard strong {
+    font-size: 16px;
+  }
+
+  .billsCreateCard,
+  .billsListCard,
+  .billsHistoryCard,
+  .payrollDashboardCard {
+    padding: 12px 10px;
+  }
+
+  .historyLegendLine {
+    align-items: flex-start;
   }
 }
 
@@ -2253,7 +3355,7 @@ body {
 
 @media (min-width: 1400px) {
   .app-container.hybrid-center {
-    max-width: 1400px;
+    max-width: 1560px;
   }
 }
 
