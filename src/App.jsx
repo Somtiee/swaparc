@@ -5706,6 +5706,7 @@ export default function App() {
     nullifierHex,
     wasmUrl,
     zkeyUrl,
+    precomputedProofContext,
     statusPrefix = "Preparing Merkle proof inputs...",
   }) {
     const urls =
@@ -5741,6 +5742,7 @@ export default function App() {
       nullifierHex,
       wasmUrl,
       zkeyUrl,
+      precomputedProofContext,
     });
     const primaryParsed = parsePrivpayPublicSignals(primaryProof.publicSignals);
     if (await rootKnownOnAnyProvider(primaryParsed.root)) {
@@ -5767,6 +5769,7 @@ export default function App() {
         nullifierHex,
         wasmUrl,
         zkeyUrl,
+        precomputedProofContext,
       });
       const fallbackParsed = parsePrivpayPublicSignals(fallbackProof.publicSignals);
       if (await rootKnownOnAnyProvider(fallbackParsed.root)) {
@@ -5782,6 +5785,24 @@ export default function App() {
     throw new Error(
       "Claim could not be verified against current pool history. This usually means VITE_PRIVACY_POOL_FROM_BLOCK is too recent for this pool."
     );
+  }
+
+  async function fetchCanonicalClaimContext({
+    poolAddress,
+    commitment,
+    merkleHeight,
+  }) {
+    const q = new URLSearchParams({
+      poolAddress: String(poolAddress),
+      commitment: String(commitment),
+      merkleHeight: String(merkleHeight || PRIVPAY_CIRCUIT_LEVELS),
+    });
+    const res = await fetch(`/api/privpay/claim-context?${q.toString()}`);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body?.ok || !body?.context) {
+      throw new Error(body?.error || "Failed to load canonical claim context.");
+    }
+    return body.context;
   }
 
   async function claimPrivacyPoolZkFromNote(noteId) {
@@ -5875,6 +5896,19 @@ export default function App() {
     setPoolZkError("");
     setPoolClaimStatus("Claim/Proof in progress...");
     setPoolZkStatus("Generating ZK proof (30–90s typical in browser)…");
+    let precomputedProofContext = null;
+    try {
+      setPoolClaimStatus("Preparing canonical claim context...");
+      precomputedProofContext = await fetchCanonicalClaimContext({
+        poolAddress,
+        commitment,
+        merkleHeight: data.merkleHeight || PRIVPAY_CIRCUIT_LEVELS,
+      });
+      setPoolClaimStatus("Claim/Proof in progress...");
+    } catch (ctxErr) {
+      console.warn("[privpay-claim] canonical context unavailable, falling back to RPC scan", ctxErr);
+      setPoolClaimStatus("Claim/Proof in progress...");
+    }
     const primaryProof = await proveClaimWithRpcFallback({
       poolAddress,
       recipient,
@@ -5885,6 +5919,7 @@ export default function App() {
       nullifierHex: nullifier,
       wasmUrl: PRIVPAY_WASM_URL,
       zkeyUrl: PRIVPAY_ZKEY_URL,
+      precomputedProofContext,
       statusPrefix: "Claim/Proof in progress...",
     });
     const { fullProofBytes, publicSignals } = primaryProof;
@@ -5908,6 +5943,7 @@ export default function App() {
         nullifierHex: nullifier,
         wasmUrl: PRIVPAY_WASM_URL,
         zkeyUrl: PRIVPAY_ZKEY_URL,
+        precomputedProofContext,
         statusPrefix: "Claim/Proof in progress...",
       });
       setPoolClaimStatus("Retry proof ready. Submitting claim transaction...");

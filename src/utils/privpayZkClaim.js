@@ -62,6 +62,8 @@ async function proveWithSecretsCore({
 
   fromBlockOverride,
 
+  precomputedProofContext,
+
 }) {
 
   requireWasmZkey(wasmUrl, zkeyUrl);
@@ -70,67 +72,75 @@ async function proveWithSecretsCore({
 
 
 
-  const latestBlock = await provider.getBlockNumber();
-  const leaves = await fetchZkPoolLeavesFromRpc(
-    provider,
-    poolAddress,
-    latestBlock,
-    fromBlockOverride
-  );
+  let root;
+  let pathElements;
+  let pathIsRight;
+  let idx = -1;
 
-  const commitmentBytes = ethers.getBytes(ethers.zeroPadValue(commitment, 32));
-
-  const idx = findLeafIndex(leaves, commitmentBytes);
-
-  if (idx < 0) {
-    // ARC log scans are chunked in 9,999-block windows with a soft cap of 400 chunks.
-    // If the configured deploy block is too recent, retry with the widest safe history
-    // window before giving up so older deposits can still be claimed.
-    const fallbackWindowBlocks = 9999 * 400;
-    const fallbackFrom = Math.max(0, Number(latestBlock) - fallbackWindowBlocks);
-    const leavesRetry = await fetchZkPoolLeavesFromRpc(
+  if (precomputedProofContext) {
+    root = ethers.getBytes(ethers.zeroPadValue(precomputedProofContext.root, 32));
+    pathElements = (precomputedProofContext.pathElements || []).map((p) =>
+      ethers.getBytes(ethers.zeroPadValue(p, 32))
+    );
+    pathIsRight = (precomputedProofContext.pathIsRight || []).map((b) => Boolean(b));
+    idx = Number(precomputedProofContext.leafIndex ?? -1);
+    if (!Number.isFinite(idx) || idx < 0) {
+      throw new Error("Invalid precomputed claim context: missing leafIndex.");
+    }
+    if (pathElements.length !== height || pathIsRight.length !== height) {
+      throw new Error("Invalid precomputed claim context: malformed Merkle path.");
+    }
+  } else {
+    const latestBlock = await provider.getBlockNumber();
+    const leaves = await fetchZkPoolLeavesFromRpc(
       provider,
       poolAddress,
       latestBlock,
-      fallbackFrom
+      fromBlockOverride
     );
-    const idxRetry = findLeafIndex(leavesRetry, commitmentBytes);
-    if (idxRetry < 0) {
-      throw new Error(
-        "Commitment not found in pool deposit history. Check that the claim code matches the correct pool and ARC network, and lower VITE_PRIVACY_POOL_FROM_BLOCK if this deposit is older than your current scan window."
+
+    const commitmentBytes = ethers.getBytes(ethers.zeroPadValue(commitment, 32));
+
+    idx = findLeafIndex(leaves, commitmentBytes);
+
+    if (idx < 0) {
+      // ARC log scans are chunked in 9,999-block windows with a soft cap of 400 chunks.
+      // If the configured deploy block is too recent, retry with the widest safe history
+      // window before giving up so older deposits can still be claimed.
+      const fallbackWindowBlocks = 9999 * 400;
+      const fallbackFrom = Math.max(0, Number(latestBlock) - fallbackWindowBlocks);
+      const leavesRetry = await fetchZkPoolLeavesFromRpc(
+        provider,
+        poolAddress,
+        latestBlock,
+        fallbackFrom
       );
+      const idxRetry = findLeafIndex(leavesRetry, commitmentBytes);
+      if (idxRetry < 0) {
+        throw new Error(
+          "Commitment not found in pool deposit history. Check that the claim code matches the correct pool and ARC network, and lower VITE_PRIVACY_POOL_FROM_BLOCK if this deposit is older than your current scan window."
+        );
+      }
+      const mirrorRetry = await PrivacyPoolPoseidonMerkleMirror.create(height);
+      for (const lb of leavesRetry) {
+        await mirrorRetry.insert(lb);
+      }
+      const p = await mirrorRetry.getMerkleProof(idxRetry, leavesRetry.length);
+      root = p.root;
+      pathElements = p.pathElements;
+      pathIsRight = p.pathIsRight;
+      idx = idxRetry;
+    } else {
+      const mirror = await PrivacyPoolPoseidonMerkleMirror.create(height);
+      for (const lb of leaves) {
+        await mirror.insert(lb);
+      }
+      const p = await mirror.getMerkleProof(idx, leaves.length);
+      root = p.root;
+      pathElements = p.pathElements;
+      pathIsRight = p.pathIsRight;
     }
-    const mirrorRetry = await PrivacyPoolPoseidonMerkleMirror.create(height);
-    for (const lb of leavesRetry) {
-      await mirrorRetry.insert(lb);
-    }
-    const { root, pathElements, pathIsRight } = await mirrorRetry.getMerkleProof(
-      idxRetry,
-      leavesRetry.length
-    );
-    const input = await buildPrivpayCircuitInput({
-      secretHex,
-      nullifierHex,
-      amountWei,
-      recipientAddress: recipient,
-      rootBytes: root,
-      path: { pathElements, pathIsRight },
-    });
-    const proofOut = await generatePrivpayPoolProof(input, wasmUrl, zkeyUrl);
-    return { ...proofOut, input, leafIndex: idxRetry };
   }
-
-
-
-  const mirror = await PrivacyPoolPoseidonMerkleMirror.create(height);
-
-  for (const lb of leaves) {
-
-    await mirror.insert(lb);
-
-  }
-
-  const { root, pathElements, pathIsRight } = await mirror.getMerkleProof(idx, leaves.length);
 
 
 
@@ -256,6 +266,8 @@ export async function proveZkPoolWithdrawWithSecrets({
 
   fromBlockOverride,
 
+  precomputedProofContext,
+
 }) {
 
   return proveWithSecretsCore({
@@ -281,6 +293,8 @@ export async function proveZkPoolWithdrawWithSecrets({
     zkeyUrl,
 
     fromBlockOverride,
+
+    precomputedProofContext,
 
     savedRootHex: null,
 
