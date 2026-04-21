@@ -2085,17 +2085,11 @@ export default function App() {
       if (!r.ok || !j?.ok || !j?.state) return;
       const serverBills = Array.isArray(j.state.bills) ? j.state.bills : [];
       setBills((prev) => {
-        if (!serverBills.length) return prev;
         const prevById = new Map((prev || []).map((b) => [b.id, b]));
         const merged = serverBills.map((b) => ({
           ...(prevById.get(b.id) || {}),
           ...b,
         }));
-        const mergedIds = new Set(merged.map((b) => b.id));
-        for (const pb of prev || []) {
-          if (!pb?.id || mergedIds.has(pb.id)) continue;
-          merged.push(pb);
-        }
         return merged.sort(
           (a, b) =>
             new Date(b.createdAt || 0).getTime() -
@@ -2107,6 +2101,64 @@ export default function App() {
     } finally {
       billsHydratedOwnerRef.current = ownerLower;
     }
+  }
+
+  async function persistBillsStateNow(nextBills) {
+    const owner = getActiveWalletAddress();
+    if (!owner) return;
+    const ownerLower = String(owner).toLowerCase();
+    if (billsHydratedOwnerRef.current !== ownerLower) return;
+    await fetch("/api/payments/bills/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        owner: ownerLower,
+        state: { bills: Array.isArray(nextBills) ? nextBills.slice(0, 500) : [] },
+      }),
+    }).catch(() => {
+      // keep local fallback when offline
+    });
+  }
+
+  async function persistPayrollStateNow({
+    companiesSnapshot = payrollCompanies,
+    employeesSnapshot = payrollEmployees,
+    historySnapshot = payrollHistory,
+  } = {}) {
+    const owner = getActiveWalletAddress();
+    if (!owner) return;
+    const ownerLower = String(owner).toLowerCase();
+    await fetch("/api/payments/payroll/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        owner: ownerLower,
+        state: {
+          companies: (companiesSnapshot || []).map((c) => ({
+            ...c,
+            tokenAddress:
+              c.tokenAddress || INITIAL_TOKENS.find((t) => t.symbol === c.token)?.address || "",
+          })),
+          employees: Array.isArray(employeesSnapshot) ? employeesSnapshot : [],
+          history: Array.isArray(historySnapshot) ? historySnapshot.slice(0, 500) : [],
+        },
+      }),
+    })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          setPayrollServerSyncError(
+            String(j?.error || `Could not sync payroll to server (${r.status}). Recurring runs need this for automation.`)
+          );
+        } else {
+          setPayrollServerSyncError("");
+        }
+      })
+      .catch(() => {
+        setPayrollServerSyncError(
+          "Network error while syncing payroll. Recurring automation may not see your employees."
+        );
+      });
   }
 
   async function refreshRecurringStateFromBackend() {
@@ -4482,10 +4534,9 @@ export default function App() {
         const serverCompanies = Array.isArray(s.companies) ? s.companies : [];
         const serverEmployees = Array.isArray(s.employees) ? s.employees : [];
         const serverHistory = Array.isArray(s.history) ? s.history : [];
-        /** Do not replace rich local payroll with empty KV (save may not have landed yet). */
-        setPayrollCompanies((prev) => (serverCompanies.length > 0 ? serverCompanies : prev));
-        setPayrollEmployees((prev) => (serverEmployees.length > 0 ? serverEmployees : prev));
-        setPayrollHistory((prev) => (serverHistory.length > 0 ? serverHistory : prev));
+        setPayrollCompanies(serverCompanies);
+        setPayrollEmployees(serverEmployees);
+        setPayrollHistory(serverHistory);
       } catch {
         // keep local state fallback
       }
@@ -5629,6 +5680,55 @@ export default function App() {
     }
   }
 
+  async function proveClaimWithRpcFallback({
+    poolAddress,
+    recipient,
+    amountWei,
+    commitment,
+    merkleHeight,
+    secretHex,
+    nullifierHex,
+    wasmUrl,
+    zkeyUrl,
+    statusPrefix = "Preparing Merkle proof inputs...",
+  }) {
+    let lastErr = null;
+    let firstProof = null;
+    for (const url of READ_RPC_URLS) {
+      try {
+        setPoolClaimStatus(`${statusPrefix} (${url})`);
+        const provider = getReadProviderForUrl(url);
+        const proofOut = await proveZkPoolWithdrawWithSecrets({
+          provider,
+          poolAddress,
+          recipient,
+          amountWei,
+          commitment,
+          merkleHeight,
+          secretHex,
+          nullifierHex,
+          wasmUrl,
+          zkeyUrl,
+        });
+        const parsed = parsePrivpayPublicSignals(proofOut.publicSignals);
+        const poolRead = new ethers.Contract(poolAddress, PRIVACY_POOL_ABI, provider);
+        const rootKnown = await poolRead.isKnownRoot(parsed.root).catch(() => null);
+        if (firstProof == null) {
+          firstProof = { ...proofOut, provider, rpcUrl: url, parsedSignals: parsed };
+        }
+        if (rootKnown === true) {
+          return { ...proofOut, provider, rpcUrl: url, parsedSignals: parsed };
+        }
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    if (firstProof) {
+      return firstProof;
+    }
+    throw lastErr || new Error("Unable to generate proof from available RPC providers.");
+  }
+
   async function claimPrivacyPoolZkFromNote(noteId) {
     const notes = listZkNotes();
     const note = notes.find((n) => n.id === noteId);
@@ -5720,9 +5820,7 @@ export default function App() {
     setPoolZkError("");
     setPoolClaimStatus("Preparing Merkle proof inputs...");
     setPoolZkStatus("Generating ZK proof (30–90s typical in browser)…");
-    const provider = getReadProvider();
-    const { fullProofBytes, publicSignals } = await proveZkPoolWithdrawWithSecrets({
-      provider,
+    const primaryProof = await proveClaimWithRpcFallback({
       poolAddress,
       recipient,
       amountWei,
@@ -5732,7 +5830,9 @@ export default function App() {
       nullifierHex: nullifier,
       wasmUrl: PRIVPAY_WASM_URL,
       zkeyUrl: PRIVPAY_ZKEY_URL,
+      statusPrefix: "Preparing Merkle proof inputs...",
     });
+    const { fullProofBytes, publicSignals } = primaryProof;
     setPoolClaimStatus("Proof generated. Submitting claim transaction...");
     try {
       return await submitPrivacyPoolZkWithdraw(poolAddress, fullProofBytes, publicSignals);
@@ -5741,10 +5841,9 @@ export default function App() {
       if (!/known historical root|not a known historical root|root/i.test(msg)) {
         throw e;
       }
-      // Retry once with a full chain log rescan to avoid stale/misconfigured from-block roots.
-      setPoolClaimStatus("Root mismatch detected. Rebuilding proof from full pool history...");
-      const retry = await proveZkPoolWithdrawWithSecrets({
-        provider,
+      // Retry across all configured read RPCs to bypass stale nodes / partial history indexes.
+      setPoolClaimStatus("Root mismatch detected. Retrying with RPC fallbacks...");
+      const retry = await proveClaimWithRpcFallback({
         poolAddress,
         recipient,
         amountWei,
@@ -5754,9 +5853,21 @@ export default function App() {
         nullifierHex: nullifier,
         wasmUrl: PRIVPAY_WASM_URL,
         zkeyUrl: PRIVPAY_ZKEY_URL,
+        statusPrefix: "Root mismatch detected. Rebuilding proof",
       });
       setPoolClaimStatus("Retry proof ready. Submitting claim transaction...");
-      return submitPrivacyPoolZkWithdraw(poolAddress, retry.fullProofBytes, retry.publicSignals);
+      try {
+        return await submitPrivacyPoolZkWithdraw(poolAddress, retry.fullProofBytes, retry.publicSignals);
+      } catch (retryErr) {
+        const retryMsg = String(retryErr?.message || retryErr || "");
+        if (/known historical root|not a known historical root|root/i.test(retryMsg)) {
+          throw new Error(
+            "Claim proof root still not recognized on-chain after RPC fallback. " +
+              "This usually means pool address/network mismatch, or frontend wasm/zkey artifacts are out of sync with the deployed verifier."
+          );
+        }
+        throw retryErr;
+      }
     }
   }
 
@@ -6257,8 +6368,15 @@ export default function App() {
   }
 
   async function deleteBill(billId) {
+    const current = billsRef.current || [];
+    const target = current.find((b) => b.id === billId);
     await cancelRecurringScheduleOnBackend(billId);
-    setBills((prev) => prev.filter((b) => b.id !== billId));
+    const nextBills = current.filter((b) => b.id !== billId);
+    setBills(nextBills);
+    await persistBillsStateNow(nextBills);
+    if (target?.recurring) {
+      refreshRecurringStateFromBackend().catch(() => {});
+    }
   }
 
   function createCompanyProfile() {
@@ -6320,11 +6438,20 @@ export default function App() {
     return false;
   }
 
-  function deleteCompanyProfile(companyId) {
+  async function deleteCompanyProfile(companyId) {
     if (!companyId) return;
-    setPayrollCompanies((prev) => prev.filter((c) => c.id !== companyId));
-    setPayrollEmployees((prev) => prev.filter((e) => e.companyId !== companyId));
-    setPayrollHistory((prev) => prev.filter((h) => h.companyId !== companyId));
+    const existingEmployees = payrollEmployees.filter((e) => e.companyId === companyId);
+    for (const emp of existingEmployees) {
+      if (emp?.recurring && emp?.id) {
+        await cancelRecurringScheduleOnBackend(emp.id);
+      }
+    }
+    const nextCompanies = payrollCompanies.filter((c) => c.id !== companyId);
+    const nextEmployees = payrollEmployees.filter((e) => e.companyId !== companyId);
+    const nextHistory = payrollHistory.filter((h) => h.companyId !== companyId);
+    setPayrollCompanies(nextCompanies);
+    setPayrollEmployees(nextEmployees);
+    setPayrollHistory(nextHistory);
     if (editingCompanyId === companyId) {
       setEditingCompanyId(null);
       setCompanyForm((prev) => ({ ...prev, name: "", token: "USDC", defaultFrequency: "monthly" }));
@@ -6335,6 +6462,11 @@ export default function App() {
       setEmployeeForm((prev) => ({ ...prev, companyId: fallback }));
     }
     setPayrollStatus("Company deleted");
+    await persistPayrollStateNow({
+      companiesSnapshot: nextCompanies,
+      employeesSnapshot: nextEmployees,
+      historySnapshot: nextHistory,
+    });
   }
 
   async function addPayrollEmployee() {
@@ -6891,8 +7023,18 @@ export default function App() {
     });
   }
 
-  function deleteEmployee(employeeId) {
-    setPayrollEmployees((prev) => prev.filter((e) => e.id !== employeeId));
+  async function deleteEmployee(employeeId) {
+    const existing = payrollEmployees.find((e) => e.id === employeeId);
+    if (existing?.recurring && existing?.id) {
+      await cancelRecurringScheduleOnBackend(existing.id);
+    }
+    const nextEmployees = payrollEmployees.filter((e) => e.id !== employeeId);
+    setPayrollEmployees(nextEmployees);
+    await persistPayrollStateNow({
+      companiesSnapshot: payrollCompanies,
+      employeesSnapshot: nextEmployees,
+      historySnapshot: payrollHistory,
+    });
   }
 
   function setPercentAmount(percent) {
