@@ -5696,46 +5696,76 @@ export default function App() {
     zkeyUrl,
     statusPrefix = "Preparing Merkle proof inputs...",
   }) {
-    let lastErr = null;
-    for (let i = 0; i < READ_RPC_URLS.length; i += 1) {
-      const url = READ_RPC_URLS[i];
-      try {
-        if (i === 0) {
-          setPoolClaimStatus(statusPrefix || "Claim or proof in progress...");
-        } else {
-          setPoolClaimStatus("Claim or proof in progress...");
+    const urls = Array.isArray(READ_RPC_URLS) && READ_RPC_URLS.length ? READ_RPC_URLS : [ARC_PUBLIC_RPC];
+    const primaryUrl = urls[0];
+
+    async function rootKnownOnAnyProvider(rootHex) {
+      for (const url of urls) {
+        try {
+          const provider = getReadProviderForUrl(url);
+          const poolRead = new ethers.Contract(poolAddress, PRIVACY_POOL_ABI, provider);
+          const ok = await poolRead.isKnownRoot(rootHex).catch(() => false);
+          if (ok) return true;
+        } catch {
+          // ignore provider-specific failures here
         }
-        const provider = getReadProviderForUrl(url);
-        const proofOut = await proveZkPoolWithdrawWithSecrets({
-          provider,
-          poolAddress,
-          recipient,
-          amountWei,
-          commitment,
-          merkleHeight,
-          secretHex,
-          nullifierHex,
-          wasmUrl,
-          zkeyUrl,
-        });
-        const parsed = parsePrivpayPublicSignals(proofOut.publicSignals);
-        const poolRead = new ethers.Contract(poolAddress, PRIVACY_POOL_ABI, provider);
-        const rootKnown = await poolRead.isKnownRoot(parsed.root).catch(() => null);
-        if (rootKnown === true) {
-          return { ...proofOut, provider, rpcUrl: url, parsedSignals: parsed };
-        }
-        lastErr = new Error(
-          "Claim proof root is not recognized on this RPC. Retrying with fallback provider..."
-        );
-      } catch (err) {
-        lastErr = err;
+      }
+      return false;
+    }
+
+    setPoolClaimStatus(statusPrefix || "Claim or proof in progress...");
+    const primaryProvider = getReadProviderForUrl(primaryUrl);
+    const primaryProof = await proveZkPoolWithdrawWithSecrets({
+      provider: primaryProvider,
+      poolAddress,
+      recipient,
+      amountWei,
+      commitment,
+      merkleHeight,
+      secretHex,
+      nullifierHex,
+      wasmUrl,
+      zkeyUrl,
+    });
+    const primaryParsed = parsePrivpayPublicSignals(primaryProof.publicSignals);
+    if (await rootKnownOnAnyProvider(primaryParsed.root)) {
+      return {
+        ...primaryProof,
+        provider: primaryProvider,
+        rpcUrl: primaryUrl,
+        parsedSignals: primaryParsed,
+      };
+    }
+
+    if (urls.length > 1) {
+      const fallbackUrl = urls[1];
+      setPoolClaimStatus("Claim or proof in progress...");
+      const fallbackProvider = getReadProviderForUrl(fallbackUrl);
+      const fallbackProof = await proveZkPoolWithdrawWithSecrets({
+        provider: fallbackProvider,
+        poolAddress,
+        recipient,
+        amountWei,
+        commitment,
+        merkleHeight,
+        secretHex,
+        nullifierHex,
+        wasmUrl,
+        zkeyUrl,
+      });
+      const fallbackParsed = parsePrivpayPublicSignals(fallbackProof.publicSignals);
+      if (await rootKnownOnAnyProvider(fallbackParsed.root)) {
+        return {
+          ...fallbackProof,
+          provider: fallbackProvider,
+          rpcUrl: fallbackUrl,
+          parsedSignals: fallbackParsed,
+        };
       }
     }
-    throw (
-      lastErr ||
-      new Error(
-        "Could not verify claim proof root across RPC providers. Confirm pool/network configuration and retry."
-      )
+
+    throw new Error(
+      "Claim could not be verified against current pool history. This usually means VITE_PRIVACY_POOL_FROM_BLOCK is too recent for this pool."
     );
   }
 
@@ -11994,7 +12024,7 @@ export default function App() {
                                   );
                                   if (elapsedSec >= 20) {
                                     setPoolClaimStatus(
-                                      `Please wait for ${elapsedSec} seconds for claim to process.`
+                                      "Claim/proof in progress. Estimated processing time: 30-120 seconds."
                                     );
                                   }
                                 }, 1000);
@@ -12046,7 +12076,7 @@ export default function App() {
                                       "On-chain proof check failed: browser proving key must match deployed verifier — redeploy pool stack after changing zk artifacts, or refresh site files from the same build you deployed."
                                     );
                                   } else if (
-                                    /root still not recognized|could not verify claim proof root|root mismatch|known historical root/i.test(
+                                    /root still not recognized|could not verify claim proof root|root mismatch|known historical root|root is not recognized on this rpc|from_block is too recent/i.test(
                                       msg
                                     )
                                   ) {
