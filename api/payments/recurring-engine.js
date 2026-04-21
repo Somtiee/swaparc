@@ -1,4 +1,4 @@
-import { kv } from "../../../lib/server/kv.js";
+import { kv } from "../../lib/server/kv.js";
 
 const MEMORY = {
   schedules: new Map(),
