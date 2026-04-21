@@ -928,6 +928,7 @@ export default function App() {
   const [billBusyId, setBillBusyId] = useState(null);
   const billsRef = useRef([]);
   const recurringServerRunLastAtRef = useRef(0);
+  const privpayHistoryHydratedOwnerRef = useRef("");
   /** Prevents forcing "first company" whenever selectedCompanyId is "" so "All companies" can stay selected. */
   const payrollCompanySelectInitRef = useRef(false);
   const recurringRefreshBusyRef = useRef(false);
@@ -2025,6 +2026,51 @@ export default function App() {
       });
     } catch {
       // ignore
+    }
+  }
+
+  async function mergePrivpayHistorySnapshotFromServer() {
+    const owner = getActiveWalletAddress();
+    if (!owner) return;
+    const ownerLower = String(owner).toLowerCase();
+    try {
+      const r = await fetch(
+        `/api/privpay/history/get?owner=${encodeURIComponent(ownerLower)}`
+      );
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.ok || !j?.state) return;
+      const serverBillHistory = Array.isArray(j.state.billHistory)
+        ? j.state.billHistory
+        : [];
+      const serverClaimHistory = Array.isArray(j.state.claimHistory)
+        ? j.state.claimHistory
+        : [];
+
+      setBillHistory((prev) => {
+        const ids = new Set((prev || []).map((h) => h.id).filter(Boolean));
+        const add = serverBillHistory.filter((h) => h?.id && !ids.has(h.id));
+        if (!add.length) return prev;
+        return [...add, ...prev].sort(
+          (a, b) =>
+            new Date(b.createdAt || 0).getTime() -
+            new Date(a.createdAt || 0).getTime()
+        );
+      });
+
+      setPoolClaimHistory((prev) => {
+        const ids = new Set((prev || []).map((h) => h.id).filter(Boolean));
+        const add = serverClaimHistory.filter((h) => h?.id && !ids.has(h.id));
+        if (!add.length) return prev;
+        return [...add, ...prev].sort(
+          (a, b) =>
+            new Date(b.claimedAt || 0).getTime() -
+            new Date(a.claimedAt || 0).getTime()
+        );
+      });
+    } catch {
+      // ignore; local storage remains fallback
+    } finally {
+      privpayHistoryHydratedOwnerRef.current = ownerLower;
     }
   }
 
@@ -4356,6 +4402,24 @@ export default function App() {
   useEffect(() => {
     const owner = getActiveWalletAddress();
     if (!owner) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await mergePrivpayHistorySnapshotFromServer();
+      } finally {
+        if (!cancelled) {
+          privpayHistoryHydratedOwnerRef.current = String(owner).toLowerCase();
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authMode, address, circleWalletReady, circleWallet?.address]);
+
+  useEffect(() => {
+    const owner = getActiveWalletAddress();
+    if (!owner) return;
     const t = setTimeout(() => {
       const ownerLower = String(owner).toLowerCase();
       fetch("/api/payments/payroll/save", {
@@ -4392,6 +4456,36 @@ export default function App() {
     }, 450);
     return () => clearTimeout(t);
   }, [payrollCompanies, payrollEmployees, payrollHistory, authMode, address, circleWalletReady, circleWallet?.address]);
+
+  useEffect(() => {
+    const owner = getActiveWalletAddress();
+    if (!owner) return;
+    const ownerLower = String(owner).toLowerCase();
+    if (privpayHistoryHydratedOwnerRef.current !== ownerLower) return;
+    const t = setTimeout(() => {
+      fetch("/api/privpay/history/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          owner: ownerLower,
+          state: {
+            billHistory: billHistory.slice(0, 500),
+            claimHistory: poolClaimHistory.slice(0, 500),
+          },
+        }),
+      }).catch(() => {
+        // keep local state fallback
+      });
+    }, 450);
+    return () => clearTimeout(t);
+  }, [
+    billHistory,
+    poolClaimHistory,
+    authMode,
+    address,
+    circleWalletReady,
+    circleWallet?.address,
+  ]);
 
   useEffect(() => {
     if (payrollCompanies.length === 0) {
@@ -8319,7 +8413,6 @@ export default function App() {
             >
               𝕏
             </button>
-
             <button className="faucetBtn desktopOnly" onClick={openFaucet}>
               💧 Get Faucet
             </button>
@@ -12002,7 +12095,6 @@ export default function App() {
             >
               𝕏 Twitter
             </button>
-
             <button
               className="closeBtn"
               onClick={() => setMobileMenuOpen(false)}

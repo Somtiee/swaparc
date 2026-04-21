@@ -1,5 +1,13 @@
 import { kv } from "../../../lib/server/kv.js";
 
+async function safeKvCall(fn, fallback = null) {
+  try {
+    return await fn();
+  } catch {
+    return fallback;
+  }
+}
+
 function computeEarlySwaparcer(profile) {
   const count = Number(profile?.swapCount || 0);
   const vol = Number(profile?.swapVolume || 0);
@@ -13,14 +21,14 @@ async function getProfileByOwner(owner) {
   const walletKey = `profile:${lower}`;
   // Primary profile storage uses hash fields; keep string get for legacy fallback.
   const walletProfile =
-    (await kv.hgetall(walletKey).catch(() => null)) ||
-    (await kv.get(walletKey).catch(() => null));
+    (await safeKvCall(() => kv.hgetall(walletKey), null)) ||
+    (await safeKvCall(() => kv.get(walletKey), null));
   if (walletProfile) return walletProfile;
-  const mapped = await kv.get(`wallet:${lower}`).catch(() => null);
+  const mapped = await safeKvCall(() => kv.get(`wallet:${lower}`), null);
   if (mapped) {
     return (
-      (await kv.hgetall(`profile:${mapped}`).catch(() => null)) ||
-      (await kv.get(`profile:${mapped}`).catch(() => null))
+      (await safeKvCall(() => kv.hgetall(`profile:${mapped}`), null)) ||
+      (await safeKvCall(() => kv.get(`profile:${mapped}`), null))
     );
   }
   return null;
@@ -46,7 +54,7 @@ export async function getArcpayAccessByAddress(owner) {
   const isEarlySwaparcer = computeEarlySwaparcer(profile || {});
 
   const subKey = `privpay:subscription:${normalizedOwner}`;
-  const sub = (await kv.get(subKey).catch(() => null)) || null;
+  const sub = (await safeKvCall(() => kv.get(subKey), null)) || null;
   const expiresAt = sub?.expiresAt || null;
   const subscriptionActive =
     !!expiresAt && Number.isFinite(new Date(expiresAt).getTime())
