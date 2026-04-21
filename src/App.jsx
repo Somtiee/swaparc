@@ -2175,13 +2175,16 @@ export default function App() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) return;
       const schedules = Array.isArray(data.schedules) ? data.schedules : [];
+      const renderableSchedules = schedules.filter(
+        (s) => String(s?.status || "").toLowerCase() !== "cancelled"
+      );
       const paymentLogs = Array.isArray(data.paymentLogs) ? data.paymentLogs : [];
       const scheduleMap = Object.fromEntries(schedules.map((s) => [s.id, s]));
 
       setBills((prev) => {
         const prevById = new Map((prev || []).map((b) => [b.id, b]));
         const next = [];
-        for (const schedule of schedules) {
+        for (const schedule of renderableSchedules) {
           const local = prevById.get(schedule.id) || null;
           const token =
             local?.token ||
