@@ -5811,15 +5811,43 @@ export default function App() {
       commitment: String(commitment),
       merkleHeight: String(merkleHeight || PRIVPAY_CIRCUIT_LEVELS),
     });
-    for (let attempt = 0; attempt < 12; attempt += 1) {
+    const maxAttempts = 90;
+    let staleRetries = 0;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const res = await fetch(`/api/privpay/claim-context?${q.toString()}`);
       const body = await res.json().catch(() => ({}));
       if (res.ok && body?.ok && body?.context) {
         return body.context;
       }
       if (body?.pending) {
-        setPoolClaimStatus("Claim/Proof in progress. Estimated processing time: 30-120 seconds.");
-        await new Promise((resolve) => setTimeout(resolve, 700));
+        const prog = body?.progress || {};
+        const scanned = Number(prog.scannedToBlock || 0);
+        const latestBlk = Number(prog.latestBlock || 0);
+        const pct =
+          latestBlk > scanned && latestBlk > 0 && scanned > 0
+            ? Math.min(99, Math.round((scanned / latestBlk) * 100))
+            : null;
+        if (pct != null) {
+          setPoolClaimStatus(
+            `Preparing claim context… ${pct}% of pool history scanned.`
+          );
+        } else {
+          setPoolClaimStatus(
+            "Claim/Proof in progress. Estimated processing time: 30-120 seconds."
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        continue;
+      }
+      // 503: providers temporarily out of sync — retry a few times with backoff.
+      if (res.status === 503 && staleRetries < 10) {
+        staleRetries += 1;
+        setPoolClaimStatus(
+          "Syncing pool history with the network… retrying."
+        );
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.min(5000, 1500 * staleRetries))
+        );
         continue;
       }
       throw new Error(body?.error || "Failed to load canonical claim context.");
