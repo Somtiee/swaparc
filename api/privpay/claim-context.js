@@ -27,17 +27,51 @@ function providerUrls() {
   return [...new Set(out)];
 }
 
-async function callWithProviders(urls, fn) {
-  let lastErr = null;
-  for (const url of urls) {
-    try {
-      const provider = new ethers.JsonRpcProvider(url, undefined, { batchMaxCount: 1 });
-      return await fn(provider, url);
-    } catch (e) {
-      lastErr = e;
+async function getProviders(urls) {
+  return urls.map((url) => ({
+    url,
+    provider: new ethers.JsonRpcProvider(url, undefined, { batchMaxCount: 1 }),
+  }));
+}
+
+function logKey(log) {
+  return `${String(log.blockNumber || "")}:${String(log.transactionHash || "")}:${String(log.logIndex || "")}`;
+}
+
+async function getLogsQuorum(providers, params) {
+  const settled = await Promise.allSettled(
+    providers.map(({ provider }) => provider.getLogs(params))
+  );
+  const ok = settled
+    .filter((r) => r.status === "fulfilled")
+    .map((r) => r.value)
+    .filter((v) => Array.isArray(v));
+  if (!ok.length) {
+    throw new Error("Failed to fetch logs from all configured providers.");
+  }
+  const byKey = new Map();
+  for (const arr of ok) {
+    for (const log of arr) {
+      byKey.set(logKey(log), log);
     }
   }
-  throw lastErr || new Error("All RPC providers failed.");
+  return Array.from(byKey.values()).sort((a, b) => {
+    if (Number(a.blockNumber || 0) !== Number(b.blockNumber || 0)) {
+      return Number(a.blockNumber || 0) - Number(b.blockNumber || 0);
+    }
+    return Number(a.logIndex || 0) - Number(b.logIndex || 0);
+  });
+}
+
+async function getLatestBlockQuorum(providers) {
+  const settled = await Promise.allSettled(
+    providers.map(({ provider }) => provider.getBlockNumber())
+  );
+  const nums = settled
+    .filter((r) => r.status === "fulfilled" && Number.isFinite(Number(r.value)))
+    .map((r) => Number(r.value));
+  if (!nums.length) throw new Error("Failed to fetch latest block from providers.");
+  return Math.max(...nums);
 }
 
 function bytesEqHex(a, b) {
@@ -60,7 +94,8 @@ export default async function handler(req, res) {
       "0";
     const fromBlock = parseFromBlock(req.query?.fromBlock ?? envFromBlock);
     const urls = providerUrls();
-    const snapshotKey = `privpay:pool:index:${poolAddress.toLowerCase()}:${merkleHeight}:${fromBlock}`;
+    const snapshotKey = `privpay:pool:index:v2:${poolAddress.toLowerCase()}:${merkleHeight}:${fromBlock}`;
+    const providers = await getProviders(urls);
 
     const snap = (await kv.get(snapshotKey).catch(() => null)) || {};
     const commitments = Array.isArray(snap?.commitments) ? snap.commitments.slice() : [];
@@ -68,19 +103,17 @@ export default async function handler(req, res) {
       ? Number(snap.lastScannedBlock)
       : fromBlock - 1;
 
-    const latest = await callWithProviders(urls, async (provider) => provider.getBlockNumber());
+    const latest = await getLatestBlockQuorum(providers);
     const startScan = Math.max(fromBlock, lastScannedBlock + 1);
 
     for (let cursor = startScan; cursor <= latest; cursor += CHUNK) {
       const toBlock = Math.min(cursor + CHUNK, latest);
-      const logs = await callWithProviders(urls, async (provider) =>
-        provider.getLogs({
-          address: poolAddress,
-          fromBlock: cursor,
-          toBlock,
-          topics: [DEPOSITED_TOPIC],
-        })
-      );
+      const logs = await getLogsQuorum(providers, {
+        address: poolAddress,
+        fromBlock: cursor,
+        toBlock,
+        topics: [DEPOSITED_TOPIC],
+      });
       for (const log of logs) {
         const parsed = DEPOSITED_IFACE.parseLog(log);
         commitments.push(ethers.zeroPadValue(parsed.args.commitment, 32).toLowerCase());

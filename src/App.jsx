@@ -887,25 +887,10 @@ export default function App() {
       return [];
     }
   });
-  const [billHistory, setBillHistory] = useState(() => {
-    try {
-      const raw = localStorage.getItem("privpay_bill_history");
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [billHistory, setBillHistory] = useState(() => []);
   const [selectedBillHistoryIds, setSelectedBillHistoryIds] = useState(() => new Set());
   const [billExportMode, setBillExportMode] = useState("unresolved");
-  const [resolvedBillHistoryIds, setResolvedBillHistoryIds] = useState(() => {
-    try {
-      const raw = localStorage.getItem("privpay_bill_history_resolved");
-      const arr = raw ? JSON.parse(raw) : [];
-      return new Set(Array.isArray(arr) ? arr : []);
-    } catch {
-      return new Set();
-    }
-  });
+  const [resolvedBillHistoryIds, setResolvedBillHistoryIds] = useState(() => new Set());
   const [billForm, setBillForm] = useState({
     name: "",
     token: "USDC",
@@ -968,25 +953,10 @@ export default function App() {
       return [];
     }
   });
-  const [payrollHistory, setPayrollHistory] = useState(() => {
-    try {
-      const raw = localStorage.getItem("privpay_payroll_history");
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [payrollHistory, setPayrollHistory] = useState(() => []);
   const [selectedPayrollHistoryIds, setSelectedPayrollHistoryIds] = useState(() => new Set());
   const [payrollExportMode, setPayrollExportMode] = useState("unresolved");
-  const [resolvedPayrollHistoryIds, setResolvedPayrollHistoryIds] = useState(() => {
-    try {
-      const raw = localStorage.getItem("privpay_payroll_history_resolved");
-      const arr = raw ? JSON.parse(raw) : [];
-      return new Set(Array.isArray(arr) ? arr : []);
-    } catch {
-      return new Set();
-    }
-  });
+  const [resolvedPayrollHistoryIds, setResolvedPayrollHistoryIds] = useState(() => new Set());
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
   const [companyForm, setCompanyForm] = useState({
     name: "",
@@ -1035,14 +1005,7 @@ export default function App() {
   const [poolClaimBusy, setPoolClaimBusy] = useState(false);
   const [poolClaimError, setPoolClaimError] = useState("");
   const [poolClaimStatus, setPoolClaimStatus] = useState("");
-  const [poolClaimHistory, setPoolClaimHistory] = useState(() => {
-    try {
-      const raw = localStorage.getItem("privpay_claim_history");
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [poolClaimHistory, setPoolClaimHistory] = useState(() => []);
   const [poolZkPassphrase, setPoolZkPassphrase] = useState("");
   const [poolZkClaimBusyId, setPoolZkClaimBusyId] = useState("");
   const [poolZkNotesTick, setPoolZkNotesTick] = useState(0);
@@ -4150,6 +4113,42 @@ export default function App() {
   }, [swapHistory]);
 
   useEffect(() => {
+    const owner = getActiveWalletAddress();
+    if (!owner) {
+      setBillHistory([]);
+      setPayrollHistory([]);
+      setPoolClaimHistory([]);
+      setResolvedBillHistoryIds(new Set());
+      setResolvedPayrollHistoryIds(new Set());
+      return;
+    }
+    const ownerLower = String(owner).toLowerCase();
+    const readArray = (key) => {
+      try {
+        const raw = localStorage.getItem(`${key}:${ownerLower}`);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    };
+    const readSet = (key) => {
+      try {
+        const raw = localStorage.getItem(`${key}:${ownerLower}`);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return new Set(Array.isArray(parsed) ? parsed : []);
+      } catch {
+        return new Set();
+      }
+    };
+    setBillHistory(readArray("privpay_bill_history"));
+    setPayrollHistory(readArray("privpay_payroll_history"));
+    setPoolClaimHistory(readArray("privpay_claim_history"));
+    setResolvedBillHistoryIds(readSet("privpay_bill_history_resolved"));
+    setResolvedPayrollHistoryIds(readSet("privpay_payroll_history_resolved"));
+  }, [authMode, address, circleWalletReady, circleWallet?.address]);
+
+  useEffect(() => {
     try {
       localStorage.setItem("privpay_bills", JSON.stringify(bills));
     } catch {
@@ -4182,8 +4181,11 @@ export default function App() {
   }, [bills, authMode, address, circleWalletReady, circleWallet?.address]);
 
   useEffect(() => {
+    const owner = getActiveWalletAddress();
+    if (!owner) return;
+    const ownerLower = String(owner).toLowerCase();
     try {
-      localStorage.setItem("privpay_bill_history", JSON.stringify(billHistory));
+      localStorage.setItem(`privpay_bill_history:${ownerLower}`, JSON.stringify(billHistory));
     } catch {
       // ignore
     }
@@ -4216,9 +4218,12 @@ export default function App() {
   }, [payrollEmployees]);
 
   useEffect(() => {
+    const owner = getActiveWalletAddress();
+    if (!owner) return;
+    const ownerLower = String(owner).toLowerCase();
     try {
       localStorage.setItem(
-        "privpay_payroll_history",
+        `privpay_payroll_history:${ownerLower}`,
         JSON.stringify(payrollHistory)
       );
     } catch {
@@ -4227,9 +4232,12 @@ export default function App() {
   }, [payrollHistory]);
 
   useEffect(() => {
+    const owner = getActiveWalletAddress();
+    if (!owner) return;
+    const ownerLower = String(owner).toLowerCase();
     try {
       localStorage.setItem(
-        "privpay_bill_history_resolved",
+        `privpay_bill_history_resolved:${ownerLower}`,
         JSON.stringify(Array.from(resolvedBillHistoryIds))
       );
     } catch {
@@ -4238,9 +4246,12 @@ export default function App() {
   }, [resolvedBillHistoryIds]);
 
   useEffect(() => {
+    const owner = getActiveWalletAddress();
+    if (!owner) return;
+    const ownerLower = String(owner).toLowerCase();
     try {
       localStorage.setItem(
-        "privpay_payroll_history_resolved",
+        `privpay_payroll_history_resolved:${ownerLower}`,
         JSON.stringify(Array.from(resolvedPayrollHistoryIds))
       );
     } catch {
@@ -4269,8 +4280,11 @@ export default function App() {
   }, [privpayModule, poolClaimHistory.length]);
 
   useEffect(() => {
+    const owner = getActiveWalletAddress();
+    if (!owner) return;
+    const ownerLower = String(owner).toLowerCase();
     try {
-      localStorage.setItem("privpay_claim_history", JSON.stringify(poolClaimHistory));
+      localStorage.setItem(`privpay_claim_history:${ownerLower}`, JSON.stringify(poolClaimHistory));
     } catch {
       // ignore
     }
