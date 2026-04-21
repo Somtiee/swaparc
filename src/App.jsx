@@ -5754,7 +5754,6 @@ export default function App() {
         nullifierHex: nullifier,
         wasmUrl: PRIVPAY_WASM_URL,
         zkeyUrl: PRIVPAY_ZKEY_URL,
-        fromBlockOverride: 0,
       });
       setPoolClaimStatus("Retry proof ready. Submitting claim transaction...");
       return submitPrivacyPoolZkWithdraw(poolAddress, retry.fullProofBytes, retry.publicSignals);
