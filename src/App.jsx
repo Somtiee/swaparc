@@ -928,6 +928,7 @@ export default function App() {
   const [billBusyId, setBillBusyId] = useState(null);
   const billsRef = useRef([]);
   const recurringServerRunLastAtRef = useRef(0);
+  const billsHydratedOwnerRef = useRef("");
   const privpayHistoryHydratedOwnerRef = useRef("");
   /** Prevents forcing "first company" whenever selectedCompanyId is "" so "All companies" can stay selected. */
   const payrollCompanySelectInitRef = useRef(false);
@@ -2074,6 +2075,40 @@ export default function App() {
     }
   }
 
+  async function mergeBillsSnapshotFromServer() {
+    const owner = getActiveWalletAddress();
+    if (!owner) return;
+    const ownerLower = String(owner).toLowerCase();
+    try {
+      const r = await fetch(`/api/payments/bills/get?owner=${encodeURIComponent(ownerLower)}`);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.ok || !j?.state) return;
+      const serverBills = Array.isArray(j.state.bills) ? j.state.bills : [];
+      setBills((prev) => {
+        if (!serverBills.length) return prev;
+        const prevById = new Map((prev || []).map((b) => [b.id, b]));
+        const merged = serverBills.map((b) => ({
+          ...(prevById.get(b.id) || {}),
+          ...b,
+        }));
+        const mergedIds = new Set(merged.map((b) => b.id));
+        for (const pb of prev || []) {
+          if (!pb?.id || mergedIds.has(pb.id)) continue;
+          merged.push(pb);
+        }
+        return merged.sort(
+          (a, b) =>
+            new Date(b.createdAt || 0).getTime() -
+            new Date(a.createdAt || 0).getTime()
+        );
+      });
+    } catch {
+      // ignore; local storage remains fallback
+    } finally {
+      billsHydratedOwnerRef.current = ownerLower;
+    }
+  }
+
   async function refreshRecurringStateFromBackend() {
     if (recurringRefreshBusyRef.current) return;
     recurringRefreshBusyRef.current = true;
@@ -2091,28 +2126,69 @@ export default function App() {
       const paymentLogs = Array.isArray(data.paymentLogs) ? data.paymentLogs : [];
       const scheduleMap = Object.fromEntries(schedules.map((s) => [s.id, s]));
 
-      setBills((prev) =>
-        prev.map((b) => {
-          const s = scheduleMap[b.id];
-          if (!s) return b;
-          const localNextTs = new Date(b.nextExecutionAt || 0).getTime();
-          const serverNextTs = new Date(s.nextExecutionAt || 0).getTime();
-          const nextExecutionAt =
-            Number.isFinite(localNextTs) &&
-            Number.isFinite(serverNextTs) &&
-            localNextTs > 0 &&
-            serverNextTs > 0
-              ? new Date(serverNextTs).toISOString()
-              : s.nextExecutionAt || b.nextExecutionAt;
-          return {
-            ...b,
-            recurring: s.status === "active",
-            nextExecutionAt,
-            lastSchedulerStatus: s.status || null,
-            schedulerFailureReason: s.failureReason || null,
+      setBills((prev) => {
+        const prevById = new Map((prev || []).map((b) => [b.id, b]));
+        const next = [];
+        for (const schedule of schedules) {
+          const local = prevById.get(schedule.id) || null;
+          const token =
+            local?.token ||
+            schedule?.metadata?.token ||
+            tokenByAddress(schedule?.tokenAddress)?.symbol ||
+            "USDC";
+          const nextBill = {
+            id: schedule.id,
+            name:
+              local?.name ||
+              schedule?.metadata?.billName ||
+              schedule?.metadata?.name ||
+              "Recurring Bill",
+            token,
+            amount:
+              Number(schedule?.amount || 0) > 0
+                ? Number(schedule.amount)
+                : Number(local?.amount || 0),
+            recipientWallet:
+              local?.recipientWallet ||
+              String(schedule?.recipientWallet || schedule?.metadata?.recipientWallet || ""),
+            receiverSpendPublicKey:
+              local?.receiverSpendPublicKey ||
+              String(
+                schedule?.receiverSpendPublicKey ||
+                  schedule?.metadata?.receiverSpendPublicKey ||
+                  ""
+              ),
+            receiverViewPublicKey:
+              local?.receiverViewPublicKey ||
+              String(
+                schedule?.receiverViewPublicKey ||
+                  schedule?.metadata?.receiverViewPublicKey ||
+                  ""
+              ),
+            frequency: schedule?.frequency || local?.frequency || "monthly",
+            customIntervalSeconds:
+              schedule?.customIntervalSeconds ?? local?.customIntervalSeconds ?? null,
+            customRepeatCadence:
+              local?.customRepeatCadence || schedule?.metadata?.customRepeatCadence || null,
+            recurring: schedule?.status === "active",
+            schedulerFailureReason: schedule?.failureReason || null,
+            lastSchedulerStatus: schedule?.status || null,
+            nextExecutionAt: schedule?.nextExecutionAt || local?.nextExecutionAt || null,
+            lastPaidAt: local?.lastPaidAt || null,
+            createdAt: local?.createdAt || schedule?.createdAt || new Date().toISOString(),
           };
-        })
-      );
+          next.push(nextBill);
+          prevById.delete(schedule.id);
+        }
+        for (const remaining of prevById.values()) {
+          next.push(remaining);
+        }
+        return next.sort(
+          (a, b) =>
+            new Date(b.createdAt || 0).getTime() -
+            new Date(a.createdAt || 0).getTime()
+        );
+      });
       mergeRecurringLogsIntoBillHistory(paymentLogs, scheduleMap);
     } finally {
       recurringRefreshBusyRef.current = false;
@@ -4019,6 +4095,26 @@ export default function App() {
   }, [bills]);
 
   useEffect(() => {
+    const owner = getActiveWalletAddress();
+    if (!owner) return;
+    const ownerLower = String(owner).toLowerCase();
+    if (billsHydratedOwnerRef.current !== ownerLower) return;
+    const t = setTimeout(() => {
+      fetch("/api/payments/bills/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          owner: ownerLower,
+          state: { bills: bills.slice(0, 500) },
+        }),
+      }).catch(() => {
+        // keep local state fallback
+      });
+    }, 450);
+    return () => clearTimeout(t);
+  }, [bills, authMode, address, circleWalletReady, circleWallet?.address]);
+
+  useEffect(() => {
     try {
       localStorage.setItem("privpay_bill_history", JSON.stringify(billHistory));
     } catch {
@@ -4392,6 +4488,24 @@ export default function App() {
         setPayrollHistory((prev) => (serverHistory.length > 0 ? serverHistory : prev));
       } catch {
         // keep local state fallback
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authMode, address, circleWalletReady, circleWallet?.address]);
+
+  useEffect(() => {
+    const owner = getActiveWalletAddress();
+    if (!owner) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await mergeBillsSnapshotFromServer();
+      } finally {
+        if (!cancelled) {
+          billsHydratedOwnerRef.current = String(owner).toLowerCase();
+        }
       }
     })();
     return () => {
@@ -5753,6 +5867,11 @@ export default function App() {
             startAt: bill.nextExecutionAt,
             metadata: {
               billName: bill.name || "",
+              token: bill.token,
+              recipientWallet: String(bill.recipientWallet || "").trim(),
+              receiverSpendPublicKey: bill.receiverSpendPublicKey || "",
+              receiverViewPublicKey: bill.receiverViewPublicKey || "",
+              customRepeatCadence: bill.customRepeatCadence || null,
               onchainAuthorizationId: onchainAuthorizationId || recurringAuthorizationIdForBill(bill.id),
             },
           }),
