@@ -5759,6 +5759,17 @@ export default function App() {
       precomputedProofContext,
     });
     const primaryParsed = parsePrivpayPublicSignals(primaryProof.publicSignals);
+    // When the server already validated the context against on-chain state
+    // (isKnownRoot + currentRoot match), trust it and skip the extra RPC gate,
+    // which was flaking on incomplete provider views and blocking valid claims.
+    if (precomputedProofContext) {
+      return {
+        ...primaryProof,
+        provider: primaryProvider,
+        rpcUrl: primaryUrl,
+        parsedSignals: primaryParsed,
+      };
+    }
     if (await rootKnownOnAnyProvider(primaryParsed.root)) {
       return {
         ...primaryProof,
@@ -5945,6 +5956,7 @@ export default function App() {
     setPoolClaimStatus("Claim/Proof in progress...");
     setPoolZkStatus("Generating ZK proof (30–90s typical in browser)…");
     let precomputedProofContext = null;
+    let canonicalError = null;
     try {
       setPoolClaimStatus("Preparing canonical claim context...");
       precomputedProofContext = await fetchCanonicalClaimContext({
@@ -5952,10 +5964,21 @@ export default function App() {
         commitment,
         merkleHeight: data.merkleHeight || PRIVPAY_CIRCUIT_LEVELS,
       });
+      console.info("[privpay-claim] canonical context ready", {
+        leafIndex: precomputedProofContext?.leafIndex,
+        totalDeposits: precomputedProofContext?.totalDeposits,
+        root: precomputedProofContext?.root,
+      });
       setPoolClaimStatus("Claim/Proof in progress...");
     } catch (ctxErr) {
-      console.warn("[privpay-claim] canonical context unavailable, falling back to RPC scan", ctxErr);
-      setPoolClaimStatus("Claim/Proof in progress...");
+      canonicalError = ctxErr;
+      console.warn(
+        "[privpay-claim] canonical context unavailable, falling back to RPC scan",
+        ctxErr
+      );
+      setPoolClaimStatus(
+        "Pool history service slow — trying direct RPC scan as fallback…"
+      );
     }
     const primaryProof = await proveClaimWithRpcFallback({
       poolAddress,
