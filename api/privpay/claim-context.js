@@ -7,6 +7,10 @@ const DEPOSITED_IFACE = new ethers.Interface([
 ]);
 const DEPOSITED_TOPIC = ethers.id("Deposited(bytes32,uint256)");
 const CHUNK = 9999;
+const MAX_CHUNKS_PER_REQUEST = Math.max(
+  1,
+  Math.min(200, Number(process.env.PRIVPAY_CLAIM_CONTEXT_CHUNKS || 30))
+);
 
 function parseFromBlock(raw) {
   const n = Number(raw);
@@ -105,8 +109,21 @@ export default async function handler(req, res) {
 
     const latest = await getLatestBlockQuorum(providers);
     const startScan = Math.max(fromBlock, lastScannedBlock + 1);
+    let scannedChunks = 0;
 
-    for (let cursor = startScan; cursor <= latest; cursor += CHUNK) {
+    let leafIndex = -1;
+    for (let i = 0; i < commitments.length; i += 1) {
+      if (bytesEqHex(commitments[i], commitment)) {
+        leafIndex = i;
+        break;
+      }
+    }
+
+    for (
+      let cursor = startScan;
+      cursor <= latest && scannedChunks < MAX_CHUNKS_PER_REQUEST && leafIndex < 0;
+      cursor += CHUNK
+    ) {
       const toBlock = Math.min(cursor + CHUNK, latest);
       const logs = await getLogsQuorum(providers, {
         address: poolAddress,
@@ -116,9 +133,14 @@ export default async function handler(req, res) {
       });
       for (const log of logs) {
         const parsed = DEPOSITED_IFACE.parseLog(log);
-        commitments.push(ethers.zeroPadValue(parsed.args.commitment, 32).toLowerCase());
+        const c = ethers.zeroPadValue(parsed.args.commitment, 32).toLowerCase();
+        commitments.push(c);
+        if (leafIndex < 0 && bytesEqHex(c, commitment)) {
+          leafIndex = commitments.length - 1;
+        }
       }
       lastScannedBlock = toBlock;
+      scannedChunks += 1;
     }
 
     await kv
@@ -129,13 +151,18 @@ export default async function handler(req, res) {
       })
       .catch(() => {});
 
-    let leafIndex = -1;
-    for (let i = 0; i < commitments.length; i += 1) {
-      if (bytesEqHex(commitments[i], commitment)) {
-        leafIndex = i;
-        break;
-      }
+    if (leafIndex < 0 && lastScannedBlock < latest) {
+      return res.status(202).json({
+        ok: false,
+        pending: true,
+        progress: {
+          scannedToBlock: lastScannedBlock,
+          latestBlock: latest,
+          chunksThisRequest: scannedChunks,
+        },
+      });
     }
+
     if (leafIndex < 0) {
       return res.status(404).json({
         ok: false,
@@ -145,10 +172,10 @@ export default async function handler(req, res) {
     }
 
     const mirror = await PrivacyPoolPoseidonMerkleMirror.create(merkleHeight);
-    for (const c of commitments) {
+    for (const c of commitments.slice(0, leafIndex + 1)) {
       await mirror.insert(ethers.getBytes(c));
     }
-    const proof = await mirror.getMerkleProof(leafIndex, commitments.length);
+    const proof = await mirror.getMerkleProof(leafIndex, leafIndex + 1);
 
     return res.status(200).json({
       ok: true,

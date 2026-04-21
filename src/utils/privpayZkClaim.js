@@ -125,7 +125,7 @@ async function proveWithSecretsCore({
       for (const lb of leavesRetry) {
         await mirrorRetry.insert(lb);
       }
-      const p = await mirrorRetry.getMerkleProof(idxRetry, leavesRetry.length);
+      const p = await mirrorRetry.getMerkleProof(idxRetry, idxRetry + 1);
       root = p.root;
       pathElements = p.pathElements;
       pathIsRight = p.pathIsRight;
@@ -135,7 +135,7 @@ async function proveWithSecretsCore({
       for (const lb of leaves) {
         await mirror.insert(lb);
       }
-      const p = await mirror.getMerkleProof(idx, leaves.length);
+      const p = await mirror.getMerkleProof(idx, idx + 1);
       root = p.root;
       pathElements = p.pathElements;
       pathIsRight = p.pathIsRight;

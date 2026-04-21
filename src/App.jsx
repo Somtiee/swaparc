@@ -5811,12 +5811,22 @@ export default function App() {
       commitment: String(commitment),
       merkleHeight: String(merkleHeight || PRIVPAY_CIRCUIT_LEVELS),
     });
-    const res = await fetch(`/api/privpay/claim-context?${q.toString()}`);
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok || !body?.ok || !body?.context) {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const res = await fetch(`/api/privpay/claim-context?${q.toString()}`);
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body?.ok && body?.context) {
+        return body.context;
+      }
+      if (body?.pending) {
+        setPoolClaimStatus("Claim/Proof in progress. Estimated processing time: 30-120 seconds.");
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        continue;
+      }
       throw new Error(body?.error || "Failed to load canonical claim context.");
     }
-    return body.context;
+    throw new Error(
+      "Claim context is still building on the server. Please retry in a few seconds."
+    );
   }
 
   async function claimPrivacyPoolZkFromNote(noteId) {
