@@ -5697,10 +5697,14 @@ export default function App() {
     statusPrefix = "Preparing Merkle proof inputs...",
   }) {
     let lastErr = null;
-    let firstProof = null;
-    for (const url of READ_RPC_URLS) {
+    for (let i = 0; i < READ_RPC_URLS.length; i += 1) {
+      const url = READ_RPC_URLS[i];
       try {
-        setPoolClaimStatus(`${statusPrefix} (${url})`);
+        if (i === 0) {
+          setPoolClaimStatus(statusPrefix || "Claim or proof in progress...");
+        } else {
+          setPoolClaimStatus("Claim or proof in progress...");
+        }
         const provider = getReadProviderForUrl(url);
         const proofOut = await proveZkPoolWithdrawWithSecrets({
           provider,
@@ -5717,20 +5721,22 @@ export default function App() {
         const parsed = parsePrivpayPublicSignals(proofOut.publicSignals);
         const poolRead = new ethers.Contract(poolAddress, PRIVACY_POOL_ABI, provider);
         const rootKnown = await poolRead.isKnownRoot(parsed.root).catch(() => null);
-        if (firstProof == null) {
-          firstProof = { ...proofOut, provider, rpcUrl: url, parsedSignals: parsed };
-        }
         if (rootKnown === true) {
           return { ...proofOut, provider, rpcUrl: url, parsedSignals: parsed };
         }
+        lastErr = new Error(
+          "Claim proof root is not recognized on this RPC. Retrying with fallback provider..."
+        );
       } catch (err) {
         lastErr = err;
       }
     }
-    if (firstProof) {
-      return firstProof;
-    }
-    throw lastErr || new Error("Unable to generate proof from available RPC providers.");
+    throw (
+      lastErr ||
+      new Error(
+        "Could not verify claim proof root across RPC providers. Confirm pool/network configuration and retry."
+      )
+    );
   }
 
   async function claimPrivacyPoolZkFromNote(noteId) {
@@ -5822,7 +5828,7 @@ export default function App() {
       );
     }
     setPoolZkError("");
-    setPoolClaimStatus("Preparing Merkle proof inputs...");
+    setPoolClaimStatus("Claim or proof in progress...");
     setPoolZkStatus("Generating ZK proof (30–90s typical in browser)…");
     const primaryProof = await proveClaimWithRpcFallback({
       poolAddress,
@@ -5834,10 +5840,10 @@ export default function App() {
       nullifierHex: nullifier,
       wasmUrl: PRIVPAY_WASM_URL,
       zkeyUrl: PRIVPAY_ZKEY_URL,
-      statusPrefix: "Preparing Merkle proof inputs...",
+      statusPrefix: "Claim or proof in progress...",
     });
     const { fullProofBytes, publicSignals } = primaryProof;
-    setPoolClaimStatus("Proof generated. Submitting claim transaction...");
+    setPoolClaimStatus("Proof ready. Submitting claim transaction...");
     try {
       return await submitPrivacyPoolZkWithdraw(poolAddress, fullProofBytes, publicSignals);
     } catch (e) {
@@ -5846,7 +5852,7 @@ export default function App() {
         throw e;
       }
       // Retry across all configured read RPCs to bypass stale nodes / partial history indexes.
-      setPoolClaimStatus("Root mismatch detected. Retrying with RPC fallbacks...");
+      setPoolClaimStatus("Claim or proof in progress...");
       const retry = await proveClaimWithRpcFallback({
         poolAddress,
         recipient,
@@ -5857,7 +5863,7 @@ export default function App() {
         nullifierHex: nullifier,
         wasmUrl: PRIVPAY_WASM_URL,
         zkeyUrl: PRIVPAY_ZKEY_URL,
-        statusPrefix: "Root mismatch detected. Rebuilding proof",
+        statusPrefix: "Claim or proof in progress...",
       });
       setPoolClaimStatus("Retry proof ready. Submitting claim transaction...");
       try {
@@ -11980,11 +11986,18 @@ export default function App() {
                                 setPoolClaimBusy(true);
                                 setPoolZkError("");
                                 setPoolZkStatus("");
-                                const slowClaimHintTimer = setTimeout(() => {
-                                  setPoolClaimStatus(
-                                    "Still proving in browser... this can take 30-120s on some devices."
+                                const claimStartAt = Date.now();
+                                const slowClaimHintTimer = setInterval(() => {
+                                  const elapsedSec = Math.max(
+                                    1,
+                                    Math.floor((Date.now() - claimStartAt) / 1000)
                                   );
-                                }, 25000);
+                                  if (elapsedSec >= 20) {
+                                    setPoolClaimStatus(
+                                      `Please wait for ${elapsedSec} seconds for claim to process.`
+                                    );
+                                  }
+                                }, 1000);
                                 try {
                                   const rawCode = String(poolClaimCodeInput || "").trim();
                                   const payload = decodeZkPoolClaimPayload(rawCode);
@@ -12015,6 +12028,7 @@ export default function App() {
                                   setPoolClaimCodeInput("");
                                 } catch (e) {
                                   const msg = extractEthersRevertReason(e) || e?.message || String(e);
+                                  setPoolClaimStatus("");
                                   if (
                                     /already claimed|nullifier spent|NullifierSpent|this payment was already claimed/i.test(
                                       msg
@@ -12031,11 +12045,19 @@ export default function App() {
                                     setPoolClaimError(
                                       "On-chain proof check failed: browser proving key must match deployed verifier — redeploy pool stack after changing zk artifacts, or refresh site files from the same build you deployed."
                                     );
+                                  } else if (
+                                    /root still not recognized|could not verify claim proof root|root mismatch|known historical root/i.test(
+                                      msg
+                                    )
+                                  ) {
+                                    setPoolClaimError(
+                                      "Claim could not be verified against the current pool history. Check pool/network config and try again."
+                                    );
                                   } else {
                                     setPoolClaimError(msg);
                                   }
                                 } finally {
-                                  clearTimeout(slowClaimHintTimer);
+                                  clearInterval(slowClaimHintTimer);
                                   setPoolClaimBusy(false);
                                 }
                               }}
