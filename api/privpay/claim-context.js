@@ -126,16 +126,26 @@ function bytesEqHex(a, b) {
 }
 
 async function scanRangeUnion(providers, poolAddress, fromBlock, toBlock, window) {
-  const seen = new Map();
+  const ranges = [];
   for (let cursor = fromBlock; cursor <= toBlock; cursor += window) {
-    const end = Math.min(cursor + window - 1, toBlock);
-    const logs = await getLogsUnion(providers, {
-      address: poolAddress,
-      fromBlock: cursor,
-      toBlock: end,
-      topics: [DEPOSITED_TOPIC],
-    }).catch(() => []);
-    for (const log of logs) seen.set(logKey(log), log);
+    ranges.push([cursor, Math.min(cursor + window - 1, toBlock)]);
+  }
+  const seen = new Map();
+  for (let i = 0; i < ranges.length; i += SCAN_CONCURRENCY) {
+    const batch = ranges.slice(i, i + SCAN_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(([fromB, toB]) =>
+        getLogsUnion(providers, {
+          address: poolAddress,
+          fromBlock: fromB,
+          toBlock: toB,
+          topics: [DEPOSITED_TOPIC],
+        }).catch(() => [])
+      )
+    );
+    for (const logs of results) {
+      for (const log of logs) seen.set(logKey(log), log);
+    }
   }
   return sortLogs(Array.from(seen.values()));
 }
@@ -186,7 +196,7 @@ export default async function handler(req, res) {
     const urls = providerUrls();
     const providers = getProviders(urls);
 
-    const snapshotKey = `privpay:pool:index:v3:${poolAddress.toLowerCase()}:${merkleHeight}:${fromBlock}`;
+    const snapshotKey = `privpay:pool:index:v4:${poolAddress.toLowerCase()}:${merkleHeight}:${fromBlock}`;
 
     const onchain = await getOnchainState(providers, poolAddress);
     const latest = await getLatestBlockQuorum(providers);
