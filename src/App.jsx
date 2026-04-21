@@ -11991,7 +11991,15 @@ export default function App() {
                                   setPoolClaimCodeInput("");
                                 } catch (e) {
                                   const msg = extractEthersRevertReason(e) || e?.message || String(e);
-                                  if (/PrivPayClaim_.*line:\s*38|Assert Failed/i.test(msg)) {
+                                  if (
+                                    /already claimed|nullifier spent|NullifierSpent|this payment was already claimed/i.test(
+                                      msg
+                                    )
+                                  ) {
+                                    setPoolClaimError(
+                                      "You have already claimed this code. Each claim code can only be used once."
+                                    );
+                                  } else if (/PrivPayClaim_.*line:\s*38|Assert Failed/i.test(msg)) {
                                     setPoolClaimError(
                                       "Claim prover artifacts are out of sync. Regenerate/copy fresh wasm+zkey (npm run privpay:zk-artifacts), hard refresh, then retry claim."
                                     );
