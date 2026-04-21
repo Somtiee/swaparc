@@ -5821,22 +5821,18 @@ export default function App() {
       }
       if (body?.pending) {
         const prog = body?.progress || {};
-        const scanned = Number(prog.scannedToBlock || 0);
-        const latestBlk = Number(prog.latestBlock || 0);
-        const pct =
-          latestBlk > scanned && latestBlk > 0 && scanned > 0
-            ? Math.min(99, Math.round((scanned / latestBlk) * 100))
-            : null;
-        if (pct != null) {
+        const known = Number(prog.knownDeposits || 0);
+        const expected = Number(prog.expectedDeposits || 0);
+        if (expected > 0 && known >= 0) {
           setPoolClaimStatus(
-            `Preparing claim context… ${pct}% of pool history scanned.`
+            `Preparing claim context… ${known}/${expected} deposits indexed.`
           );
         } else {
           setPoolClaimStatus(
             "Claim/Proof in progress. Estimated processing time: 30-120 seconds."
           );
         }
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 800));
         continue;
       }
       // 503: providers temporarily out of sync — retry a few times with backoff.

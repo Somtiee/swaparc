@@ -15,7 +15,11 @@ const POOL_IFACE = new ethers.Interface([
 const DEFAULT_WINDOWS = [9999, 4000, 1000, 250];
 const MAX_CHUNKS_PER_REQUEST = Math.max(
   1,
-  Math.min(400, Number(process.env.PRIVPAY_CLAIM_CONTEXT_CHUNKS || 60))
+  Math.min(400, Number(process.env.PRIVPAY_CLAIM_CONTEXT_CHUNKS || 120))
+);
+const SCAN_CONCURRENCY = Math.max(
+  1,
+  Math.min(16, Number(process.env.PRIVPAY_CLAIM_CONTEXT_CONCURRENCY || 8))
 );
 
 function parseFromBlock(raw) {
@@ -201,71 +205,67 @@ export default async function handler(req, res) {
       lastScannedBlock >= latest - 1;
 
     if (!cacheComplete) {
-      // Rebuild from scratch using union across providers, with window fallback.
-      commitments = [];
-      lastScannedBlock = fromBlock - 1;
-
-      // Bounded incremental scan with union
-      let cursor = fromBlock;
-      let scannedChunks = 0;
-      let window = DEFAULT_WINDOWS[0];
-      // accumulate logs in a map
-      const seen = new Map();
-      const tryScan = async (w) => {
-        const logs = await getLogsUnion(providers, {
-          address: poolAddress,
-          fromBlock: cursor,
-          toBlock: Math.min(cursor + w - 1, latest),
-          topics: [DEPOSITED_TOPIC],
-        }).catch(() => null);
-        return logs;
-      };
-
-      while (cursor <= latest && scannedChunks < MAX_CHUNKS_PER_REQUEST) {
-        const toBlock = Math.min(cursor + window - 1, latest);
-        const logs = await tryScan(window);
-        if (logs == null) {
-          // total failure for this window, try narrower
-          const narrower = DEFAULT_WINDOWS.find((w) => w < window) || 100;
-          if (narrower === window) break;
-          window = narrower;
-          continue;
-        }
-        for (const log of logs) seen.set(logKey(log), log);
-        cursor = toBlock + 1;
-        lastScannedBlock = toBlock;
-        scannedChunks += 1;
+      // INCREMENTAL + PARALLEL scan: continue from cached lastScannedBlock + 1.
+      // Build a list of chunk ranges [from, to] up to MAX_CHUNKS_PER_REQUEST,
+      // then fetch them concurrently in batches of SCAN_CONCURRENCY.
+      const startCursor = Math.max(fromBlock, Number(lastScannedBlock) + 1);
+      const window = DEFAULT_WINDOWS[0];
+      const ranges = [];
+      for (
+        let c = startCursor;
+        c <= latest && ranges.length < MAX_CHUNKS_PER_REQUEST;
+        c += window
+      ) {
+        ranges.push([c, Math.min(c + window - 1, latest)]);
       }
 
-      commitments = commitmentsFromLogs(sortLogs(Array.from(seen.values())));
+      const seenLogKeys = new Set();
+      const seenCommitments = new Set(commitments);
+      let hadRangeFailure = false;
 
-      // If the count doesn't match on-chain nextIndex *and* we're complete up to latest,
-      // we know providers missed logs. Retry once with narrower window over the whole range.
-      if (
-        lastScannedBlock >= latest &&
-        commitments.length !== onchain.nextIndex
-      ) {
-        for (const retryWindow of DEFAULT_WINDOWS.slice(1).concat([100])) {
-          const logs = await scanRangeUnion(
-            providers,
-            poolAddress,
-            fromBlock,
-            latest,
-            retryWindow
-          );
-          if (logs.length >= onchain.nextIndex) {
-            commitments = commitmentsFromLogs(logs);
+      for (let i = 0; i < ranges.length; i += SCAN_CONCURRENCY) {
+        const batch = ranges.slice(i, i + SCAN_CONCURRENCY);
+        const results = await Promise.all(
+          batch.map(([fromB, toB]) =>
+            getLogsUnion(providers, {
+              address: poolAddress,
+              fromBlock: fromB,
+              toBlock: toB,
+              topics: [DEPOSITED_TOPIC],
+            })
+              .then((logs) => ({ ok: true, logs, fromB, toB }))
+              .catch(() => ({ ok: false, fromB, toB }))
+          )
+        );
+        // Process in order so leafIndex stays correct across batches.
+        for (const r of results) {
+          if (!r.ok) {
+            hadRangeFailure = true;
             break;
           }
+          for (const log of r.logs) {
+            const k = logKey(log);
+            if (seenLogKeys.has(k)) continue;
+            seenLogKeys.add(k);
+            const parsed = DEPOSITED_IFACE.parseLog(log);
+            const c = ethers
+              .zeroPadValue(parsed.args.commitment, 32)
+              .toLowerCase();
+            if (!seenCommitments.has(c)) {
+              seenCommitments.add(c);
+              commitments.push(c);
+            }
+          }
+          lastScannedBlock = r.toB;
         }
+        if (hadRangeFailure) break;
       }
 
-      // If still incomplete but we scanned to latest, persist what we have but mark not validated.
+      const scannedChunks = ranges.length;
       const reachedLatest = lastScannedBlock >= latest;
-      const countMatches = commitments.length === onchain.nextIndex;
 
       if (!reachedLatest) {
-        // Save progress and ask client to poll again.
+        // Persist partial progress so the NEXT poll continues, not restarts.
         await kv
           .set(snapshotKey, {
             commitments,
@@ -286,6 +286,26 @@ export default async function handler(req, res) {
           },
         });
       }
+
+      // Reached latest. If count still doesn't match nextIndex, do a full
+      // rebuild with progressively narrower windows (providers missed logs).
+      if (commitments.length !== onchain.nextIndex) {
+        for (const retryWindow of DEFAULT_WINDOWS.slice(1).concat([100])) {
+          const logs = await scanRangeUnion(
+            providers,
+            poolAddress,
+            fromBlock,
+            latest,
+            retryWindow
+          );
+          if (logs.length >= onchain.nextIndex) {
+            commitments = commitmentsFromLogs(logs);
+            break;
+          }
+        }
+      }
+
+      const countMatches = commitments.length === onchain.nextIndex;
 
       if (!countMatches) {
         // Final safety: build proof against on-chain currentRoot expectation is impossible.
