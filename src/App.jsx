@@ -1349,6 +1349,18 @@ export default function App() {
     return [...new Set(urls)];
   }, []);
 
+  // Claim proving is highly sensitive to missing logs; prefer broader indexers first.
+  const CLAIM_READ_RPC_URLS = useMemo(() => {
+    const urls = [];
+    const alchemy = import.meta.env.VITE_ALCHEMY_ARC_RPC_URL?.trim();
+    if (alchemy) urls.push(alchemy);
+    urls.push("https://arc-testnet.drpc.org");
+    const primary = import.meta.env.VITE_ARC_RPC_URL?.trim();
+    if (primary) urls.push(primary);
+    urls.push(ARC_PUBLIC_RPC);
+    return [...new Set(urls)];
+  }, []);
+
   function getReadProviderForUrl(url) {
     return new ethers.JsonRpcProvider(url, undefined, { batchMaxCount: 1 });
   }
@@ -5696,7 +5708,10 @@ export default function App() {
     zkeyUrl,
     statusPrefix = "Preparing Merkle proof inputs...",
   }) {
-    const urls = Array.isArray(READ_RPC_URLS) && READ_RPC_URLS.length ? READ_RPC_URLS : [ARC_PUBLIC_RPC];
+    const urls =
+      Array.isArray(CLAIM_READ_RPC_URLS) && CLAIM_READ_RPC_URLS.length
+        ? CLAIM_READ_RPC_URLS
+        : [ARC_PUBLIC_RPC];
     const primaryUrl = urls[0];
 
     async function rootKnownOnAnyProvider(rootHex) {
@@ -5713,7 +5728,7 @@ export default function App() {
       return false;
     }
 
-    setPoolClaimStatus(statusPrefix || "Claim or proof in progress...");
+    setPoolClaimStatus(statusPrefix || "Claim/Proof in progress...");
     const primaryProvider = getReadProviderForUrl(primaryUrl);
     const primaryProof = await proveZkPoolWithdrawWithSecrets({
       provider: primaryProvider,
@@ -5739,7 +5754,7 @@ export default function App() {
 
     if (urls.length > 1) {
       const fallbackUrl = urls[1];
-      setPoolClaimStatus("Claim or proof in progress...");
+      setPoolClaimStatus("Claim/Proof in progress...");
       const fallbackProvider = getReadProviderForUrl(fallbackUrl);
       const fallbackProof = await proveZkPoolWithdrawWithSecrets({
         provider: fallbackProvider,
@@ -5858,7 +5873,7 @@ export default function App() {
       );
     }
     setPoolZkError("");
-    setPoolClaimStatus("Claim or proof in progress...");
+    setPoolClaimStatus("Claim/Proof in progress...");
     setPoolZkStatus("Generating ZK proof (30–90s typical in browser)…");
     const primaryProof = await proveClaimWithRpcFallback({
       poolAddress,
@@ -5870,7 +5885,7 @@ export default function App() {
       nullifierHex: nullifier,
       wasmUrl: PRIVPAY_WASM_URL,
       zkeyUrl: PRIVPAY_ZKEY_URL,
-      statusPrefix: "Claim or proof in progress...",
+      statusPrefix: "Claim/Proof in progress...",
     });
     const { fullProofBytes, publicSignals } = primaryProof;
     setPoolClaimStatus("Proof ready. Submitting claim transaction...");
@@ -5882,7 +5897,7 @@ export default function App() {
         throw e;
       }
       // Retry across all configured read RPCs to bypass stale nodes / partial history indexes.
-      setPoolClaimStatus("Claim or proof in progress...");
+      setPoolClaimStatus("Claim/Proof in progress...");
       const retry = await proveClaimWithRpcFallback({
         poolAddress,
         recipient,
@@ -5893,7 +5908,7 @@ export default function App() {
         nullifierHex: nullifier,
         wasmUrl: PRIVPAY_WASM_URL,
         zkeyUrl: PRIVPAY_ZKEY_URL,
-        statusPrefix: "Claim or proof in progress...",
+        statusPrefix: "Claim/Proof in progress...",
       });
       setPoolClaimStatus("Retry proof ready. Submitting claim transaction...");
       try {
