@@ -5633,6 +5633,7 @@ export default function App() {
         contractAddress: wfn,
         callData,
         title: "Confirm privacy pool claim",
+        allowSubmittedFallback: false,
       });
       setPoolZkStatus(
         hash === "SUBMITTED" ? "Circle claim submitted." : `Circle claim confirmed. Tx ${hash}`
@@ -7408,6 +7409,7 @@ export default function App() {
     amount = "0",
     title = "Confirm in Circle",
     updateSwapQuote = false,
+    allowSubmittedFallback = true,
   }) {
     const runAction = async () => {
       console.log(`[CircleTx] Initiating: ${title} on ${contractAddress}`);
@@ -7457,7 +7459,10 @@ export default function App() {
         console.log("[CircleChallenge] Using txHash from Circle SDK callback");
       } else {
         console.log("[CircleChallenge] Polling challenge-status for tx hash...");
-        txHash = await waitForCircleTxHash(challengeId, { transactionId: data.transactionId });
+        txHash = await waitForCircleTxHash(challengeId, {
+          transactionId: data.transactionId,
+          allowSubmittedFallback,
+        });
       }
       if (!txHash) {
         throw new Error("Timeout: Transaction submitted but hash not found. Please check history.");
@@ -7624,6 +7629,7 @@ export default function App() {
     const options = typeof opts === "number" ? { maxAttempts: opts } : opts || {};
     const maxAttempts = options.maxAttempts ?? 60;
     const transactionId = options.transactionId ?? null;
+    const allowSubmittedFallback = options.allowSubmittedFallback ?? true;
     const userToken = window.localStorage.getItem("circle_user_token");
     const TERMINAL_STATES = ["COMPLETE", "CONFIRMED", "FAILED", "CANCELLED"];
     const statusUrl = () => challengeStatusUrl(challengeId, transactionId);
@@ -7665,6 +7671,11 @@ export default function App() {
             console.warn(
               "[CircleChallenge] Terminal state but no txHash after extended poll; treating as submitted."
             );
+            if (!allowSubmittedFallback) {
+              throw new Error(
+                "Circle challenge completed but no on-chain transaction hash was returned. Please verify in Circle activity and retry."
+              );
+            }
             return "SUBMITTED";
           }
         } else {
@@ -7674,6 +7685,11 @@ export default function App() {
             `[CircleChallenge] poll #${attempt + 1} non-200 status=${res.status} error=${errData?.error || "unknown"}`
           );
           if (transientFailures >= 3) {
+            if (!allowSubmittedFallback) {
+              throw new Error(
+                "Could not verify Circle challenge status after multiple attempts. Please retry claim."
+              );
+            }
             console.warn("[CircleChallenge] Repeated challenge-status failures; treating Circle action as submitted.");
             return "SUBMITTED";
           }
@@ -7684,11 +7700,19 @@ export default function App() {
           `[CircleChallenge] poll #${attempt + 1} request failed: ${err?.message || err}`
         );
         if (transientFailures >= 3) {
+          if (!allowSubmittedFallback) {
+            throw new Error(
+              "Network issues prevented Circle claim verification. Please retry."
+            );
+          }
           console.warn("[CircleChallenge] Repeated poll request failures; treating Circle action as submitted.");
           return "SUBMITTED";
         }
       }
       await new Promise((r) => setTimeout(r, 2000));
+    }
+    if (!allowSubmittedFallback) {
+      throw new Error("Timed out waiting for Circle transaction hash. Please retry.");
     }
     return "SUBMITTED";
   }
