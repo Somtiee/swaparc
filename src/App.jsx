@@ -816,6 +816,10 @@ export default function App() {
   // Prevent extra Circle calls from bad UX (users spamming buttons)
   const circleActionDepthRef = useRef(0);
   const [circleActionsBusy, setCircleActionsBusy] = useState(false);
+  // Stage label for any in-flight Circle tx (preparing / awaiting approval /
+  // submitting / confirming) shown next to Bills & Payroll buttons so users
+  // are never left staring at a blank UI while Circle sets up a challenge.
+  const [circleActionStatus, setCircleActionStatus] = useState("");
 
   const [activePreset, setActivePreset] = useState(null);
   const [network, setNetwork] = useState(null);
@@ -906,6 +910,7 @@ export default function App() {
   });
   const [billCreateError, setBillCreateError] = useState("");
   const [billCreateStatus, setBillCreateStatus] = useState("");
+  const [billCreateBusy, setBillCreateBusy] = useState(false);
   const [billRecipientInviteAddress, setBillRecipientInviteAddress] = useState("");
   const [billRecipientInviteStatus, setBillRecipientInviteStatus] = useState("");
   const [billRuntimeError, setBillRuntimeError] = useState("");
@@ -4972,6 +4977,7 @@ export default function App() {
           abiFunctionSignature: "approve(address,uint256)",
           abiParameters: [spender, ethers.MaxUint256.toString()],
           title: approvalLabel,
+          stageLabel: approvalLabel,
         });
         return;
       }
@@ -4996,6 +5002,7 @@ export default function App() {
           String(periodSeconds),
         ],
         title: `Enable recurring authorization for ${bill.name || "bill"}`,
+        stageLabel: `Enable recurring autopay for ${bill.name || "bill"}`,
       });
     } else {
       const signer = await getSigner();
@@ -5061,6 +5068,7 @@ export default function App() {
         abiFunctionSignature: "transfer(address,uint256)",
         abiParameters: [treasury, feeUnits.toString()],
         title: `Confirm PRIVPAY ${featureLabel} fee`,
+        stageLabel: `PRIVPAY ${featureLabel} fee`,
       });
       return hash;
     }
@@ -5331,6 +5339,7 @@ export default function App() {
           abiFunctionSignature: approveTx.abiFunctionSignature,
           abiParameters: approveTx.abiParameters,
           title: `Approve ${token.symbol} for stealth payments`,
+          stageLabel: `Approve ${token.symbol} for stealth payments`,
         });
       }
 
@@ -5494,6 +5503,7 @@ export default function App() {
           abiFunctionSignature: approveTx.abiFunctionSignature,
           abiParameters: approveTx.abiParameters,
           title: `Approve ${token.symbol} for privacy pool`,
+          stageLabel: `Approve ${token.symbol} for privacy pool`,
         });
       }
 
@@ -6156,7 +6166,9 @@ export default function App() {
     setBillCreateError("");
     setBillCreateStatus("");
     setBillRecipientInviteStatus("");
+    setBillCreateBusy(true);
     try {
+      setBillCreateStatus("Validating bill details…");
       const amountNum = Number(billForm.amount);
       if (!billForm.name.trim()) throw new Error("Bill name is required");
       if (!Number.isFinite(amountNum) || amountNum <= 0) {
@@ -6240,7 +6252,13 @@ export default function App() {
 
       // Register recurring schedule in backend and fail fast if automation registration fails.
       if (bill.recurring && getActiveWalletAddress()) {
+        setBillCreateStatus(
+          isCircleMode()
+            ? "Requesting one-time automation approval in your Circle wallet…"
+            : "Requesting one-time automation approval in your wallet…"
+        );
         const onchainAuthorizationId = await ensureRecurringOnchainAuthorization(bill);
+        setBillCreateStatus("Registering recurring schedule…");
         const recurringRes = await fetch("/api/payments/recurring/create", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -6304,6 +6322,9 @@ export default function App() {
       }));
     } catch (e) {
       setBillCreateError(e.message || "Failed to create bill");
+      setBillCreateStatus("");
+    } finally {
+      setBillCreateBusy(false);
     }
   }
 
@@ -6426,6 +6447,11 @@ export default function App() {
     }
     setBillBusyId(bill.id);
     try {
+      setBillRuntimeStatus(
+        isCircleMode()
+          ? `Preparing payment for "${bill.name}"… your Circle wallet will ask for approval in a moment.`
+          : `Preparing payment for "${bill.name}"…`
+      );
       const recipientWallet = String(bill.recipientWallet || "").trim();
       const usePool = isZkRoute(bill.token, recipientWallet);
       let repaired = {
@@ -6465,10 +6491,16 @@ export default function App() {
         );
       }
       const nowIso = new Date().toISOString();
+      setBillRuntimeStatus(
+        `Charging network usage fee for "${bill.name}"… please approve in your wallet.`
+      );
       const feeTxHash = await chargePrivpayUsageFee("bill");
 
       let log;
       if (usePool) {
+        setBillRuntimeStatus(
+          `Submitting private pool deposit for "${bill.name}"… please approve in your wallet.`
+        );
         const poolRes = await executePrivacyPoolPayment({
           tokenSymbol: bill.token,
           amount: bill.amount,
@@ -6500,6 +6532,9 @@ export default function App() {
           createdAt: nowIso,
         };
       } else {
+        setBillRuntimeStatus(
+          `Submitting private stealth transfer for "${bill.name}"… please approve in your wallet.`
+        );
         const { stealth, txHash, metadataHash, blockNumber, confirmedAt, payerAddress } =
           await executeStealthTokenPayment({
             tokenSymbol: bill.token,
@@ -7033,6 +7068,18 @@ export default function App() {
         return;
       }
 
+      if (source === "manual") {
+        setPayrollStatus(
+          dueEmployees.length === 1
+            ? isCircleMode()
+              ? `Preparing payroll for ${dueEmployees[0].name || "employee"}… your Circle wallet will ask for approval in a moment.`
+              : `Preparing payroll for ${dueEmployees[0].name || "employee"}…`
+            : isCircleMode()
+              ? `Preparing payroll for ${dueEmployees.length} employees… your Circle wallet will ask for approval in a moment.`
+              : `Preparing payroll for ${dueEmployees.length} employees…`
+        );
+      }
+
       const logs = [];
       const runId = `run_${crypto.randomUUID()}`;
       const paidAt = now.toISOString();
@@ -7040,6 +7087,11 @@ export default function App() {
       const invalidConfigEmployeeIds = new Set();
       for (const emp of dueEmployees) {
         try {
+          if (source === "manual") {
+            setPayrollStatus(
+              `Charging network usage fee for ${emp.name || "employee"}… please approve in your wallet.`
+            );
+          }
           const empRecipient = String(emp.recipientWallet || "").trim();
           const usePool = isZkRoute(company.token, empRecipient);
           let repaired = {
@@ -7078,6 +7130,11 @@ export default function App() {
           const feeTxHash = await chargePrivpayUsageFee("payroll");
           let row;
           if (usePool) {
+            if (source === "manual") {
+              setPayrollStatus(
+                `Submitting private pool deposit for ${emp.name || "employee"}… please approve in your wallet.`
+              );
+            }
             const poolRes = await executePrivacyPoolPayment({
               tokenSymbol: company.token,
               amount: emp.salary,
@@ -7120,6 +7177,11 @@ export default function App() {
               payrollExecution: "manual",
             };
           } else {
+            if (source === "manual") {
+              setPayrollStatus(
+                `Submitting private stealth transfer for ${emp.name || "employee"}… please approve in your wallet.`
+              );
+            }
             const {
               stealth,
               txHash,
@@ -7685,11 +7747,16 @@ export default function App() {
     callData,
     amount = "0",
     title = "Confirm in Circle",
+    stageLabel = "",
     updateSwapQuote = false,
     allowSubmittedFallback = true,
   }) {
+    const stagePrefix = stageLabel ? `${stageLabel}: ` : "";
     const runAction = async () => {
       console.log(`[CircleTx] Initiating: ${title} on ${contractAddress}`);
+      setCircleActionStatus(
+        `${stagePrefix}Preparing Circle wallet request…`
+      );
       const { userToken, encryptionKey, walletId } = requireCircleAuth();
 
       // 1. Initiate challenge on backend
@@ -7730,7 +7797,11 @@ export default function App() {
       if (!challengeId) throw new Error("No challengeId returned from backend");
 
       // 2. Prompt user for PIN/Challenge via SDK (callback often includes txHash before REST does)
+      setCircleActionStatus(
+        `${stagePrefix}Awaiting your approval in the Circle wallet prompt…`
+      );
       const sdkChallengeResult = await executeCircleChallengeViaPrompt(challengeId, title);
+      setCircleActionStatus(`${stagePrefix}Submitting transaction to Arc…`);
       let txHash = extractCircleSdkTxHash(sdkChallengeResult);
       if (txHash) {
         console.log("[CircleChallenge] Using txHash from Circle SDK callback");
@@ -7749,6 +7820,7 @@ export default function App() {
 
       // 4. Best-effort confirmation only. Do not block UX for long RPC/indexer delays.
       if (txHash !== "SUBMITTED") {
+        setCircleActionStatus(`${stagePrefix}Waiting for on-chain confirmation…`);
         if (updateSwapQuote) {
           setQuote("Transaction submitted. Verifying confirmation...");
         }
@@ -7759,6 +7831,7 @@ export default function App() {
         }
       } else {
         // Challenge is complete but Circle did not surface a hash yet.
+        setCircleActionStatus(`${stagePrefix}Transaction submitted, indexing…`);
         if (updateSwapQuote) {
           setQuote("Transaction submitted...");
         }
@@ -7783,7 +7856,9 @@ export default function App() {
           0,
           circleActionDepthRef.current - 1
         );
-        setCircleActionsBusy(circleActionDepthRef.current > 0);
+        const stillBusy = circleActionDepthRef.current > 0;
+        setCircleActionsBusy(stillBusy);
+        if (!stillBusy) setCircleActionStatus("");
       });
 
     circleActionQueueRef.current = queued;
@@ -11014,8 +11089,16 @@ export default function App() {
                               server while you are offline.
                             </span>
                           )}
-                          <button className="primaryBtn billsCreateBtn" onClick={createBill}>
-                            {editingBillId ? "Update Bill" : "Create Bill"}
+                          <button
+                            className="primaryBtn billsCreateBtn"
+                            onClick={createBill}
+                            disabled={billCreateBusy}
+                          >
+                            {billCreateBusy
+                              ? "Working…"
+                              : editingBillId
+                                ? "Update Bill"
+                                : "Create Bill"}
                           </button>
                           {editingBillId && (
                             <button
@@ -11045,12 +11128,18 @@ export default function App() {
                           <p className="quote billsOk">{billRecipientInviteStatus}</p>
                         )}
                         {billCreateStatus && <p className="quote billsOk">{billCreateStatus}</p>}
+                        {circleActionsBusy && circleActionStatus && (
+                          <p className="quote billsOk">{circleActionStatus}</p>
+                        )}
                       </div>
 
                       <div className="neon-card billsListCard">
                         <h3 className="billsSectionTitle">Upcoming</h3>
                         {billRuntimeError && <p className="quote billsErr">{billRuntimeError}</p>}
                         {billRuntimeStatus && <p className="quote billsOk">{billRuntimeStatus}</p>}
+                        {circleActionsBusy && circleActionStatus && !billCreateStatus && (
+                          <p className="quote billsOk">{circleActionStatus}</p>
+                        )}
                         {(() => {
                           const sortedBills = bills
                             .slice()
@@ -11810,6 +11899,9 @@ export default function App() {
                           <p className="quote billsOk">{payrollRecipientInviteStatus}</p>
                         )}
                         {payrollStatus && <p className="quote billsOk">{payrollStatus}</p>}
+                        {circleActionsBusy && circleActionStatus && (
+                          <p className="quote billsOk">{circleActionStatus}</p>
+                        )}
                       </div>
                       </div>
                       <div className="payrollRightPane">
