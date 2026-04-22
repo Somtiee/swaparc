@@ -2021,28 +2021,86 @@ export default function App() {
       const serverClaimHistory = Array.isArray(j.state.claimHistory)
         ? j.state.claimHistory
         : [];
+      const serverResolvedBillIds = Array.isArray(j.state.resolvedBillIds)
+        ? j.state.resolvedBillIds
+        : [];
+      const serverResolvedPayrollIds = Array.isArray(j.state.resolvedPayrollIds)
+        ? j.state.resolvedPayrollIds
+        : [];
 
-      setBillHistory((prev) => {
-        const ids = new Set((prev || []).map((h) => h.id).filter(Boolean));
-        const add = serverBillHistory.filter((h) => h?.id && !ids.has(h.id));
-        if (!add.length) return prev;
-        return [...add, ...prev].sort(
+      // Upsert: update existing entries (e.g. pick up poolClaimedAt set by
+      // another device) and append new ones.
+      const upsertById = (prev, incoming, dateKey) => {
+        const byId = new Map((prev || []).map((h) => [h.id, h]));
+        let changed = false;
+        for (const srv of incoming) {
+          if (!srv?.id) continue;
+          const local = byId.get(srv.id);
+          if (!local) {
+            byId.set(srv.id, srv);
+            changed = true;
+            continue;
+          }
+          // Merge preserving locally-created fields, but let server
+          // override claim/status fields that progress forward.
+          const next = { ...local };
+          let touched = false;
+          if (srv.poolClaimedAt && !local.poolClaimedAt) {
+            next.poolClaimedAt = srv.poolClaimedAt;
+            touched = true;
+          }
+          if (srv.txHash && srv.txHash !== "SUBMITTED" && !local.txHash) {
+            next.txHash = srv.txHash;
+            touched = true;
+          }
+          if (srv.status && srv.status !== local.status) {
+            next.status = srv.status;
+            touched = true;
+          }
+          if (touched) {
+            byId.set(srv.id, next);
+            changed = true;
+          }
+        }
+        if (!changed) return prev;
+        return Array.from(byId.values()).sort(
           (a, b) =>
-            new Date(b.createdAt || 0).getTime() -
-            new Date(a.createdAt || 0).getTime()
+            new Date(b[dateKey] || 0).getTime() -
+            new Date(a[dateKey] || 0).getTime()
         );
-      });
+      };
 
-      setPoolClaimHistory((prev) => {
-        const ids = new Set((prev || []).map((h) => h.id).filter(Boolean));
-        const add = serverClaimHistory.filter((h) => h?.id && !ids.has(h.id));
-        if (!add.length) return prev;
-        return [...add, ...prev].sort(
-          (a, b) =>
-            new Date(b.claimedAt || 0).getTime() -
-            new Date(a.claimedAt || 0).getTime()
-        );
-      });
+      setBillHistory((prev) => upsertById(prev, serverBillHistory, "createdAt"));
+      setPoolClaimHistory((prev) =>
+        upsertById(prev, serverClaimHistory, "claimedAt")
+      );
+
+      if (serverResolvedBillIds.length) {
+        setResolvedBillHistoryIds((prev) => {
+          const next = new Set(prev);
+          let changed = false;
+          for (const id of serverResolvedBillIds) {
+            if (!next.has(id)) {
+              next.add(id);
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      }
+      if (serverResolvedPayrollIds.length) {
+        setResolvedPayrollHistoryIds((prev) => {
+          const next = new Set(prev);
+          let changed = false;
+          for (const id of serverResolvedPayrollIds) {
+            if (!next.has(id)) {
+              next.add(id);
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      }
     } catch {
       // ignore; local storage remains fallback
     } finally {
@@ -4565,7 +4623,47 @@ export default function App() {
         const serverHistory = Array.isArray(s.history) ? s.history : [];
         setPayrollCompanies(serverCompanies);
         setPayrollEmployees(serverEmployees);
-        setPayrollHistory(serverHistory);
+        setPayrollHistory((prev) => {
+          if (!Array.isArray(prev) || !prev.length) return serverHistory;
+          const byId = new Map(prev.map((h) => [h.id, h]));
+          for (const srv of serverHistory) {
+            if (!srv?.id) continue;
+            const local = byId.get(srv.id);
+            if (!local) {
+              byId.set(srv.id, srv);
+              continue;
+            }
+            const next = { ...local };
+            if (srv.poolClaimedAt && !local.poolClaimedAt) {
+              next.poolClaimedAt = srv.poolClaimedAt;
+            }
+            if (srv.txHash && srv.txHash !== "SUBMITTED" && !local.txHash) {
+              next.txHash = srv.txHash;
+            }
+            if (srv.status && srv.status !== local.status) {
+              next.status = srv.status;
+            }
+            byId.set(srv.id, next);
+          }
+          // Keep only entries that exist on server (deletes propagate), plus
+          // very-recent local ones that haven't synced yet (< 30s old).
+          const serverIds = new Set(serverHistory.map((h) => h.id));
+          const now = Date.now();
+          const kept = [];
+          for (const h of byId.values()) {
+            if (serverIds.has(h.id)) {
+              kept.push(h);
+            } else {
+              const created = new Date(h.createdAt || 0).getTime();
+              if (now - created < 30_000) kept.push(h);
+            }
+          }
+          return kept.sort(
+            (a, b) =>
+              new Date(b.createdAt || 0).getTime() -
+              new Date(a.createdAt || 0).getTime()
+          );
+        });
       } catch {
         // keep local state fallback
       }
@@ -4606,8 +4704,25 @@ export default function App() {
         }
       }
     })();
+    // Periodic refresh so claim/resolve state stays consistent across devices
+    // (e.g. laptop marks claimed → rabby picks it up within ~25s without a
+    // hard refresh).
+    const interval = setInterval(() => {
+      if (cancelled) return;
+      mergePrivpayHistorySnapshotFromServer().catch(() => {});
+      mergeBillsSnapshotFromServer().catch(() => {});
+    }, 25_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && !cancelled) {
+        mergePrivpayHistorySnapshotFromServer().catch(() => {});
+        mergeBillsSnapshotFromServer().catch(() => {});
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [authMode, address, circleWalletReady, circleWallet?.address]);
 
@@ -4665,6 +4780,8 @@ export default function App() {
           state: {
             billHistory: billHistory.slice(0, 500),
             claimHistory: poolClaimHistory.slice(0, 500),
+            resolvedBillIds: Array.from(resolvedBillHistoryIds),
+            resolvedPayrollIds: Array.from(resolvedPayrollHistoryIds),
           },
         }),
       }).catch(() => {
@@ -4675,6 +4792,8 @@ export default function App() {
   }, [
     billHistory,
     poolClaimHistory,
+    resolvedBillHistoryIds,
+    resolvedPayrollHistoryIds,
     authMode,
     address,
     circleWalletReady,

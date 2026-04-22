@@ -23,7 +23,24 @@ export default async function handler(req, res) {
     }
 
     if (!state) {
-      state = { billHistory: [], claimHistory: [] };
+      state = {
+        billHistory: [],
+        claimHistory: [],
+        resolvedBillIds: [],
+        resolvedPayrollIds: [],
+      };
+    } else {
+      state = {
+        billHistory: Array.isArray(state.billHistory) ? state.billHistory : [],
+        claimHistory: Array.isArray(state.claimHistory) ? state.claimHistory : [],
+        resolvedBillIds: Array.isArray(state.resolvedBillIds)
+          ? state.resolvedBillIds
+          : [],
+        resolvedPayrollIds: Array.isArray(state.resolvedPayrollIds)
+          ? state.resolvedPayrollIds
+          : [],
+        updatedAt: state.updatedAt,
+      };
     }
 
     return res.status(200).json({ ok: true, state });
