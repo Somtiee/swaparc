@@ -12374,12 +12374,29 @@ export default function App() {
                                   );
                                   const claimTxHash =
                                     r.txHash && r.txHash !== "SUBMITTED" ? r.txHash : null;
+                                  const payloadTokenAddress = normalizeAddress(
+                                    payload?.tokenAddress || ""
+                                  );
+                                  const payloadTokenMeta = payloadTokenAddress
+                                    ? tokenByAddress(payloadTokenAddress)
+                                    : null;
+                                  const payloadTokenSymbol = String(
+                                    payload?.tokenSymbol ||
+                                      payload?.token ||
+                                      payloadTokenMeta?.symbol ||
+                                      ""
+                                  )
+                                    .trim()
+                                    .toUpperCase();
                                   setPoolClaimHistory((prev) => [
                                     {
                                       id: `claim_${crypto.randomUUID()}`,
                                       txHash: claimTxHash,
                                       amount: String(payload?.amount || payload?.amountWei || "—"),
-                                      token: "USDC",
+                                      token:
+                                        payloadTokenSymbol ||
+                                        (payloadTokenAddress ? shortAddr(payloadTokenAddress) : "—"),
+                                      tokenAddress: payloadTokenAddress || null,
                                       claimedAt: new Date().toISOString(),
                                     },
                                     ...prev,
@@ -12458,7 +12475,16 @@ export default function App() {
                                   <li className="historyItem" key={h.id}>
                                     <div className="historyLeft">
                                       <div>
-                                        <strong>{h.amount} {h.token}</strong>
+                                        {(() => {
+                                          const mapped =
+                                            h?.tokenAddress ? tokenByAddress(h.tokenAddress)?.symbol : "";
+                                          const displayToken = mapped || h?.token || "—";
+                                          return (
+                                            <strong>
+                                              {h.amount} {displayToken}
+                                            </strong>
+                                          );
+                                        })()}
                                       </div>
                                       <div className="muted">
                                         {h.claimedAt ? new Date(h.claimedAt).toLocaleString() : "—"}
