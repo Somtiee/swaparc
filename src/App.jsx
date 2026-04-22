@@ -5338,8 +5338,8 @@ export default function App() {
           contractAddress: approveTx.contractAddress,
           abiFunctionSignature: approveTx.abiFunctionSignature,
           abiParameters: approveTx.abiParameters,
-          title: `Approve ${token.symbol} for stealth payments`,
-          stageLabel: `Approve ${token.symbol} for stealth payments`,
+          title: `Approve ${token.symbol} for PRIVPAY`,
+          stageLabel: `Approve ${token.symbol} for PRIVPAY`,
         });
       }
 
@@ -5502,8 +5502,8 @@ export default function App() {
           contractAddress: approveTx.contractAddress,
           abiFunctionSignature: approveTx.abiFunctionSignature,
           abiParameters: approveTx.abiParameters,
-          title: `Approve ${token.symbol} for privacy pool`,
-          stageLabel: `Approve ${token.symbol} for privacy pool`,
+          title: `Approve ${token.symbol} for PRIVPAY`,
+          stageLabel: `Approve ${token.symbol} for PRIVPAY`,
         });
       }
 
@@ -6499,7 +6499,7 @@ export default function App() {
       let log;
       if (usePool) {
         setBillRuntimeStatus(
-          `Submitting private pool deposit for "${bill.name}"… please approve in your wallet.`
+          `Submitting private payment for "${bill.name}"… please approve in your wallet.`
         );
         const poolRes = await executePrivacyPoolPayment({
           tokenSymbol: bill.token,
@@ -6533,7 +6533,7 @@ export default function App() {
         };
       } else {
         setBillRuntimeStatus(
-          `Submitting private stealth transfer for "${bill.name}"… please approve in your wallet.`
+          `Submitting private payment for "${bill.name}"… please approve in your wallet.`
         );
         const { stealth, txHash, metadataHash, blockNumber, confirmedAt, payerAddress } =
           await executeStealthTokenPayment({
@@ -7132,7 +7132,7 @@ export default function App() {
           if (usePool) {
             if (source === "manual") {
               setPayrollStatus(
-                `Submitting private pool deposit for ${emp.name || "employee"}… please approve in your wallet.`
+                `Submitting private payment for ${emp.name || "employee"}… please approve in your wallet.`
               );
             }
             const poolRes = await executePrivacyPoolPayment({
@@ -7179,7 +7179,7 @@ export default function App() {
           } else {
             if (source === "manual") {
               setPayrollStatus(
-                `Submitting private stealth transfer for ${emp.name || "employee"}… please approve in your wallet.`
+                `Submitting private payment for ${emp.name || "employee"}… please approve in your wallet.`
               );
             }
             const {
