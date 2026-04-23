@@ -5829,7 +5829,17 @@ export default function App() {
       const tx = await poolWrite.getFunction(
         "withdraw(bytes,bytes32,address,uint256)"
       )(fullProofBytes, parsed.nullifierHash, parsed.recipient, parsed.amount);
-      const rcpt = await tx.wait();
+      // Do not hang indefinitely on slow/indexing nodes after user signs.
+      const rcpt = await Promise.race([
+        tx.wait(),
+        new Promise((resolve) => setTimeout(() => resolve(null), 75000)),
+      ]);
+      if (rcpt === null) {
+        setPoolZkStatus(
+          `Claim submitted. Tx ${tx.hash}. Confirmation is taking longer than usual; check explorer/history.`
+        );
+        return { txHash: tx.hash, viaRelay: false };
+      }
       if (rcpt?.status !== 1) throw new Error("Claim transaction was not confirmed.");
       setPoolZkStatus(`ZK claim confirmed. Tx ${tx.hash}`);
       return { txHash: tx.hash, viaRelay: false };
@@ -7943,7 +7953,20 @@ export default function App() {
     setCircleExecLoading(true);
     setCircleExecError("");
     try {
-      const challengeResult = await executeCircleChallenge(circleExecPrompt.challengeId);
+      const challengeResult = await Promise.race([
+        executeCircleChallenge(circleExecPrompt.challengeId),
+        new Promise((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  "Circle confirmation timed out while waiting for wallet response. Please retry."
+                )
+              ),
+            90000
+          )
+        ),
+      ]);
       const { resolve } = circleExecResolverRef.current;
       circleExecResolverRef.current = null;
       setCircleExecPrompt(null);
@@ -7951,8 +7974,14 @@ export default function App() {
       circlePromptInFlightRef.current = false;
       resolve(challengeResult);
     } catch (e) {
+      const message = e?.message || String(e);
+      if (circleExecResolverRef.current?.reject) {
+        circleExecResolverRef.current.reject(new Error(message));
+      }
+      circleExecResolverRef.current = null;
+      setCircleExecPrompt(null);
       setCircleExecLoading(false);
-      setCircleExecError(e?.message || String(e));
+      setCircleExecError(message);
       circlePromptInFlightRef.current = false;
     }
   }
@@ -11466,6 +11495,8 @@ export default function App() {
                         </div>
                         {(() => {
                           const scopeId = selectedCompanyId || "";
+                          const selectedCompanyName =
+                            payrollCompanies.find((c) => c.id === scopeId)?.name || "";
                           const scopedEmployees = payrollEmployees.filter((e) =>
                             employeeMatchesPayrollCompanyFilter(e, scopeId)
                           );
@@ -11495,7 +11526,10 @@ export default function App() {
                                 className={`payrollKpiCard payrollKpiAction ${payrollManageView === "employees" ? "active" : ""}`}
                                 onClick={() => setPayrollManageView("employees")}
                               >
-                                <span className="muted">Employees</span>
+                                <span className="muted">
+                                  Employees
+                                  {scopeId ? ` (${selectedCompanyName || "Selected"})` : " (All)"}
+                                </span>
                                 <strong>{scopedEmployees.length}</strong>
                               </button>
                               <div className="payrollKpiCard">
@@ -12062,28 +12096,13 @@ export default function App() {
                                           <button
                                             type="button"
                                             className="secondaryBtn billsPayBtn"
-                                            title={
-                                              e.status === "active"
-                                                ? "Pause: no Pay Now or scheduled/recurring pay for this employee until you Resume."
-                                                : "Resume: active employees can be paid again on schedule."
-                                            }
-                                            onClick={() =>
-                                              setPayrollEmployees((prev) =>
-                                                prev.map((x) =>
-                                                  x.id === e.id
-                                                    ? {
-                                                        ...x,
-                                                        status:
-                                                          x.status === "active"
-                                                            ? "paused"
-                                                            : "active",
-                                                      }
-                                                    : x
-                                                )
-                                              )
-                                            }
+                                            title="Delete this employee from payroll schedules and upcoming runs."
+                                            disabled={payrollBusyEmployeeId === e.id}
+                                            onClick={() => {
+                                              void deleteEmployee(e.id);
+                                            }}
                                           >
-                                            {e.status === "active" ? "Pause" : "Resume"}
+                                            Delete
                                           </button>
                                           <button
                                             type="button"
@@ -12424,6 +12443,12 @@ export default function App() {
                                   } else if (/InvalidProof|0x09bde339/i.test(msg)) {
                                     setPoolClaimError(
                                       "On-chain proof check failed: browser proving key must match deployed verifier — redeploy pool stack after changing zk artifacts, or refresh site files from the same build you deployed."
+                                    );
+                                  } else if (
+                                    /too many requests|apolloerror:\s*429|rate.?limit/i.test(msg)
+                                  ) {
+                                    setPoolClaimError(
+                                      "Claim provider is rate-limiting requests right now. Please wait 20-60 seconds and retry once."
                                     );
                                   } else if (
                                     /root still not recognized|could not verify claim proof root|root mismatch|known historical root|root is not recognized on this rpc|from_block is too recent/i.test(
