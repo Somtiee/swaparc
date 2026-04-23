@@ -5896,6 +5896,36 @@ export default function App() {
     const poolWrite = new ethers.Contract(wfn, PRIVACY_POOL_ABI, signer);
     try {
       const readProvider = getReadProvider();
+
+      // Pre-submit nonce gap detection. If the wallet's pending nonce
+      // is significantly ahead of the on-chain confirmed nonce, there
+      // are stuck/dropped txs in the mempool that would block this
+      // claim from ever mining. Skip the wallet broadcast entirely and
+      // go straight to the server relay (different EOA, no nonce gap).
+      try {
+        const addr = await signer.getAddress();
+        const [latestN, pendingN] = await Promise.all([
+          readProvider.getTransactionCount(addr, "latest").catch(() => null),
+          signer.provider
+            ? signer.provider.getTransactionCount(addr, "pending").catch(() => null)
+            : Promise.resolve(null),
+        ]);
+        if (
+          Number.isFinite(latestN) &&
+          Number.isFinite(pendingN) &&
+          pendingN - latestN > 2
+        ) {
+          throw new Error(
+            `NONCE_GAP_PRE:gap=${pendingN - latestN}`
+          );
+        }
+      } catch (preErr) {
+        if (String(preErr?.message || "").startsWith("NONCE_GAP_PRE:")) {
+          throw preErr;
+        }
+        // ignore non-detection errors; keep normal flow
+      }
+
       const overrides = await computeFastClaimOverrides(readProvider);
       try {
         const est = await poolWrite
@@ -5914,13 +5944,17 @@ export default function App() {
         "withdraw(bytes,bytes32,address,uint256)"
       )(fullProofBytes, parsed.nullifierHash, parsed.recipient, parsed.amount, overrides);
 
-      // Verify the wallet actually broadcast the tx to the Arc network.
-      // Some wallet extensions (misconfigured RPC, flaky extension state)
-      // return a hash but never propagate the signed tx to the public
-      // mempool. If that happens the claim would sit as "pending" forever
-      // while nothing exists on-chain. Detect this fast so the user can
-      // retry from a different device/wallet — the nullifier is NOT spent
-      // because the tx never broadcast.
+      // Verify the wallet actually broadcast the tx AND that the tx
+      // is not stuck behind a nonce gap. Two failure modes that look
+      // like "pending forever":
+      //   1. Wallet returns a hash but never propagates to the public
+      //      mempool (bad custom RPC, extension glitch).
+      //   2. Tx is on mempool but its nonce is 3+ higher than the
+      //      sender's confirmed on-chain nonce — earlier txs are
+      //      stuck/dropped and this one can NEVER mine until the gap
+      //      clears. Happens on wallets with a polluted pending queue.
+      // In either case we route to the server relay which uses a
+      // different EOA and is immune to the user's nonce/mempool state.
       const verifyBroadcast = async () => {
         const deadline = Date.now() + 30000;
         let lastSeen = null;
@@ -5929,30 +5963,56 @@ export default function App() {
             const t = await readProvider.getTransaction(tx.hash);
             if (t && (t.hash || t.blockNumber != null)) {
               lastSeen = t;
-              return { seen: true, tx: t };
+              // Check for nonce gap. On-chain mined nonce vs tx.nonce.
+              try {
+                const onChainNonce = await readProvider.getTransactionCount(
+                  t.from,
+                  "latest"
+                );
+                const txNonce =
+                  typeof t.nonce === "number" ? t.nonce : Number(t.nonce);
+                if (
+                  Number.isFinite(onChainNonce) &&
+                  Number.isFinite(txNonce) &&
+                  txNonce - onChainNonce > 2
+                ) {
+                  return {
+                    seen: true,
+                    stuck: true,
+                    gap: txNonce - onChainNonce,
+                    tx: t,
+                  };
+                }
+              } catch {
+                // If we can't read nonce, don't block; treat as seen-ok
+              }
+              return { seen: true, stuck: false, tx: t };
             }
           } catch {
             // ignore transient RPC errors
           }
           await new Promise((r) => setTimeout(r, 3000));
         }
-        return { seen: false, tx: lastSeen };
+        return { seen: false, stuck: false, tx: lastSeen };
       };
 
       // Race tx.wait, broadcast-verify, and a 75s hard timeout.
       const raceResult = await Promise.race([
         tx.wait().then((r) => ({ kind: "receipt", rcpt: r })),
-        verifyBroadcast().then((v) =>
-          v.seen
-            ? { kind: "broadcast_ok" }
-            : { kind: "broadcast_missing" }
-        ),
+        verifyBroadcast().then((v) => {
+          if (!v.seen) return { kind: "broadcast_missing" };
+          if (v.stuck) return { kind: "nonce_gap", gap: v.gap };
+          return { kind: "broadcast_ok" };
+        }),
         new Promise((resolve) =>
           setTimeout(() => resolve({ kind: "timeout" }), 75000)
         ),
       ]);
 
-      if (raceResult.kind === "broadcast_missing") {
+      if (
+        raceResult.kind === "broadcast_missing" ||
+        raceResult.kind === "nonce_gap"
+      ) {
         // Wallet returned a hash but the Arc network never saw the tx.
         // Instead of failing the user outright, auto-fallback to the
         // server relay path: ask for an EIP-712 signature and have our
@@ -5961,9 +6021,11 @@ export default function App() {
         // with a valid ZK proof can call it), so this is cryptographically
         // identical — the nullifier protects against double-spend.
         try {
-          setPoolZkStatus(
-            "Your wallet didn't broadcast — using our server relay to submit the claim. Please sign the relay authorization when prompted."
-          );
+          const diagnosis =
+            raceResult.kind === "nonce_gap"
+              ? `Your wallet has a stuck transaction queue (nonce gap of ${raceResult.gap}). This claim can't mine until that clears. Routing via our server relay instead — please sign the relay authorization.`
+              : "Your wallet didn't broadcast — using our server relay to submit the claim. Please sign the relay authorization when prompted.";
+          setPoolZkStatus(diagnosis);
           const relaySig = await signPrivpayRelayWithdraw(signer, {
             poolAddress: wfn,
             nullifierHash: parsed.nullifierHash,
@@ -6017,6 +6079,52 @@ export default function App() {
       );
       return { txHash: tx.hash, viaRelay: false, pending: true };
     } catch (e) {
+      // Pre-submit nonce gap detection routes straight to the server relay.
+      const msg = String(e?.message || "");
+      if (msg.startsWith("NONCE_GAP_PRE:")) {
+        const gap = msg.split("gap=")[1] || "?";
+        try {
+          setPoolZkStatus(
+            `Your wallet has a stuck pending-tx queue (gap of ${gap}). Skipping wallet broadcast and claiming via our server relay — please sign the relay authorization.`
+          );
+          const relaySig = await signPrivpayRelayWithdraw(signer, {
+            poolAddress: wfn,
+            nullifierHash: parsed.nullifierHash,
+            recipient: parsed.recipient,
+            amountWei: parsed.amount,
+            chainIdDec: ARC_CHAIN_ID_DEC,
+          });
+          setPoolZkStatus("Submitting claim via server relay…");
+          const rr = await fetch("/api/privpay/privacy-pool-relay", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "withdraw",
+              poolAddress: wfn,
+              proof: ethers.hexlify(fullProofBytes),
+              nullifierHash: parsed.nullifierHash,
+              recipient: parsed.recipient,
+              amount: parsed.amount.toString(),
+              deadline: relaySig.deadline,
+              signature: relaySig.signature,
+            }),
+          });
+          const rj = await rr.json().catch(() => ({}));
+          if (!rr.ok || !rj?.ok) {
+            throw new Error(
+              rj?.error ||
+                "Relay submission failed — server could not broadcast the claim."
+            );
+          }
+          setPoolZkStatus(`Relay claim confirmed. Tx ${rj.txHash}`);
+          return { txHash: rj.txHash, viaRelay: true, pending: false };
+        } catch (relayErr) {
+          const relayMsg = relayErr?.message || "Server relay fallback failed.";
+          throw new Error(
+            `BROADCAST_FAILED: Your wallet has stuck pending transactions (nonce gap of ${gap}) and the server relay fallback failed (${relayMsg}). Clear pending/activity in your wallet settings and retry, or try from a different wallet/device.`
+          );
+        }
+      }
       const decoded = extractEthersRevertReason(e);
       throw decoded ? new Error(decoded) : e;
     }
@@ -6279,6 +6387,42 @@ export default function App() {
           status: "failed",
           failureReason: "not_broadcast",
         });
+        continue;
+      }
+      // Nonce gap detection: tx is on some mempool but sender's on-chain
+      // nonce is far below the tx nonce. Won't ever mine unless the gap
+      // fills, which typically requires a wallet reset on the user's
+      // side. Flag it so the UI shows an actionable error after the
+      // grace period.
+      if (anyProviderSawTx && age > ORPHAN_GRACE_MS) {
+        try {
+          let stuckByNonce = false;
+          for (const prov of providers) {
+            const t = await prov.getTransaction(h.txHash).catch(() => null);
+            if (!t || t.blockNumber != null) continue;
+            const onChainNonce = await prov
+              .getTransactionCount(t.from, "latest")
+              .catch(() => null);
+            const txNonce =
+              typeof t.nonce === "number" ? t.nonce : Number(t.nonce);
+            if (
+              Number.isFinite(onChainNonce) &&
+              Number.isFinite(txNonce) &&
+              txNonce - onChainNonce > 2
+            ) {
+              stuckByNonce = true;
+              break;
+            }
+          }
+          if (stuckByNonce) {
+            updates.set(h.id, {
+              status: "failed",
+              failureReason: "nonce_gap",
+            });
+          }
+        } catch {
+          // leave as pending on RPC errors
+        }
       }
     }
 
@@ -12728,9 +12872,15 @@ export default function App() {
                                   const msg = extractEthersRevertReason(e) || e?.message || String(e);
                                   setPoolClaimStatus("");
                                   if (/BROADCAST_FAILED/i.test(msg)) {
-                                    setPoolClaimError(
-                                      "Your wallet signed the claim but the transaction did not reach the Arc network. This is a wallet/network issue on this device (custom RPC, offline, or extension glitch). No funds were spent — please retry, or try a different wallet or device."
-                                    );
+                                    if (/nonce gap|stuck pending/i.test(msg)) {
+                                      setPoolClaimError(
+                                        "Your wallet has stuck pending transactions blocking this claim (nonce gap). In your wallet extension, go to Settings → Advanced → Clear Activity/Reset Account, then retry. Or claim from a different wallet or device. No funds were spent."
+                                      );
+                                    } else {
+                                      setPoolClaimError(
+                                        "Your wallet signed the claim but the transaction did not reach the Arc network. This is a wallet/network issue on this device (custom RPC, offline, or extension glitch). No funds were spent — please retry, or try a different wallet or device."
+                                      );
+                                    }
                                   } else if (
                                     /already claimed|nullifier spent|NullifierSpent|this payment was already claimed/i.test(
                                       msg
@@ -12821,11 +12971,14 @@ export default function App() {
                                         h.failureReason === "not_broadcast"
                                           ? " • wallet did not broadcast — retry"
                                           : h.status === "failed" &&
-                                              h.failureReason === "reverted"
-                                            ? " • reverted on-chain"
-                                            : h.status === "failed"
-                                              ? " • failed"
-                                              : ""}
+                                              h.failureReason === "nonce_gap"
+                                            ? " • stuck behind pending wallet txs — retry"
+                                            : h.status === "failed" &&
+                                                h.failureReason === "reverted"
+                                              ? " • reverted on-chain"
+                                              : h.status === "failed"
+                                                ? " • failed"
+                                                : ""}
                                       </div>
                                     </div>
                                     <div className="historyRight">
