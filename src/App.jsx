@@ -5955,41 +5955,97 @@ export default function App() {
       //      clears. Happens on wallets with a polluted pending queue.
       // In either case we route to the server relay which uses a
       // different EOA and is immune to the user's nonce/mempool state.
+      //
+      // We check ALL configured read RPCs, not just one, because the
+      // wallet extension may broadcast to its own configured RPC while
+      // our default read provider might be a different node that
+      // hasn't seen it yet. If ANY of our RPCs sees the tx, it's fine.
       const verifyBroadcast = async () => {
+        const verifyUrls =
+          Array.isArray(CLAIM_READ_RPC_URLS) && CLAIM_READ_RPC_URLS.length
+            ? CLAIM_READ_RPC_URLS
+            : [ARC_PUBLIC_RPC];
+        const verifyProviders = [];
+        for (const url of verifyUrls) {
+          try {
+            verifyProviders.push(getReadProviderForUrl(url));
+          } catch {
+            // skip unreachable provider
+          }
+        }
+        if (verifyProviders.length === 0) verifyProviders.push(readProvider);
+
+        // Snapshot the sender's on-chain nonce at send-time. If the
+        // on-chain nonce advances past tx.nonce during the verify
+        // window, the tx is mined somewhere even if getTransaction is
+        // returning null on slow/stale RPCs.
+        let fromAddr = null;
+        let baseNonce = null;
+        try {
+          fromAddr = await signer.getAddress();
+          baseNonce = await readProvider.getTransactionCount(
+            fromAddr,
+            "latest"
+          );
+        } catch {
+          /* ignore */
+        }
+
         const deadline = Date.now() + 30000;
         let lastSeen = null;
         while (Date.now() < deadline) {
-          try {
-            const t = await readProvider.getTransaction(tx.hash);
-            if (t && (t.hash || t.blockNumber != null)) {
-              lastSeen = t;
-              // Check for nonce gap. On-chain mined nonce vs tx.nonce.
-              try {
-                const onChainNonce = await readProvider.getTransactionCount(
-                  t.from,
-                  "latest"
-                );
-                const txNonce =
-                  typeof t.nonce === "number" ? t.nonce : Number(t.nonce);
-                if (
-                  Number.isFinite(onChainNonce) &&
-                  Number.isFinite(txNonce) &&
-                  txNonce - onChainNonce > 2
-                ) {
-                  return {
-                    seen: true,
-                    stuck: true,
-                    gap: txNonce - onChainNonce,
-                    tx: t,
-                  };
+          for (const prov of verifyProviders) {
+            try {
+              const t = await prov.getTransaction(tx.hash);
+              if (t && (t.hash || t.blockNumber != null)) {
+                lastSeen = t;
+                try {
+                  const onChainNonce = await prov.getTransactionCount(
+                    t.from,
+                    "latest"
+                  );
+                  const txNonce =
+                    typeof t.nonce === "number" ? t.nonce : Number(t.nonce);
+                  if (
+                    Number.isFinite(onChainNonce) &&
+                    Number.isFinite(txNonce) &&
+                    txNonce - onChainNonce > 2
+                  ) {
+                    return {
+                      seen: true,
+                      stuck: true,
+                      gap: txNonce - onChainNonce,
+                      tx: t,
+                    };
+                  }
+                } catch {
+                  /* if nonce read fails, treat as seen-ok */
                 }
-              } catch {
-                // If we can't read nonce, don't block; treat as seen-ok
+                return { seen: true, stuck: false, tx: t };
               }
-              return { seen: true, stuck: false, tx: t };
+            } catch {
+              /* ignore transient RPC errors */
             }
-          } catch {
-            // ignore transient RPC errors
+          }
+          // If the sender's confirmed nonce advanced beyond the tx's
+          // nonce, the tx or a replacement with the same nonce has
+          // already mined. That counts as broadcast-ok.
+          if (
+            fromAddr &&
+            Number.isFinite(baseNonce) &&
+            typeof tx.nonce === "number"
+          ) {
+            try {
+              const nowNonce = await readProvider.getTransactionCount(
+                fromAddr,
+                "latest"
+              );
+              if (Number.isFinite(nowNonce) && nowNonce > tx.nonce) {
+                return { seen: true, stuck: false, tx: null };
+              }
+            } catch {
+              /* ignore */
+            }
           }
           await new Promise((r) => setTimeout(r, 3000));
         }
@@ -12872,9 +12928,43 @@ export default function App() {
                                   const msg = extractEthersRevertReason(e) || e?.message || String(e);
                                   setPoolClaimStatus("");
                                   if (/BROADCAST_FAILED/i.test(msg)) {
+                                    // Pull the actual relay error out of the
+                                    // BROADCAST_FAILED wrapper so the user sees
+                                    // something actionable instead of a generic
+                                    // wallet/network message.
+                                    const relayMatch = msg.match(
+                                      /relay fallback (?:also )?failed \(([^)]+)\)/i
+                                    );
+                                    const relayReason = relayMatch
+                                      ? relayMatch[1].trim()
+                                      : "";
                                     if (/nonce gap|stuck pending/i.test(msg)) {
                                       setPoolClaimError(
                                         "Your wallet has stuck pending transactions blocking this claim (nonce gap). In your wallet extension, go to Settings → Advanced → Clear Activity/Reset Account, then retry. Or claim from a different wallet or device. No funds were spent."
+                                      );
+                                    } else if (
+                                      /relay not configured/i.test(relayReason)
+                                    ) {
+                                      setPoolClaimError(
+                                        "Claim fallback unavailable: server relayer is not configured for this deployment. Please retry from a device/wallet whose RPC is working. No funds were spent."
+                                      );
+                                    } else if (
+                                      /pool not allowed|allowlist/i.test(
+                                        relayReason
+                                      )
+                                    ) {
+                                      setPoolClaimError(
+                                        "Claim fallback blocked: this pool is not on the relay allowlist. Please retry from a device/wallet whose RPC is working. No funds were spent."
+                                      );
+                                    } else if (
+                                      /rate limit/i.test(relayReason)
+                                    ) {
+                                      setPoolClaimError(
+                                        "Claim fallback rate-limited. Please wait ~1 minute and try again. No funds were spent."
+                                      );
+                                    } else if (relayReason) {
+                                      setPoolClaimError(
+                                        `Your wallet did not broadcast and the server relay fallback also failed (${relayReason}). No funds were spent — please retry.`
                                       );
                                     } else {
                                       setPoolClaimError(
