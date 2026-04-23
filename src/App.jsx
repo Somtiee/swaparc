@@ -5913,20 +5913,66 @@ export default function App() {
       const tx = await poolWrite.getFunction(
         "withdraw(bytes,bytes32,address,uint256)"
       )(fullProofBytes, parsed.nullifierHash, parsed.recipient, parsed.amount, overrides);
-      // Do not hang indefinitely on slow/indexing nodes after user signs.
-      const rcpt = await Promise.race([
-        tx.wait(),
-        new Promise((resolve) => setTimeout(() => resolve(null), 75000)),
+
+      // Verify the wallet actually broadcast the tx to the Arc network.
+      // Some wallet extensions (misconfigured RPC, flaky extension state)
+      // return a hash but never propagate the signed tx to the public
+      // mempool. If that happens the claim would sit as "pending" forever
+      // while nothing exists on-chain. Detect this fast so the user can
+      // retry from a different device/wallet — the nullifier is NOT spent
+      // because the tx never broadcast.
+      const verifyBroadcast = async () => {
+        const deadline = Date.now() + 30000;
+        let lastSeen = null;
+        while (Date.now() < deadline) {
+          try {
+            const t = await readProvider.getTransaction(tx.hash);
+            if (t && (t.hash || t.blockNumber != null)) {
+              lastSeen = t;
+              return { seen: true, tx: t };
+            }
+          } catch {
+            // ignore transient RPC errors
+          }
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+        return { seen: false, tx: lastSeen };
+      };
+
+      // Race tx.wait, broadcast-verify, and a 75s hard timeout.
+      const raceResult = await Promise.race([
+        tx.wait().then((r) => ({ kind: "receipt", rcpt: r })),
+        verifyBroadcast().then((v) =>
+          v.seen
+            ? { kind: "broadcast_ok" }
+            : { kind: "broadcast_missing" }
+        ),
+        new Promise((resolve) =>
+          setTimeout(() => resolve({ kind: "timeout" }), 75000)
+        ),
       ]);
-      if (rcpt === null) {
-        setPoolZkStatus(
-          `Claim submitted. Tx ${tx.hash}. Confirmation is taking longer than usual; check explorer/history.`
+
+      if (raceResult.kind === "broadcast_missing") {
+        // Wallet returned a hash but the Arc network never saw the tx.
+        // Abort so the user can retry cleanly instead of staring at
+        // "pending" indefinitely.
+        throw new Error(
+          "BROADCAST_FAILED: Your wallet signed the claim but the transaction did not reach the Arc network. This is a wallet/network issue on this device. Please retry this claim — if it keeps failing, switch to another wallet or device. No funds were spent."
         );
-        return { txHash: tx.hash, viaRelay: false, pending: true };
       }
-      if (rcpt?.status !== 1) throw new Error("Claim transaction was not confirmed.");
-      setPoolZkStatus(`ZK claim confirmed. Tx ${tx.hash}`);
-      return { txHash: tx.hash, viaRelay: false, pending: false };
+
+      if (raceResult.kind === "receipt") {
+        const rcpt = raceResult.rcpt;
+        if (rcpt?.status !== 1) throw new Error("Claim transaction was not confirmed.");
+        setPoolZkStatus(`ZK claim confirmed. Tx ${tx.hash}`);
+        return { txHash: tx.hash, viaRelay: false, pending: false };
+      }
+
+      // Broadcast confirmed but not yet mined, or hit the 75s ceiling.
+      setPoolZkStatus(
+        `Claim submitted. Tx ${tx.hash}. Confirmation is taking longer than usual; check explorer/history.`
+      );
+      return { txHash: tx.hash, viaRelay: false, pending: true };
     } catch (e) {
       const decoded = extractEthersRevertReason(e);
       throw decoded ? new Error(decoded) : e;
@@ -6120,38 +6166,86 @@ export default function App() {
   }
 
   async function reconcilePendingClaimStatuses() {
-    // Runs on any device: for every local claim still marked as `pending`
-    // with a real tx hash, re-check the on-chain receipt and flip the
-    // status locally. Saves will then propagate to the server and to
-    // any other device watching this wallet.
+    // For every local claim still marked as `pending` with a tx hash:
+    //  1. If a receipt exists → flip to confirmed/failed.
+    //  2. If no receipt AND the tx itself is NOT visible in any RPC's
+    //     mempool or chain, the wallet very likely never broadcast it
+    //     (silent wallet-side failure). After a grace period we mark
+    //     it as failed with `failureReason: "not_broadcast"` so the
+    //     UI can show a retry-friendly message instead of leaving the
+    //     user stuck on "pending" forever.
     const current = poolClaimHistory;
     if (!Array.isArray(current) || current.length === 0) return;
     const pendings = current.filter(
       (h) => h && h.status === "pending" && h.txHash && h.txHash !== "SUBMITTED"
     );
     if (pendings.length === 0) return;
-    let provider;
+
+    const providerUrls = (Array.isArray(CLAIM_READ_RPC_URLS) && CLAIM_READ_RPC_URLS.length
+      ? CLAIM_READ_RPC_URLS
+      : [ARC_PUBLIC_RPC]);
+    const providers = [];
     try {
-      provider = getReadProvider();
+      for (const url of providerUrls) {
+        try {
+          providers.push(getReadProviderForUrl(url));
+        } catch {
+          // skip unreachable provider
+        }
+      }
+      if (providers.length === 0) providers.push(getReadProvider());
     } catch {
       return;
     }
+
+    const ORPHAN_GRACE_MS = 5 * 60 * 1000;
     const updates = new Map();
     for (const h of pendings) {
-      try {
-        const rcpt = await provider.getTransactionReceipt(h.txHash);
-        if (!rcpt || !rcpt.blockNumber) continue;
-        const ok = rcpt.status === 1 || rcpt.status === "0x1";
-        updates.set(h.id, ok ? "confirmed" : "failed");
-      } catch {
-        // leave as pending on RPC failure
+      const submittedAt = new Date(h.claimedAt || 0).getTime() || 0;
+      const age = Date.now() - submittedAt;
+      let receiptHit = null;
+      let anyProviderSawTx = false;
+      for (const prov of providers) {
+        try {
+          const rcpt = await prov.getTransactionReceipt(h.txHash);
+          if (rcpt && rcpt.blockNumber != null) {
+            receiptHit = rcpt;
+            anyProviderSawTx = true;
+            break;
+          }
+        } catch {
+          // provider-specific failure; try the next one
+        }
+        try {
+          const t = await prov.getTransaction(h.txHash);
+          if (t && (t.hash || t.blockNumber != null)) anyProviderSawTx = true;
+        } catch {
+          // ignore
+        }
+      }
+      if (receiptHit) {
+        const ok = receiptHit.status === 1 || receiptHit.status === "0x1";
+        updates.set(h.id, {
+          status: ok ? "confirmed" : "failed",
+          ...(ok ? {} : { failureReason: "reverted" }),
+        });
+        continue;
+      }
+      if (!anyProviderSawTx && age > ORPHAN_GRACE_MS) {
+        updates.set(h.id, {
+          status: "failed",
+          failureReason: "not_broadcast",
+        });
       }
     }
+
     if (updates.size === 0) return;
     setPoolClaimHistory((prev) =>
-      prev.map((h) =>
-        updates.has(h.id) ? { ...h, status: updates.get(h.id) } : h
-      )
+      prev.map((h) => {
+        const u = updates.get(h.id);
+        if (!u) return h;
+        return { ...h, ...u };
+      })
     );
   }
 
@@ -12590,7 +12684,11 @@ export default function App() {
                                 } catch (e) {
                                   const msg = extractEthersRevertReason(e) || e?.message || String(e);
                                   setPoolClaimStatus("");
-                                  if (
+                                  if (/BROADCAST_FAILED/i.test(msg)) {
+                                    setPoolClaimError(
+                                      "Your wallet signed the claim but the transaction did not reach the Arc network. This is a wallet/network issue on this device (custom RPC, offline, or extension glitch). No funds were spent — please retry, or try a different wallet or device."
+                                    );
+                                  } else if (
                                     /already claimed|nullifier spent|NullifierSpent|this payment was already claimed/i.test(
                                       msg
                                     )
@@ -12676,7 +12774,15 @@ export default function App() {
                                       <div className="muted">
                                         {h.claimedAt ? new Date(h.claimedAt).toLocaleString() : "—"}
                                         {h.status === "pending" ? " • pending confirmation" : ""}
-                                        {h.status === "failed" ? " • failed" : ""}
+                                        {h.status === "failed" &&
+                                        h.failureReason === "not_broadcast"
+                                          ? " • wallet did not broadcast — retry"
+                                          : h.status === "failed" &&
+                                              h.failureReason === "reverted"
+                                            ? " • reverted on-chain"
+                                            : h.status === "failed"
+                                              ? " • failed"
+                                              : ""}
                                       </div>
                                     </div>
                                     <div className="historyRight">
