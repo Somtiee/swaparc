@@ -4726,12 +4726,19 @@ export default function App() {
       if (document.visibilityState === "visible" && !cancelled) {
         mergePrivpayHistorySnapshotFromServer().catch(() => {});
         mergeBillsSnapshotFromServer().catch(() => {});
+        reconcilePendingClaimStatuses().catch(() => {});
       }
     };
     document.addEventListener("visibilitychange", onVisible);
+    const pendingTimer = setInterval(() => {
+      if (cancelled) return;
+      reconcilePendingClaimStatuses().catch(() => {});
+    }, 30_000);
+    reconcilePendingClaimStatuses().catch(() => {});
     return () => {
       cancelled = true;
       clearInterval(interval);
+      clearInterval(pendingTimer);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [authMode, address, circleWalletReady, circleWallet?.address]);
@@ -6110,6 +6117,42 @@ export default function App() {
     removeZkNote(noteId);
     setPoolZkNotesTick((t) => t + 1);
     return r;
+  }
+
+  async function reconcilePendingClaimStatuses() {
+    // Runs on any device: for every local claim still marked as `pending`
+    // with a real tx hash, re-check the on-chain receipt and flip the
+    // status locally. Saves will then propagate to the server and to
+    // any other device watching this wallet.
+    const current = poolClaimHistory;
+    if (!Array.isArray(current) || current.length === 0) return;
+    const pendings = current.filter(
+      (h) => h && h.status === "pending" && h.txHash && h.txHash !== "SUBMITTED"
+    );
+    if (pendings.length === 0) return;
+    let provider;
+    try {
+      provider = getReadProvider();
+    } catch {
+      return;
+    }
+    const updates = new Map();
+    for (const h of pendings) {
+      try {
+        const rcpt = await provider.getTransactionReceipt(h.txHash);
+        if (!rcpt || !rcpt.blockNumber) continue;
+        const ok = rcpt.status === 1 || rcpt.status === "0x1";
+        updates.set(h.id, ok ? "confirmed" : "failed");
+      } catch {
+        // leave as pending on RPC failure
+      }
+    }
+    if (updates.size === 0) return;
+    setPoolClaimHistory((prev) =>
+      prev.map((h) =>
+        updates.has(h.id) ? { ...h, status: updates.get(h.id) } : h
+      )
+    );
   }
 
   function watchPendingClaimTx(claimId, txHash) {
