@@ -44,8 +44,6 @@ export default async function handler(req, res) {
   let poolHint = "";
 
   try {
-    assertOptionalRelayServerSecret(req);
-
     const ip = relayClientIp(req);
     const body = req.body || {};
     action = String(body.action || "").toLowerCase();
@@ -53,6 +51,22 @@ export default async function handler(req, res) {
 
     if (action !== "withdraw" && action !== "deposit") {
       return res.status(400).json({ error: 'Invalid action (use "withdraw" or "deposit")' });
+    }
+
+    // The optional server secret is primarily used to gate server-to-server
+    // callers (recurring cron, back-office scripts) and `deposit` flows
+    // where the server may sponsor gas without a strong on-chain
+    // authorization path. Browser-initiated `withdraw` calls already prove
+    // authorization cryptographically via EIP-712 (recipient signature)
+    // plus nullifier-based replay protection, so requiring a shared
+    // secret there adds no meaningful security while silently breaking
+    // the browser's broadcast-failure fallback. We therefore enforce the
+    // secret only when the action is NOT `withdraw`, or when the caller
+    // explicitly opted in by sending the header (useful for server jobs
+    // that want stricter scoping).
+    const sentSecret = String(req.headers["x-privpay-relay-secret"] || "").trim();
+    if (action !== "withdraw" || sentSecret) {
+      assertOptionalRelayServerSecret(req);
     }
 
     await assertRelayRateLimit(ip, action);
