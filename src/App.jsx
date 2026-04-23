@@ -5775,6 +5775,63 @@ export default function App() {
     };
   }
 
+  async function computeFastClaimOverrides(provider) {
+    // Produce modest-but-prioritized gas params so claim txs aren't stuck
+    // behind average-gas mempool traffic on slow sequencer windows.
+    // Strategy:
+    //  - priorityFee = median of last-5-block 75th-percentile tips
+    //    clamped to [MIN_TIP, MAX_TIP] (keeps us ahead of most txs
+    //    without paying outlier-level tips).
+    //  - maxFeePerGas = baseFee * 2 + priorityFee, hard-capped for safety.
+    //  - Falls back to legacy gasPrice * 1.25 if baseFee is unavailable.
+    const MIN_TIP = ethers.parseUnits("1", "gwei");
+    const MAX_TIP = ethers.parseUnits("5", "gwei");
+    const HARD_CEILING = ethers.parseUnits("100", "gwei");
+    const overrides = {};
+    try {
+      let priorityFeeWei = null;
+      try {
+        const feeHistory = await provider.send("eth_feeHistory", [
+          "0x5",
+          "latest",
+          [25, 50, 75],
+        ]);
+        if (feeHistory && Array.isArray(feeHistory.reward)) {
+          const p75 = feeHistory.reward
+            .map((r) => (r && r[2] ? BigInt(r[2]) : 0n))
+            .filter((v) => v > 0n);
+          if (p75.length) {
+            p75.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+            priorityFeeWei = p75[Math.floor(p75.length / 2)];
+          }
+        }
+      } catch {
+        // feeHistory unsupported; fall back below
+      }
+      if (priorityFeeWei == null || priorityFeeWei < MIN_TIP) priorityFeeWei = MIN_TIP;
+      if (priorityFeeWei > MAX_TIP) priorityFeeWei = MAX_TIP;
+
+      const block = await provider.getBlock("latest").catch(() => null);
+      const baseFee = block?.baseFeePerGas ? BigInt(block.baseFeePerGas) : null;
+      if (baseFee != null) {
+        let maxFeePerGas = baseFee * 2n + priorityFeeWei;
+        if (maxFeePerGas > HARD_CEILING) maxFeePerGas = HARD_CEILING;
+        overrides.maxFeePerGas = maxFeePerGas;
+        overrides.maxPriorityFeePerGas = priorityFeeWei;
+      } else {
+        const feeData = await provider.getFeeData().catch(() => null);
+        if (feeData?.gasPrice) {
+          let gp = (feeData.gasPrice * 125n) / 100n;
+          if (gp > HARD_CEILING) gp = HARD_CEILING;
+          overrides.gasPrice = gp;
+        }
+      }
+    } catch {
+      // Best-effort only; if sensing fails we let the wallet pick defaults.
+    }
+    return overrides;
+  }
+
   async function submitPrivacyPoolZkWithdraw(poolAddress_, fullProofBytes, publicSignals) {
     const wfn = poolAddress_;
     const parsed = parsePrivpayPublicSignals(publicSignals);
@@ -5831,9 +5888,24 @@ export default function App() {
     const signer = await getSigner();
     const poolWrite = new ethers.Contract(wfn, PRIVACY_POOL_ABI, signer);
     try {
+      const readProvider = getReadProvider();
+      const overrides = await computeFastClaimOverrides(readProvider);
+      try {
+        const est = await poolWrite
+          .getFunction("withdraw(bytes,bytes32,address,uint256)")
+          .estimateGas(
+            fullProofBytes,
+            parsed.nullifierHash,
+            parsed.recipient,
+            parsed.amount
+          );
+        if (est) overrides.gasLimit = (est * 12n) / 10n;
+      } catch {
+        // estimateGas can fail on some wallets/providers; wallet will estimate.
+      }
       const tx = await poolWrite.getFunction(
         "withdraw(bytes,bytes32,address,uint256)"
-      )(fullProofBytes, parsed.nullifierHash, parsed.recipient, parsed.amount);
+      )(fullProofBytes, parsed.nullifierHash, parsed.recipient, parsed.amount, overrides);
       // Do not hang indefinitely on slow/indexing nodes after user signs.
       const rcpt = await Promise.race([
         tx.wait(),
