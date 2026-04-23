@@ -2059,8 +2059,13 @@ export default function App() {
             touched = true;
           }
           if (srv.status && srv.status !== local.status) {
-            next.status = srv.status;
-            touched = true;
+            // Only let status progress forward; don't overwrite
+            // confirmed/failed with an older pending snapshot.
+            const terminal = (s) => s === "confirmed" || s === "failed";
+            if (!terminal(local.status) || terminal(srv.status)) {
+              next.status = srv.status;
+              touched = true;
+            }
           }
           if (touched) {
             byId.set(srv.id, next);
@@ -5838,11 +5843,11 @@ export default function App() {
         setPoolZkStatus(
           `Claim submitted. Tx ${tx.hash}. Confirmation is taking longer than usual; check explorer/history.`
         );
-        return { txHash: tx.hash, viaRelay: false };
+        return { txHash: tx.hash, viaRelay: false, pending: true };
       }
       if (rcpt?.status !== 1) throw new Error("Claim transaction was not confirmed.");
       setPoolZkStatus(`ZK claim confirmed. Tx ${tx.hash}`);
-      return { txHash: tx.hash, viaRelay: false };
+      return { txHash: tx.hash, viaRelay: false, pending: false };
     } catch (e) {
       const decoded = extractEthersRevertReason(e);
       throw decoded ? new Error(decoded) : e;
@@ -6033,6 +6038,40 @@ export default function App() {
     removeZkNote(noteId);
     setPoolZkNotesTick((t) => t + 1);
     return r;
+  }
+
+  function watchPendingClaimTx(claimId, txHash) {
+    if (!txHash || !claimId) return;
+    const started = Date.now();
+    const maxWaitMs = 15 * 60 * 1000;
+    const intervalMs = 10000;
+    const tick = async () => {
+      if (Date.now() - started > maxWaitMs) return;
+      try {
+        const provider = getReadProvider();
+        const rcpt = await provider.getTransactionReceipt(txHash);
+        if (rcpt && rcpt.blockNumber) {
+          const ok = rcpt.status === 1 || rcpt.status === "0x1";
+          setPoolClaimHistory((prev) =>
+            prev.map((h) =>
+              h.id === claimId
+                ? { ...h, status: ok ? "confirmed" : "failed" }
+                : h
+            )
+          );
+          if (ok) {
+            setPoolClaimStatus((s) =>
+              s && /Waiting for on-chain confirmation/i.test(s)
+                ? `Claim confirmed on-chain. Tx ${txHash}`
+                : s
+            );
+          }
+          return;
+        }
+      } catch (_) {}
+      setTimeout(tick, intervalMs);
+    };
+    setTimeout(tick, intervalMs);
   }
 
   async function claimPrivacyPoolFromClaimCode(rawCode) {
@@ -12384,12 +12423,15 @@ export default function App() {
                                   const rawCode = String(poolClaimCodeInput || "").trim();
                                   const payload = decodeZkPoolClaimPayload(rawCode);
                                   const r = await claimPrivacyPoolFromClaimCode(rawCode);
+                                  const isPending = r.pending === true && !r.viaRelay;
                                   setPoolClaimStatus(
                                     r.viaRelay
                                       ? `Relay submitted. Tx ${r.txHash}`
                                       : r.txHash === "SUBMITTED"
                                         ? "Claim submitted. Circle accepted the transaction and hash is still indexing."
-                                        : `Claim confirmed. Tx ${r.txHash}`
+                                        : isPending
+                                          ? `Claim submitted. Tx ${r.txHash}. Waiting for on-chain confirmation — the network is slower than usual. You can safely close this page; Claim History will update when it confirms.`
+                                          : `Claim confirmed. Tx ${r.txHash}`
                                   );
                                   const claimTxHash =
                                     r.txHash && r.txHash !== "SUBMITTED" ? r.txHash : null;
@@ -12407,9 +12449,10 @@ export default function App() {
                                   )
                                     .trim()
                                     .toUpperCase();
+                                  const newClaimId = `claim_${crypto.randomUUID()}`;
                                   setPoolClaimHistory((prev) => [
                                     {
-                                      id: `claim_${crypto.randomUUID()}`,
+                                      id: newClaimId,
                                       txHash: claimTxHash,
                                       amount: String(payload?.amount || payload?.amountWei || "—"),
                                       token:
@@ -12417,9 +12460,13 @@ export default function App() {
                                         (payloadTokenAddress ? shortAddr(payloadTokenAddress) : "—"),
                                       tokenAddress: payloadTokenAddress || null,
                                       claimedAt: new Date().toISOString(),
+                                      status: isPending ? "pending" : "confirmed",
                                     },
                                     ...prev,
                                   ]);
+                                  if (isPending && claimTxHash) {
+                                    watchPendingClaimTx(newClaimId, claimTxHash);
+                                  }
                                   const activeWallet = getActiveWalletAddress();
                                   if (activeWallet) {
                                     fetchBalances(activeWallet, getReadProvider()).catch(() => {});
@@ -12513,10 +12560,28 @@ export default function App() {
                                       </div>
                                       <div className="muted">
                                         {h.claimedAt ? new Date(h.claimedAt).toLocaleString() : "—"}
+                                        {h.status === "pending" ? " • pending confirmation" : ""}
+                                        {h.status === "failed" ? " • failed" : ""}
                                       </div>
                                     </div>
                                     <div className="historyRight">
                                       <div className="historyRightActions">
+                                        {h.status === "pending" ? (
+                                          <span
+                                            className="pillBadge"
+                                            style={{
+                                              background: "rgba(234,179,8,0.15)",
+                                              color: "#ca8a04",
+                                              border: "1px solid rgba(234,179,8,0.35)",
+                                              padding: "2px 8px",
+                                              borderRadius: 8,
+                                              fontSize: 12,
+                                              marginRight: 6,
+                                            }}
+                                          >
+                                            Pending
+                                          </span>
+                                        ) : null}
                                         {h.txHash ? (
                                           <a
                                             className="secondaryBtn billsPayBtn"
