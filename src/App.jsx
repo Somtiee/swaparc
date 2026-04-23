@@ -5954,11 +5954,54 @@ export default function App() {
 
       if (raceResult.kind === "broadcast_missing") {
         // Wallet returned a hash but the Arc network never saw the tx.
-        // Abort so the user can retry cleanly instead of staring at
-        // "pending" indefinitely.
-        throw new Error(
-          "BROADCAST_FAILED: Your wallet signed the claim but the transaction did not reach the Arc network. This is a wallet/network issue on this device. Please retry this claim — if it keeps failing, switch to another wallet or device. No funds were spent."
-        );
+        // Instead of failing the user outright, auto-fallback to the
+        // server relay path: ask for an EIP-712 signature and have our
+        // own relayer EOA broadcast the same claim from a known-good
+        // RPC. The pool's withdraw function is permissionless (anyone
+        // with a valid ZK proof can call it), so this is cryptographically
+        // identical — the nullifier protects against double-spend.
+        try {
+          setPoolZkStatus(
+            "Your wallet didn't broadcast — using our server relay to submit the claim. Please sign the relay authorization when prompted."
+          );
+          const relaySig = await signPrivpayRelayWithdraw(signer, {
+            poolAddress: wfn,
+            nullifierHash: parsed.nullifierHash,
+            recipient: parsed.recipient,
+            amountWei: parsed.amount,
+            chainIdDec: ARC_CHAIN_ID_DEC,
+          });
+          setPoolZkStatus("Submitting claim via server relay…");
+          const rr = await fetch("/api/privpay/privacy-pool-relay", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "withdraw",
+              poolAddress: wfn,
+              proof: ethers.hexlify(fullProofBytes),
+              nullifierHash: parsed.nullifierHash,
+              recipient: parsed.recipient,
+              amount: parsed.amount.toString(),
+              deadline: relaySig.deadline,
+              signature: relaySig.signature,
+            }),
+          });
+          const rj = await rr.json().catch(() => ({}));
+          if (!rr.ok || !rj?.ok) {
+            throw new Error(
+              rj?.error ||
+                "Relay submission failed — server could not broadcast the claim."
+            );
+          }
+          setPoolZkStatus(`Relay claim confirmed. Tx ${rj.txHash}`);
+          return { txHash: rj.txHash, viaRelay: true, pending: false };
+        } catch (relayErr) {
+          const relayMsg =
+            relayErr?.message || "Server relay fallback failed.";
+          throw new Error(
+            `BROADCAST_FAILED: Your wallet did not broadcast the claim and the server relay fallback also failed (${relayMsg}). No funds were spent — please retry.`
+          );
+        }
       }
 
       if (raceResult.kind === "receipt") {
