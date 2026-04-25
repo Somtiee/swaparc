@@ -6439,7 +6439,15 @@ export default function App() {
     const current = poolClaimHistory;
     if (!Array.isArray(current) || current.length === 0) return;
     const pendings = current.filter(
-      (h) => h && h.status === "pending" && h.txHash && h.txHash !== "SUBMITTED"
+      (h) =>
+        h &&
+        h.txHash &&
+        h.txHash !== "SUBMITTED" &&
+        (h.status === "pending" ||
+          (h.status === "failed" &&
+            (h.failureReason === "unconfirmed_timeout" ||
+              h.failureReason === "not_broadcast" ||
+              h.failureReason === "nonce_gap")))
     );
     if (pendings.length === 0) return;
 
@@ -6460,7 +6468,8 @@ export default function App() {
       return;
     }
 
-    const ORPHAN_GRACE_MS = 5 * 60 * 1000;
+    const ORPHAN_GRACE_MS = 2 * 60 * 1000;
+    const HARD_PENDING_TIMEOUT_MS = 12 * 60 * 1000;
     const updates = new Map();
     for (const h of pendings) {
       const submittedAt = new Date(h.claimedAt || 0).getTime() || 0;
@@ -6530,10 +6539,17 @@ export default function App() {
               status: "failed",
               failureReason: "nonce_gap",
             });
+            continue;
           }
         } catch {
           // leave as pending on RPC errors
         }
+      }
+      if (anyProviderSawTx && age > HARD_PENDING_TIMEOUT_MS) {
+        updates.set(h.id, {
+          status: "failed",
+          failureReason: "unconfirmed_timeout",
+        });
       }
     }
 
@@ -6550,30 +6566,49 @@ export default function App() {
   function watchPendingClaimTx(claimId, txHash) {
     if (!txHash || !claimId) return;
     const started = Date.now();
-    const maxWaitMs = 15 * 60 * 1000;
+    const maxWaitMs = 8 * 60 * 1000;
     const intervalMs = 10000;
     const tick = async () => {
-      if (Date.now() - started > maxWaitMs) return;
+      if (Date.now() - started > maxWaitMs) {
+        setPoolClaimHistory((prev) =>
+          prev.map((h) =>
+            h.id === claimId && h.status === "pending"
+              ? { ...h, status: "failed", failureReason: "unconfirmed_timeout" }
+              : h
+          )
+        );
+        setPoolClaimStatus((s) =>
+          s && /Waiting for on-chain confirmation/i.test(s)
+            ? "Claim was submitted but did not confirm in time. Marked for retry — use the same claim code again."
+            : s
+        );
+        return;
+      }
       try {
-        const provider = getReadProvider();
-        const rcpt = await provider.getTransactionReceipt(txHash);
-        if (rcpt && rcpt.blockNumber) {
-          const ok = rcpt.status === 1 || rcpt.status === "0x1";
-          setPoolClaimHistory((prev) =>
-            prev.map((h) =>
-              h.id === claimId
-                ? { ...h, status: ok ? "confirmed" : "failed" }
-                : h
-            )
-          );
-          if (ok) {
-            setPoolClaimStatus((s) =>
-              s && /Waiting for on-chain confirmation/i.test(s)
-                ? `Claim confirmed on-chain. Tx ${txHash}`
-                : s
+        const providerUrls = (Array.isArray(CLAIM_READ_RPC_URLS) && CLAIM_READ_RPC_URLS.length
+          ? CLAIM_READ_RPC_URLS
+          : [ARC_PUBLIC_RPC]);
+        for (const url of providerUrls) {
+          const provider = getReadProviderForUrl(url);
+          const rcpt = await provider.getTransactionReceipt(txHash).catch(() => null);
+          if (rcpt && rcpt.blockNumber) {
+            const ok = rcpt.status === 1 || rcpt.status === "0x1";
+            setPoolClaimHistory((prev) =>
+              prev.map((h) =>
+                h.id === claimId
+                  ? { ...h, status: ok ? "confirmed" : "failed", ...(ok ? {} : { failureReason: "reverted" }) }
+                  : h
+              )
             );
+            if (ok) {
+              setPoolClaimStatus((s) =>
+                s && /Waiting for on-chain confirmation/i.test(s)
+                  ? `Claim confirmed on-chain. Tx ${txHash}`
+                  : s
+              );
+            }
+            return;
           }
-          return;
         }
       } catch (_) {}
       setTimeout(tick, intervalMs);
@@ -13164,6 +13199,9 @@ export default function App() {
                                           : h.status === "failed" &&
                                               h.failureReason === "nonce_gap"
                                             ? " • stuck behind pending wallet txs — retry"
+                                          : h.status === "failed" &&
+                                              h.failureReason === "unconfirmed_timeout"
+                                            ? " • not confirmed in time — retry"
                                             : h.status === "failed" &&
                                                 h.failureReason === "reverted"
                                               ? " • reverted on-chain"
