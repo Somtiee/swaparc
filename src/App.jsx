@@ -936,6 +936,7 @@ export default function App() {
     expiresAt: null,
   });
   const [billsView, setBillsView] = useState("upcoming");
+  const [payrollMobileView, setPayrollMobileView] = useState("setup");
   const [billsUpcomingPage, setBillsUpcomingPage] = useState(1);
   const [billsHistoryPage, setBillsHistoryPage] = useState(1);
   const [payrollUpcomingPage, setPayrollUpcomingPage] = useState(1);
@@ -4346,6 +4347,14 @@ export default function App() {
   useEffect(() => {
     setClaimHistoryPage(1);
   }, [privpayModule, poolClaimHistory.length]);
+
+  useEffect(() => {
+    if (privpayModule === "bills") {
+      setBillsView("upcoming");
+    } else if (privpayModule === "payroll") {
+      setPayrollMobileView("setup");
+    }
+  }, [privpayModule]);
 
   useEffect(() => {
     const owner = getActiveWalletAddress();
@@ -11411,7 +11420,30 @@ export default function App() {
                   </div>
 
                   {privpayModule === "bills" && (
-                    <>
+                    <div className={`privpayBillsModule mobileBillsView-${billsView}`}>
+                      <div className="mobilePrivpaySectionTabs" role="tablist" aria-label="Bills sections">
+                        <button
+                          type="button"
+                          className={`mobilePrivpaySectionTab ${billsView === "create" ? "active" : ""}`}
+                          onClick={() => setBillsView("create")}
+                        >
+                          Create
+                        </button>
+                        <button
+                          type="button"
+                          className={`mobilePrivpaySectionTab ${billsView === "upcoming" ? "active" : ""}`}
+                          onClick={() => setBillsView("upcoming")}
+                        >
+                          Upcoming
+                        </button>
+                        <button
+                          type="button"
+                          className={`mobilePrivpaySectionTab ${billsView === "history" ? "active" : ""}`}
+                          onClick={() => setBillsView("history")}
+                        >
+                          History
+                        </button>
+                      </div>
                       <div className="billsWorkspaceTop">
                       <div className="neon-card billsCreateCard">
                         <div className="billsTitleRow">
@@ -11951,11 +11983,11 @@ export default function App() {
                           );
                         })()}
                       </div>
-                    </>
+                    </div>
                   )}
 
                   {privpayModule === "payroll" && (
-                    <>
+                    <div className={`privpayPayrollModule mobilePayrollView-${payrollMobileView}`}>
                       <div className="neon-card payrollDashboardCard">
                         <div className="privpayFormHeader">
                           <div>
@@ -12147,6 +12179,29 @@ export default function App() {
                           )}
                         </div>
                       )}
+                      <div className="mobilePrivpaySectionTabs" role="tablist" aria-label="Payroll sections">
+                        <button
+                          type="button"
+                          className={`mobilePrivpaySectionTab ${payrollMobileView === "setup" ? "active" : ""}`}
+                          onClick={() => setPayrollMobileView("setup")}
+                        >
+                          Setup
+                        </button>
+                        <button
+                          type="button"
+                          className={`mobilePrivpaySectionTab ${payrollMobileView === "upcoming" ? "active" : ""}`}
+                          onClick={() => setPayrollMobileView("upcoming")}
+                        >
+                          Upcoming
+                        </button>
+                        <button
+                          type="button"
+                          className={`mobilePrivpaySectionTab ${payrollMobileView === "history" ? "active" : ""}`}
+                          onClick={() => setPayrollMobileView("history")}
+                        >
+                          History
+                        </button>
+                      </div>
                       <div className="payrollWorkspace">
                         <div className="payrollLeftPane">
 
@@ -12431,7 +12486,7 @@ export default function App() {
                       </div>
                       <div className="payrollRightPane">
 
-                      <div className="neon-card billsListCard">
+                      <div className="neon-card billsListCard payrollUpcomingCard">
                         <h3 className="billsSectionTitle">Upcoming runs</h3>
                         {payrollAutopayServerHint ? (
                           <p className="quote billsErr" style={{ marginBottom: 12 }}>
@@ -12648,7 +12703,7 @@ export default function App() {
                         })()}
                       </div>
 
-                      <div className="neon-card billsHistoryCard">
+                      <div className="neon-card billsHistoryCard payrollHistoryCard">
                         <h3 className="billsSectionTitle">Payroll History</h3>
                         <div className="payrollHeaderActions" style={{ marginBottom: 10 }}>
                           <div className="muted">
@@ -12824,7 +12879,7 @@ export default function App() {
                       </div>
                       </div>
                       </div>
-                    </>
+                    </div>
                   )}
                   {privpayModule === "claim" && (
                     <>

@@ -2166,6 +2166,26 @@ textarea.privpayInput.poolClaimTextarea {
   transform: translateY(-1px);
 }
 
+.docsBtn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #cfe7ff;
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.docsBtn:hover {
+  background: rgba(124, 197, 255, 0.12);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
 @media (min-width: 769px) {
   .faucetBtn {
     background: transparent;
@@ -2232,6 +2252,28 @@ textarea.privpayInput.poolClaimTextarea {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.mobilePrivpaySectionTabs {
+  display: none;
+}
+
+.mobilePrivpaySectionTab {
+  border: 1px solid rgba(138, 186, 255, 0.24);
+  background: rgba(255, 255, 255, 0.03);
+  color: #b8d8ff;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.mobilePrivpaySectionTab.active {
+  border-color: rgba(100, 170, 255, 0.9);
+  color: #eaf6ff;
+  background: linear-gradient(180deg, rgba(57, 126, 255, 0.22) 0%, rgba(30, 90, 210, 0.2) 100%);
+  box-shadow: 0 0 0 1px rgba(80, 145, 255, 0.35) inset;
 }
 
 .billsWorkspaceTop {
@@ -3094,6 +3136,12 @@ select.billsInput option,
     flex-wrap: wrap;
   }
 
+  .mobilePrivpaySectionTabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
   .privpayPrimaryPills {
     width: 100%;
   }
@@ -3127,12 +3175,50 @@ select.billsInput option,
   }
 
   .paginationBar {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .paginationMeta {
+    flex: 1 1 auto;
+    text-align: center;
   }
 
   .paginationBtn {
-    width: 100%;
+    min-width: 80px;
+    width: auto;
+    flex: 0 0 auto;
+  }
+
+  .privpayBillsModule.mobileBillsView-create .billsListCard,
+  .privpayBillsModule.mobileBillsView-create .billsHistoryCentered {
+    display: none;
+  }
+
+  .privpayBillsModule.mobileBillsView-upcoming .billsCreateCard,
+  .privpayBillsModule.mobileBillsView-upcoming .billsHistoryCentered {
+    display: none;
+  }
+
+  .privpayBillsModule.mobileBillsView-history .billsWorkspaceTop {
+    display: none;
+  }
+
+  .privpayPayrollModule.mobilePayrollView-setup .payrollRightPane {
+    display: none;
+  }
+
+  .privpayPayrollModule.mobilePayrollView-upcoming .payrollLeftPane,
+  .privpayPayrollModule.mobilePayrollView-upcoming .payrollHistoryCard {
+    display: none;
+  }
+
+  .privpayPayrollModule.mobilePayrollView-history .payrollLeftPane,
+  .privpayPayrollModule.mobilePayrollView-history .payrollUpcomingCard {
+    display: none;
   }
 
   .desktopOnly {
@@ -3279,6 +3365,7 @@ select.billsInput option,
   }
 
   .xBtn,
+  .docsBtn,
   .faucetBtn,
   .disconnectBtn {
     display: none;
@@ -3322,6 +3409,7 @@ select.billsInput option,
 @media (min-width: 769px) {
 
   .xBtn,
+  .docsBtn,
   .faucetBtn {
     display: inline-flex;
     align-items: center;
