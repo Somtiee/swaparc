@@ -5919,7 +5919,12 @@ export default function App() {
       );
       return { txHash: hash, viaRelay: false };
     }
-    if (PRIVACY_POOL_USE_RELAY) {
+    // Always prefer relay-sign claim flow for browser wallets to avoid
+    // device-local pending nonce queues and wallet RPC broadcast variance.
+    // If relay cannot submit, fail explicitly instead of falling back to a
+    // potentially forever-pending wallet broadcast path.
+    const FORCE_RELAY_CLAIMS = true;
+    if (FORCE_RELAY_CLAIMS || PRIVACY_POOL_USE_RELAY) {
       const relaySigner = await getSigner();
       const { signature, deadline } = await signPrivpayRelayWithdraw(relaySigner, {
         poolAddress: wfn,
@@ -5943,7 +5948,12 @@ export default function App() {
         }),
       });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok || !j?.ok) throw new Error(j?.error || "Privacy pool relay failed.");
+      if (!res.ok || !j?.ok) {
+        throw new Error(
+          j?.error ||
+            "Privacy pool relay failed. Claim was not broadcast from this device; retry once or check relay config."
+        );
+      }
       setPoolZkStatus(`Relay claim submitted. Tx ${j.txHash}`);
       return { txHash: j.txHash, viaRelay: true };
     }
