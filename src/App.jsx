@@ -5094,9 +5094,55 @@ export default function App() {
       return hash;
     }
     const signer = await getSigner();
+    const signerProvider = signer.provider ?? getReadProvider();
+    const signerAddr = await signer.getAddress();
+    // Avoid piling up more pending txs when the wallet already has a nonce gap.
+    try {
+      const [latestN, pendingN] = await Promise.all([
+        getReadProvider().getTransactionCount(signerAddr, "latest").catch(() => null),
+        signerProvider.getTransactionCount(signerAddr, "pending").catch(() => null),
+      ]);
+      if (
+        Number.isFinite(latestN) &&
+        Number.isFinite(pendingN) &&
+        pendingN - latestN > 2
+      ) {
+        throw new Error(
+          `Wallet pending queue is stuck (nonce gap ${pendingN - latestN}). Clear/speed-up pending txs in wallet activity, then retry.`
+        );
+      }
+    } catch (nonceErr) {
+      const msg = String(nonceErr?.message || nonceErr || "");
+      if (/nonce gap|pending queue is stuck/i.test(msg)) throw nonceErr;
+    }
+
     const usdc = new ethers.Contract(PRIVPAY_USDC_ADDRESS, ERC20_ABI, signer);
-    const tx = await usdc.transfer(treasury, feeUnits);
-    await tx.wait(1);
+    const feeOverrides = await computeFastClaimOverrides(signerProvider);
+    const sendOverrides = { ...feeOverrides };
+    try {
+      const est = await usdc.transfer.estimateGas(treasury, feeUnits, feeOverrides);
+      if (est) sendOverrides.gasLimit = (est * 12n) / 10n;
+    } catch {
+      // Some wallets/RPCs reject estimate with fee overrides. Retry estimate plain.
+      try {
+        const est = await usdc.transfer.estimateGas(treasury, feeUnits);
+        if (est) sendOverrides.gasLimit = (est * 12n) / 10n;
+      } catch {
+        // Let wallet/provider choose gas limit.
+      }
+    }
+    const tx = await usdc.transfer(treasury, feeUnits, sendOverrides);
+    const mined =
+      (await waitForTxBestEffort(tx.hash, 90000)) ||
+      (await getTxReceiptBestEffort(tx.hash));
+    if (!mined) {
+      throw new Error(
+        "Network fee transaction is still pending after 90s. To avoid stacking stuck txs, no payment was sent. Speed up/cancel the pending tx in wallet activity, then retry."
+      );
+    }
+    if (typeof mined.status === "number" && mined.status !== 1) {
+      throw new Error("Network fee transaction failed on-chain.");
+    }
     return tx.hash;
   }
 
