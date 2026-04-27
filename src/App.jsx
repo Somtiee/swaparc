@@ -1379,6 +1379,114 @@ export default function App() {
     }
   }
 
+  async function assertNoWalletNonceGap(signer, signerProvider = null) {
+    const addr = await signer.getAddress();
+    const provider = signerProvider ?? signer.provider ?? getReadProvider();
+    const [latestN, pendingN] = await Promise.all([
+      getReadProvider().getTransactionCount(addr, "latest").catch(() => null),
+      provider.getTransactionCount(addr, "pending").catch(() => null),
+    ]);
+    if (
+      Number.isFinite(latestN) &&
+      Number.isFinite(pendingN) &&
+      pendingN - latestN > 2
+    ) {
+      throw new Error(
+        `Wallet pending queue is stuck (nonce gap ${pendingN - latestN}). Clear/speed-up pending txs in wallet activity, then retry.`
+      );
+    }
+  }
+
+  async function sendWalletTxHardened({
+    signer,
+    contract,
+    method,
+    args = [],
+    timeoutMs = 90000,
+    txLabel = "Transaction",
+    estimateGas = true,
+  }) {
+    const signerProvider = signer.provider ?? getReadProvider();
+    await assertNoWalletNonceGap(signer, signerProvider);
+
+    const feeOverrides = await computeFastClaimOverrides(signerProvider);
+    const sendOverrides = { ...feeOverrides };
+    if (estimateGas) {
+      try {
+        const est = await contract[method].estimateGas(...args, feeOverrides);
+        if (est) sendOverrides.gasLimit = (est * 12n) / 10n;
+      } catch {
+        try {
+          const est = await contract[method].estimateGas(...args);
+          if (est) sendOverrides.gasLimit = (est * 12n) / 10n;
+        } catch {
+          // let wallet/provider estimate if both attempts fail
+        }
+      }
+    }
+
+    let tx;
+    try {
+      tx = await contract[method](...args, sendOverrides);
+    } catch (sendErr) {
+      const hasAnyOverrides = Object.keys(sendOverrides).length > 0;
+      if (!hasAnyOverrides) throw sendErr;
+      // Retry once without overrides for wallets/providers that reject explicit fee fields.
+      tx = await contract[method](...args);
+    }
+
+    const mined =
+      (await waitForTxBestEffort(tx.hash, timeoutMs)) ||
+      (await getTxReceiptBestEffort(tx.hash));
+    if (!mined) {
+      throw new Error(
+        `${txLabel} is still pending after ${Math.round(
+          timeoutMs / 1000
+        )}s. To avoid stacking stuck txs, no further action was taken. Speed up/cancel the pending tx in wallet activity, then retry.`
+      );
+    }
+    if (typeof mined.status === "number" && mined.status !== 1) {
+      throw new Error(`${txLabel} failed on-chain.`);
+    }
+    return { tx, receipt: mined };
+  }
+
+  async function sendNativeTxHardened({
+    signer,
+    txRequest,
+    timeoutMs = 90000,
+    txLabel = "Native transfer",
+  }) {
+    const signerProvider = signer.provider ?? getReadProvider();
+    await assertNoWalletNonceGap(signer, signerProvider);
+    const feeOverrides = await computeFastClaimOverrides(signerProvider);
+    const req = { ...txRequest, ...feeOverrides };
+
+    let tx;
+    try {
+      tx = await signer.sendTransaction(req);
+    } catch (sendErr) {
+      const hasAnyOverrides = Object.keys(feeOverrides).length > 0;
+      if (!hasAnyOverrides) throw sendErr;
+      tx = await signer.sendTransaction(txRequest);
+    }
+
+    const mined =
+      (await waitForTxBestEffort(tx.hash, timeoutMs)) ||
+      (await getTxReceiptBestEffort(tx.hash));
+    if (!mined) {
+      throw new Error(
+        `${txLabel} is still pending after ${Math.round(
+          timeoutMs / 1000
+        )}s. Speed up/cancel the pending tx in wallet activity, then retry.`
+      );
+    }
+    if (typeof mined.status === "number" && mined.status !== 1) {
+      throw new Error(`${txLabel} failed on-chain.`);
+    }
+    return { tx, receipt: mined };
+  }
+
   function getActiveWalletAddress() {
     if (authMode === "email" && circleWallet) return circleWallet.address;
     return address;
@@ -3328,8 +3436,14 @@ export default function App() {
         // --- Injected Wallet Path ---
         const signer = await getSigner();
         const pool = new ethers.Contract(poolPreset.poolAddress, POOL_ABI, signer);
-        const tx = await pool.claimRewards();
-        await tx.wait();
+        const { tx } = await sendWalletTxHardened({
+          signer,
+          contract: pool,
+          method: "claimRewards",
+          args: [],
+          timeoutMs: 120000,
+          txLabel: "Claim rewards transaction",
+        });
         console.log("[WalletTx] Claim Rewards confirmed:", tx.hash);
       }
 
@@ -3816,11 +3930,15 @@ export default function App() {
           }
         } else {
           const signer = await getSigner();
-          const txTopUp = await signer.sendTransaction({
-            to: stealthWallet.address,
-            value: topUp,
+          await sendNativeTxHardened({
+            signer,
+            txRequest: {
+              to: stealthWallet.address,
+              value: topUp,
+            },
+            timeoutMs: 120000,
+            txLabel: "Stealth wallet gas top-up",
           });
-          await txTopUp.wait();
         }
       }
 
@@ -3845,8 +3963,14 @@ export default function App() {
           throw new Error("Missing VITE_STEALTH_PAYMENTS_ADDRESS for contract-assisted claim.");
         }
         const tokenSC = new ethers.Contract(incoming.tokenAddress, ERC20_ABI, stealthWallet);
-        const approveTx = await tokenSC.approve(STEALTH_PAYMENTS_ADDRESS, balance);
-        await approveTx.wait();
+        await sendWalletTxHardened({
+          signer: stealthWallet,
+          contract: tokenSC,
+          method: "approve",
+          args: [STEALTH_PAYMENTS_ADDRESS, balance],
+          timeoutMs: 90000,
+          txLabel: "Stealth claim approval",
+        });
         const stealthContract = new ethers.Contract(
           STEALTH_PAYMENTS_ADDRESS,
           STEALTH_PAYMENTS_ABI,
@@ -3861,15 +3985,14 @@ export default function App() {
         if (!/^0x[0-9a-fA-F]{64}$/.test(mHash)) {
           mHash = ethers.ZeroHash;
         }
-        const assisted = await stealthContract.announceERC20Payment(
-          incoming.tokenAddress,
-          recipient,
-          balance,
-          ephPub,
-          vTag,
-          mHash
-        );
-        const assistedRcpt = await assisted.wait();
+        const { tx: assisted, receipt: assistedRcpt } = await sendWalletTxHardened({
+          signer: stealthWallet,
+          contract: stealthContract,
+          method: "announceERC20Payment",
+          args: [incoming.tokenAddress, recipient, balance, ephPub, vTag, mHash],
+          timeoutMs: 120000,
+          txLabel: "Stealth assisted claim",
+        });
         return { tx: assisted, rcpt: assistedRcpt };
       };
 
@@ -3882,16 +4005,38 @@ export default function App() {
       let rcpt;
 
       try {
-        tx = await tokenAsStealth.transfer(recipient, balance);
-        rcpt = await tx.wait();
+        const sent = await sendWalletTxHardened({
+          signer: stealthWallet,
+          contract: tokenAsStealth,
+          method: "transfer",
+          args: [recipient, balance],
+          timeoutMs: 120000,
+          txLabel: "Stealth token transfer",
+        });
+        tx = sent.tx;
+        rcpt = sent.receipt;
         assertRcptOk(rcpt);
       } catch (e1) {
         claimErrors.push(`ERC-20 transfer: ${extractEthersRevertReason(e1)}`);
         try {
-          const approveSelf = await tokenAsStealth.approve(stealthWallet.address, balance);
-          await approveSelf.wait();
-          tx = await tokenAsStealth.transferFrom(stealthWallet.address, recipient, balance);
-          rcpt = await tx.wait();
+          await sendWalletTxHardened({
+            signer: stealthWallet,
+            contract: tokenAsStealth,
+            method: "approve",
+            args: [stealthWallet.address, balance],
+            timeoutMs: 90000,
+            txLabel: "Stealth self-approve",
+          });
+          const sent = await sendWalletTxHardened({
+            signer: stealthWallet,
+            contract: tokenAsStealth,
+            method: "transferFrom",
+            args: [stealthWallet.address, recipient, balance],
+            timeoutMs: 120000,
+            txLabel: "Stealth transferFrom(self)",
+          });
+          tx = sent.tx;
+          rcpt = sent.receipt;
           assertRcptOk(rcpt);
         } catch (e2) {
           claimErrors.push(`transferFrom(self): ${extractEthersRevertReason(e2)}`);
@@ -3900,11 +4045,25 @@ export default function App() {
             try {
               const spender = await getSigner();
               const spenderAddr = normalizeAddress(await spender.getAddress());
-              const approveSpender = await tokenAsStealth.approve(spenderAddr, balance);
-              await approveSpender.wait();
+              await sendWalletTxHardened({
+                signer: stealthWallet,
+                contract: tokenAsStealth,
+                method: "approve",
+                args: [spenderAddr, balance],
+                timeoutMs: 90000,
+                txLabel: "Stealth spender approve",
+              });
               const tokenAsSpender = new ethers.Contract(incoming.tokenAddress, ERC20_ABI, spender);
-              tx = await tokenAsSpender.transferFrom(stealthWallet.address, recipient, balance);
-              rcpt = await tx.wait();
+              const sent = await sendWalletTxHardened({
+                signer: spender,
+                contract: tokenAsSpender,
+                method: "transferFrom",
+                args: [stealthWallet.address, recipient, balance],
+                timeoutMs: 120000,
+                txLabel: "Stealth transferFrom(spender)",
+              });
+              tx = sent.tx;
+              rcpt = sent.receipt;
               assertRcptOk(rcpt);
               spentOk = true;
             } catch (e3) {
@@ -5004,8 +5163,14 @@ export default function App() {
       }
       const signer = await getSigner();
       const writeToken = new ethers.Contract(tokenAddr, ERC20_ABI, signer);
-      const tx = await writeToken.approve(spender, ethers.MaxUint256);
-      await tx.wait(1);
+      await sendWalletTxHardened({
+        signer,
+        contract: writeToken,
+        method: "approve",
+        args: [spender, ethers.MaxUint256],
+        timeoutMs: 90000,
+        txLabel: "Recurring allowance approval",
+      });
     }
 
     if (isCircleMode()) {
@@ -5032,16 +5197,22 @@ export default function App() {
         RECURRING_AUTOMATION_ABI,
         signer
       );
-      const tx = await contract.configureAuthorization(
-        authId,
-        executorAddress,
-        tokenAddress,
-        ethers.getAddress(poolAddress),
-        maxPerExecution,
-        maxPerExecution,
-        periodSeconds
-      );
-      await tx.wait(1);
+      await sendWalletTxHardened({
+        signer,
+        contract,
+        method: "configureAuthorization",
+        args: [
+          authId,
+          executorAddress,
+          tokenAddress,
+          ethers.getAddress(poolAddress),
+          maxPerExecution,
+          maxPerExecution,
+          periodSeconds,
+        ],
+        timeoutMs: 120000,
+        txLabel: "Recurring authorization transaction",
+      });
     }
 
     await ensureAllowanceForSpender({
@@ -5482,8 +5653,14 @@ export default function App() {
     const tokenContract = new ethers.Contract(token.address, ERC20_ABI, signer);
     const allowance = await tokenContract.allowance(await signer.getAddress(), STEALTH_PAYMENTS_ADDRESS);
     if (allowance < amountUnits) {
-      const txA = await tokenContract.approve(STEALTH_PAYMENTS_ADDRESS, ethers.MaxUint256);
-      await txA.wait();
+      await sendWalletTxHardened({
+        signer,
+        contract: tokenContract,
+        method: "approve",
+        args: [STEALTH_PAYMENTS_ADDRESS, ethers.MaxUint256],
+        timeoutMs: 90000,
+        txLabel: `${token.symbol} approval`,
+      });
     }
 
     const stealthContract = new ethers.Contract(
@@ -5491,15 +5668,21 @@ export default function App() {
       STEALTH_PAYMENTS_ABI,
       signer
     );
-    const tx = await stealthContract.announceERC20Payment(
-      token.address,
-      stealth.stealthAddress,
-      amountUnits,
-      stealth.ephemeralPublicKey,
-      stealth.viewTag,
-      metadataHash
-    );
-    const receipt = await tx.wait();
+    const { tx, receipt } = await sendWalletTxHardened({
+      signer,
+      contract: stealthContract,
+      method: "announceERC20Payment",
+      args: [
+        token.address,
+        stealth.stealthAddress,
+        amountUnits,
+        stealth.ephemeralPublicKey,
+        stealth.viewTag,
+        metadataHash,
+      ],
+      timeoutMs: 120000,
+      txLabel: "Private payment transaction",
+    });
     return {
       txHash: tx.hash,
       stealth,
@@ -5687,8 +5870,14 @@ export default function App() {
     const fromAddr = await signer.getAddress();
     const allowance = await tokenContract.allowance(fromAddr, poolAddress);
     if (allowance < amountUnits) {
-      const txA = await tokenContract.approve(poolAddress, ethers.MaxUint256);
-      await txA.wait();
+      await sendWalletTxHardened({
+        signer,
+        contract: tokenContract,
+        method: "approve",
+        args: [poolAddress, ethers.MaxUint256],
+        timeoutMs: 90000,
+        txLabel: `${token.symbol} approval`,
+      });
     }
 
     const chainProvider = signer.provider ?? getReadProvider();
@@ -5771,12 +5960,20 @@ export default function App() {
       }
       let tx;
       try {
-        tx = await poolContract.deposit(commitment, amountUnits);
+        const sent = await sendWalletTxHardened({
+          signer,
+          contract: poolContract,
+          method: "deposit",
+          args: [commitment, amountUnits],
+          timeoutMs: 150000,
+          txLabel: "Privacy pool deposit",
+        });
+        tx = sent.tx;
+        receipt = sent.receipt;
       } catch (sendErr) {
         throw new Error(privacyPoolDepositErrorMessage(sendErr));
       }
       txHashOut = tx.hash;
-      receipt = await tx.wait();
     }
     const finInj = finalizeZkPoolClaimExport({
       receipt,
@@ -8912,10 +9109,17 @@ export default function App() {
 
       if (BigInt(allowance) < BigInt(amountIn)) {
         setQuote(`Approving ${swapFrom} for trading...`);
-        const txA = await tokenIn.approve(SWAP_POOL_ADDRESS, ethers.MaxUint256);
+        await sendWalletTxHardened({
+          signer,
+          contract: tokenIn,
+          method: "approve",
+          args: [SWAP_POOL_ADDRESS, ethers.MaxUint256],
+          timeoutMs: 90000,
+          txLabel: `${swapFrom} approval`,
+        });
         setQuote("Waiting for approval confirmation...");
-        await txA.wait(1);
-        
+        // tx already confirmed by sendWalletTxHardened
+
         // Add a small delay for public RPC nodes to catch up on state BEFORE the swap simulation
         await new Promise((r) => setTimeout(r, 2000));
       }
@@ -8971,8 +9175,15 @@ export default function App() {
       );
 
       // Execute Swap (contract does not support min_dy natively, so we pass 3 arguments)
-      const tx = await pool.swap(fromIdx, toIdx, amountIn);
-      
+      const { tx } = await sendWalletTxHardened({
+        signer,
+        contract: pool,
+        method: "swap",
+        args: [fromIdx, toIdx, amountIn],
+        timeoutMs: 120000,
+        txLabel: "Swap transaction",
+      });
+
       setQuote(`Submitted! Waiting for confirmation...`);
       console.log("Swap TX submitted:", tx.hash);
       
@@ -8990,9 +9201,8 @@ export default function App() {
       
       // Add to local history immediately
       setSwapHistory((prev) => [pendingTx, ...prev]);
-      
-      // Wait for confirmation using our custom wait() logic
-      await tx.wait();
+
+      // sendWalletTxHardened already confirmed or failed explicitly
       console.log("Swap TX confirmed!");
 
       const txUrl = `https://testnet.arcscan.app/tx/${tx.hash}`;
@@ -9377,8 +9587,14 @@ export default function App() {
           const allowance = await tokenContract.allowance(ownerAddr, activePreset.poolAddress);
 
           if (BigInt(allowance) < BigInt(parsed)) {
-            const txApprove = await tokenContract.approve(activePreset.poolAddress, parsed);
-            await txApprove.wait();
+            await sendWalletTxHardened({
+              signer,
+              contract: tokenContract,
+              method: "approve",
+              args: [activePreset.poolAddress, parsed],
+              timeoutMs: 90000,
+              txLabel: `${sym} approval`,
+            });
           }
           amounts.push(parsed);
         }
@@ -9388,8 +9604,15 @@ export default function App() {
 
         // Fixed ABI function name to addLiquidity (camelCase, 1 param)
         console.log("Adding liquidity with amounts:", amounts.map(a => a.toString()));
-        const tx = await pool.addLiquidity(amounts); 
-        
+        const { tx } = await sendWalletTxHardened({
+          signer,
+          contract: pool,
+          method: "addLiquidity",
+          args: [amounts],
+          timeoutMs: 150000,
+          txLabel: "Add liquidity transaction",
+        });
+
         console.log("Add Liquidity TX submitted:", tx.hash);
         
         // Update UI immediately (optimistic)
@@ -9400,8 +9623,8 @@ export default function App() {
           status: "pending",
           txHash: tx.hash
         });
-        
-        await tx.wait();
+
+        // sendWalletTxHardened already confirmed or failed explicitly
         console.log("Add Liquidity TX confirmed!");
       }
 
@@ -9516,10 +9739,18 @@ export default function App() {
         const signer = await getSigner();
         const pool = new ethers.Contract(activePreset.poolAddress, POOL_ABI, signer);
 
-        const tx = await pool.removeLiquidity(lpParsed); 
+        const { tx } = await sendWalletTxHardened({
+          signer,
+          contract: pool,
+          method: "removeLiquidity",
+          args: [lpParsed],
+          timeoutMs: 150000,
+          txLabel: "Remove liquidity transaction",
+        });
         console.log("Remove Liquidity TX submitted:", tx.hash);
         finalTxHash = tx.hash;
-        await tx.wait();
+
+        // sendWalletTxHardened already confirmed or failed explicitly
         console.log("Remove Liquidity TX confirmed!");
 
         setLiquiditySuccess({
