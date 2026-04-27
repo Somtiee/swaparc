@@ -14,6 +14,15 @@ function parseBadges(raw) {
   return {};
 }
 
+function sanitizeBadges(raw) {
+  const parsed = parseBadges(raw);
+  const out = {};
+  for (const [k, v] of Object.entries(parsed)) {
+    if (v === true || v === "true") out[k] = true;
+  }
+  return out;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -28,7 +37,7 @@ export default async function handler(req, res) {
   try {
     const profileKey = `profile:${userId}`;
     const profile = (await kv.hgetall(profileKey)) || {};
-    profile.badges = parseBadges(profile.badges);
+    profile.badges = sanitizeBadges(profile.badges);
 
     const newLpProvided = Number(lpTotalValue);
 
@@ -41,10 +50,9 @@ export default async function handler(req, res) {
       : false;
     const earlySwaparcerFlag = alreadyHasBadge || inFrozenSnapshot;
 
-    const updatedBadges = {
-        ...profile.badges,
-        earlySwaparcer: earlySwaparcerFlag,
-    };
+    const updatedBadges = { ...profile.badges };
+    if (earlySwaparcerFlag) updatedBadges.earlySwaparcer = true;
+    else delete updatedBadges.earlySwaparcer;
 
     const updatedProfile = {
       ...profile,

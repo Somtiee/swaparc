@@ -1,6 +1,24 @@
 import { kv } from "../../lib/server/kv.js";
 // import { startIndexer } from "../indexers/swapIndexer.js";
 
+function sanitizeBadges(raw) {
+  if (!raw) return {};
+  let obj = raw;
+  if (typeof obj === "string") {
+    try {
+      obj = JSON.parse(obj);
+    } catch {
+      obj = {};
+    }
+  }
+  if (!obj || typeof obj !== "object") return {};
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === true || v === "true") out[k] = true;
+  }
+  return out;
+}
+
 // if (!globalThis.__swapIndexerStarted) {
 //   globalThis.__swapIndexerStarted = true;
 //   // startIndexer();
@@ -29,10 +47,8 @@ export default async function handler(req, res) {
 
     const profile = await kv.hgetall(key);
 
-    if (profile && profile.badges && typeof profile.badges === 'string') {
-      try {
-        profile.badges = JSON.parse(profile.badges);
-      } catch (e) {}
+    if (profile) {
+      profile.badges = sanitizeBadges(profile.badges);
     }
 
     if (!profile) {

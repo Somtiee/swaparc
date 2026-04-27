@@ -1,5 +1,23 @@
 import { kv } from "../../lib/server/kv.js";
 
+function sanitizeBadges(raw) {
+  if (!raw) return {};
+  let obj = raw;
+  if (typeof obj === "string") {
+    try {
+      obj = JSON.parse(obj);
+    } catch {
+      obj = {};
+    }
+  }
+  if (!obj || typeof obj !== "object") return {};
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === true || v === "true") out[k] = true;
+  }
+  return out;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -21,10 +39,7 @@ export default async function handler(req, res) {
         const profile = await kv.hgetall(`profile:${userId}`);
         
         if (profile && Object.keys(profile).length > 0) {
-            // Parse badges if string
-            if (profile.badges && typeof profile.badges === 'string') {
-                try { profile.badges = JSON.parse(profile.badges); } catch (e) {}
-            }
+            profile.badges = sanitizeBadges(profile.badges);
 
             return res.status(200).json({
                 success: true,
@@ -65,7 +80,7 @@ export default async function handler(req, res) {
         swapVolume: 0,
         swapCount: 0,
         lpProvided: 0,
-        badges: { firstSwap: false, volume1000: false },
+        badges: {},
         createdAt: new Date().toISOString()
     };
 
