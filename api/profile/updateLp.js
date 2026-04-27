@@ -41,14 +41,13 @@ export default async function handler(req, res) {
 
     const newLpProvided = Number(lpTotalValue);
 
-    // Early Swaparcer claiming is FROZEN. Never auto-grant from LP changes;
-    // only preserve an existing flag, or restore for snapshotted holders.
-    const alreadyHasBadge = profile.badges.earlySwaparcer === true || profile.badges.earlySwaparcer === "true";
+    // STRICT LOCK: snapshot membership is the only source of truth.
+    // Existing stored true flags are ignored if wallet is not frozen.
     const candidateAddress = String(profile.walletAddress || userId || "").toLowerCase();
     const inFrozenSnapshot = candidateAddress
       ? await isFrozenEarlySwaparcer(candidateAddress)
       : false;
-    const earlySwaparcerFlag = alreadyHasBadge || inFrozenSnapshot;
+    const earlySwaparcerFlag = inFrozenSnapshot;
 
     const updatedBadges = { ...profile.badges };
     if (earlySwaparcerFlag) updatedBadges.earlySwaparcer = true;

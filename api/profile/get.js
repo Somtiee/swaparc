@@ -1,4 +1,5 @@
 import { kv } from "../../lib/server/kv.js";
+import { isFrozenEarlySwaparcer } from "../../lib/server/earlySwaparcerFrozen.js";
 // import { startIndexer } from "../indexers/swapIndexer.js";
 
 function sanitizeBadges(raw) {
@@ -48,7 +49,20 @@ export default async function handler(req, res) {
     const profile = await kv.hgetall(key);
 
     if (profile) {
-      profile.badges = sanitizeBadges(profile.badges);
+      const badges = sanitizeBadges(profile.badges);
+      const normalizedUser = String(userId || "").toLowerCase();
+      const addrCandidate = String(
+        profile.walletAddress || (normalizedUser.startsWith("0x") ? normalizedUser : "")
+      ).toLowerCase();
+      const inFrozenSnapshot = addrCandidate
+        ? await isFrozenEarlySwaparcer(addrCandidate)
+        : false;
+      if (inFrozenSnapshot) badges.earlySwaparcer = true;
+      else delete badges.earlySwaparcer;
+      profile.badges = badges;
+
+      // Persist cleanup so stale true flags are removed permanently.
+      await kv.hset(key, { badges: JSON.stringify(badges) }).catch(() => {});
     }
 
     if (!profile) {

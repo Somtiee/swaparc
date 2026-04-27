@@ -1,4 +1,5 @@
 import { kv } from "../../lib/server/kv.js";
+import { isFrozenEarlySwaparcer } from "../../lib/server/earlySwaparcerFrozen.js";
 
 function sanitizeBadges(raw) {
   if (!raw) return {};
@@ -39,7 +40,19 @@ export default async function handler(req, res) {
         const profile = await kv.hgetall(`profile:${userId}`);
         
         if (profile && Object.keys(profile).length > 0) {
-            profile.badges = sanitizeBadges(profile.badges);
+            const badges = sanitizeBadges(profile.badges);
+            const addrCandidate = String(profile.walletAddress || walletAddress || "").toLowerCase();
+            const inFrozenSnapshot = addrCandidate
+              ? await isFrozenEarlySwaparcer(addrCandidate)
+              : false;
+            if (inFrozenSnapshot) badges.earlySwaparcer = true;
+            else delete badges.earlySwaparcer;
+            profile.badges = badges;
+
+            // Persist cleanup so stale true flags are removed permanently.
+            await kv.hset(`profile:${userId}`, {
+              badges: JSON.stringify(badges),
+            }).catch(() => {});
 
             return res.status(200).json({
                 success: true,
@@ -51,7 +64,9 @@ export default async function handler(req, res) {
     }
 
     // 1b. Check for legacy profile (keyed by wallet address)
-    const legacyProfile = await kv.get(`profile:${walletAddress}`);
+    const legacyRaw = await kv.get(`profile:${walletAddress}`);
+    const legacyProfile =
+      legacyRaw && typeof legacyRaw === "object" ? legacyRaw : null;
     if (legacyProfile) {
         // Found legacy profile, migrate/use it
         // We will use the wallet address as userId for consistency with old data, 
@@ -61,11 +76,27 @@ export default async function handler(req, res) {
         // Ensure mapping exists
         await kv.set(walletKey, userId);
 
+        const legacyBadges = sanitizeBadges(legacyProfile.badges);
+        const legacyAddr = String(legacyProfile.walletAddress || walletAddress || "").toLowerCase();
+        const inFrozenSnapshot = legacyAddr
+          ? await isFrozenEarlySwaparcer(legacyAddr)
+          : false;
+        if (inFrozenSnapshot) legacyBadges.earlySwaparcer = true;
+        else delete legacyBadges.earlySwaparcer;
+        const normalizedLegacyProfile = {
+          ...legacyProfile,
+          badges: legacyBadges,
+        };
+
+        await kv.hset(`profile:${userId}`, {
+            badges: JSON.stringify(legacyBadges),
+        }).catch(() => {});
+
         return res.status(200).json({
             success: true,
             isNew: false,
             userId,
-            profile: legacyProfile
+            profile: normalizedLegacyProfile
         });
     }
 
