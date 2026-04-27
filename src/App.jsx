@@ -10788,53 +10788,64 @@ export default function App() {
                                   gap: 12,
                                 }}
                               >
-                                {/* Early Swaparcer Badge */}
-                                {badgeState.earlySwaparcer ? (
-                                  <div
-                                    className="badgeTile"
-                                    style={{
-                                      width: 140,
-                                      height: 160,
-                                      borderRadius: 12,
-                                      background: "rgba(0, 255, 255, 0.15)",
-                                      border: "1px solid rgba(0, 255, 255, 0.5)",
-                                      display: "flex",
-                                      flexDirection: "column",
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                      overflow: "hidden",
-                                      gap: 6
-                                    }}
-                                  >
-                                    <img
-                                      src="/badges/early-swaparcer.png"
-                                      alt="Early Swaparcer"
-                                      style={{
-                                        width: "100%",
-                                        height: 112,
-                                        objectFit: "cover",
-                                      }}
-                                    />
+                                {/* Early Swaparcer Badge — snapshot-only.
+                                    Non-holders see the same tile but greyed out. */}
+                                {(() => {
+                                  const unlocked = badgeState.earlySwaparcer;
+                                  return (
                                     <div
-                                      className="badgeLabel"
+                                      className="badgeTile"
+                                      title={
+                                        unlocked
+                                          ? "Early Swaparcer — lifetime status"
+                                          : "Early Swaparcer Badge program is closed."
+                                      }
                                       style={{
-                                        fontSize: "0.75em",
-                                        fontWeight: 700,
-                                        color: "cyan",
-                                        textTransform: "uppercase"
+                                        width: 140,
+                                        height: 160,
+                                        borderRadius: 12,
+                                        background: unlocked
+                                          ? "rgba(0, 255, 255, 0.15)"
+                                          : "rgba(255, 255, 255, 0.03)",
+                                        border: `1px solid ${
+                                          unlocked
+                                            ? "rgba(0, 255, 255, 0.5)"
+                                            : "rgba(255, 255, 255, 0.06)"
+                                        }`,
+                                        opacity: unlocked ? 1 : 0.4,
+                                        filter: unlocked ? "none" : "grayscale(100%)",
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        overflow: "hidden",
+                                        gap: 6,
+                                        transition: "opacity 200ms ease",
                                       }}
                                     >
-                                      Early Swaparcer
+                                      <img
+                                        src="/badges/early-swaparcer.png"
+                                        alt="Early Swaparcer"
+                                        style={{
+                                          width: "100%",
+                                          height: 112,
+                                          objectFit: "cover",
+                                        }}
+                                      />
+                                      <div
+                                        className="badgeLabel"
+                                        style={{
+                                          fontSize: "0.75em",
+                                          fontWeight: 700,
+                                          color: unlocked ? "cyan" : "inherit",
+                                          textTransform: "uppercase",
+                                        }}
+                                      >
+                                        Early Swaparcer
+                                      </div>
                                     </div>
-                                  </div>
-                                ) : (
-                                  <div
-                                    className="muted"
-                                    style={{ fontSize: "0.78em", opacity: 0.75 }}
-                                  >
-                                    No badges yet.
-                                  </div>
-                                )}
+                                  );
+                                })()}
 
                                 
                               </div>
