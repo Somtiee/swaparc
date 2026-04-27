@@ -1,4 +1,5 @@
 import { kv } from "../../lib/server/kv.js";
+import { isFrozenEarlySwaparcer } from "../../lib/server/earlySwaparcerFrozen.js";
 
 async function safeKvCall(fn, fallback = null) {
   try {
@@ -8,18 +9,39 @@ async function safeKvCall(fn, fallback = null) {
   }
 }
 
-function computeEarlySwaparcer(profile) {
-  const count = Number(profile?.swapCount || 0);
-  const vol = Number(profile?.swapVolume || 0);
-  const lp = Number(profile?.lpProvided || 0);
-  return count >= 100 || vol >= 10000 || lp >= 1000;
+function parseBadges(raw) {
+  if (!raw) return {};
+  if (typeof raw === "object") return raw;
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+/**
+ * Early Swaparcer claiming is FROZEN. We no longer compute eligibility from
+ * live stats. A wallet is treated as an Early Swaparcer if and only if:
+ *  - their stored profile already has badges.earlySwaparcer = true, OR
+ *  - their address is in the pre-freeze snapshot
+ *    (badges:earlySwaparcer:frozen / data/badges/earlySwaparcer.frozen.json).
+ */
+async function resolveEarlySwaparcer(profile, normalizedOwner) {
+  const badges = parseBadges(profile?.badges);
+  if (badges?.earlySwaparcer === true || badges?.earlySwaparcer === "true") {
+    return true;
+  }
+  if (!normalizedOwner) return false;
+  return isFrozenEarlySwaparcer(normalizedOwner);
 }
 
 async function getProfileByOwner(owner) {
   const lower = String(owner || "").toLowerCase();
   if (!lower || !lower.startsWith("0x")) return null;
   const walletKey = `profile:${lower}`;
-  // Primary profile storage uses hash fields; keep string get for legacy fallback.
   const walletProfile =
     (await safeKvCall(() => kv.hgetall(walletKey), null)) ||
     (await safeKvCall(() => kv.get(walletKey), null));
@@ -51,7 +73,7 @@ export async function getArcpayAccessByAddress(owner) {
   }
 
   const profile = await getProfileByOwner(normalizedOwner);
-  const isEarlySwaparcer = computeEarlySwaparcer(profile || {});
+  const isEarlySwaparcer = await resolveEarlySwaparcer(profile || {}, normalizedOwner);
 
   const subKey = `privpay:subscription:${normalizedOwner}`;
   const sub = (await safeKvCall(() => kv.get(subKey), null)) || null;
@@ -74,4 +96,3 @@ export async function getArcpayAccessByAddress(owner) {
     expiresAt: subscriptionActive ? expiresAt : null,
   };
 }
-

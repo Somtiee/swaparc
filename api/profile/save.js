@@ -1,4 +1,18 @@
 import { kv } from "../../lib/server/kv.js";
+import { isFrozenEarlySwaparcer } from "../../lib/server/earlySwaparcerFrozen.js";
+
+function parseBadges(raw) {
+  if (!raw) return {};
+  if (typeof raw === "object") return raw;
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -14,34 +28,36 @@ export default async function handler(req, res) {
 
     const normalizedId = userId.startsWith("0x") ? userId.toLowerCase() : userId;
     const profileKey = `profile:${normalizedId}`;
-    const existingProfile = await kv.hgetall(profileKey) || {};
+    const existingProfile = (await kv.hgetall(profileKey)) || {};
 
-    if (existingProfile.badges && typeof existingProfile.badges === 'string') {
-        try { existingProfile.badges = JSON.parse(existingProfile.badges); } catch (e) {}
-    }
+    const existingBadges = parseBadges(existingProfile.badges);
 
-    // Determine final stats (ALWAYS use existing DB values for stats to prevent client overwrites)
     const finalSwapCount = Number(existingProfile.swapCount || 0);
     const finalSwapVolume = Number(existingProfile.swapVolume || 0);
     const finalLpProvided = Number(existingProfile.lpProvided || 0);
 
-    // Check badge unlock
-    const isEarlySwaparcer = finalSwapCount >= 100 || finalSwapVolume >= 10000 || finalLpProvided >= 1000;
-    
+    // Early Swaparcer claiming is FROZEN. We never auto-grant new badges here;
+    // we only preserve an existing flag, or honor a wallet captured in the
+    // pre-freeze snapshot (so qualifiers who never re-saved still keep it).
+    const alreadyHasBadge = existingBadges.earlySwaparcer === true || existingBadges.earlySwaparcer === "true";
+    const candidateAddress = String(walletAddress || normalizedId || "").toLowerCase();
+    const inFrozenSnapshot = candidateAddress
+      ? await isFrozenEarlySwaparcer(candidateAddress)
+      : false;
+    const earlySwaparcerFlag = alreadyHasBadge || inFrozenSnapshot;
+
     const updatedBadges = {
-        ...(existingProfile.badges || {}),
-        earlySwaparcer: isEarlySwaparcer || (existingProfile.badges && existingProfile.badges.earlySwaparcer)
+        ...existingBadges,
+        earlySwaparcer: earlySwaparcerFlag,
     };
 
     const profile = {
       ...existingProfile,
-      // Update fields if provided, otherwise keep existing or default
       username: username || existingProfile.username,
       walletId: walletId || existingProfile.walletId,
       avatar: avatar || existingProfile.avatar || "",
       walletAddress: walletAddress || existingProfile.walletAddress || "",
-      
-      // Ensure numeric/stats fields exist
+
       swapVolume: finalSwapVolume,
       swapCount: finalSwapCount,
       lpProvided: finalLpProvided,
@@ -53,7 +69,6 @@ export default async function handler(req, res) {
         badges: JSON.stringify(updatedBadges)
     });
 
-    // Update leaderboards
     if (finalSwapVolume > 0) {
       await kv.zadd("leaderboard:swapVolume", { score: finalSwapVolume, member: normalizedId });
     }
