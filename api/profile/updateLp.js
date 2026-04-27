@@ -1,4 +1,18 @@
 import { kv } from "../../lib/server/kv.js";
+import { isFrozenEarlySwaparcer } from "../../lib/server/earlySwaparcerFrozen.js";
+
+function parseBadges(raw) {
+  if (!raw) return {};
+  if (typeof raw === "object") return raw;
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -13,29 +27,23 @@ export default async function handler(req, res) {
 
   try {
     const profileKey = `profile:${userId}`;
-    const profile = await kv.hgetall(profileKey) || {};
+    const profile = (await kv.hgetall(profileKey)) || {};
+    profile.badges = parseBadges(profile.badges);
 
-    // Parse badges if string (legacy or hash storage)
-    if (profile.badges && typeof profile.badges === 'string') {
-      try {
-        profile.badges = JSON.parse(profile.badges);
-      } catch (e) {
-        profile.badges = {};
-      }
-    }
-
-    const currentSwapCount = Number(profile.swapCount || 0);
-    const currentSwapVolume = Number(profile.swapVolume || 0);
-    
-    // Update LP provided value
     const newLpProvided = Number(lpTotalValue);
 
-    // Unlock conditions: swapCount >= 100 OR swapVolume >= 10000 OR lpProvided >= 1000
-    const isEarlySwaparcer = currentSwapCount >= 100 || currentSwapVolume >= 10000 || newLpProvided >= 1000;
+    // Early Swaparcer claiming is FROZEN. Never auto-grant from LP changes;
+    // only preserve an existing flag, or restore for snapshotted holders.
+    const alreadyHasBadge = profile.badges.earlySwaparcer === true || profile.badges.earlySwaparcer === "true";
+    const candidateAddress = String(profile.walletAddress || userId || "").toLowerCase();
+    const inFrozenSnapshot = candidateAddress
+      ? await isFrozenEarlySwaparcer(candidateAddress)
+      : false;
+    const earlySwaparcerFlag = alreadyHasBadge || inFrozenSnapshot;
 
     const updatedBadges = {
-        ...(profile.badges || {}),
-        earlySwaparcer: isEarlySwaparcer
+        ...profile.badges,
+        earlySwaparcer: earlySwaparcerFlag,
     };
 
     const updatedProfile = {
@@ -49,7 +57,6 @@ export default async function handler(req, res) {
         badges: JSON.stringify(updatedBadges)
     });
 
-    // Update leaderboard
     await kv.zadd("leaderboard:lpProvided", {
       score: newLpProvided,
       member: userId
