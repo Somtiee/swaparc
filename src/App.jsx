@@ -2788,18 +2788,11 @@ export default function App() {
 
   // Badge Logic (Memoized)
   const badgeState = useMemo(() => {
-    if (!profileStats) return { earlySwaparcer: false };
-
-    const count = Number(profileStats.swapCount || 0);
-    const vol = Number(profileStats.swapVolume || 0);
-    // Use calculated LP value for immediate feedback, or profile?
-    // User says "Badge state must recompute whenever... lpProvided changes".
-    // calculatedLpTotalValue is the most up-to-date.
-    const lp = calculatedLpTotalValue;
-
-    const isEarlySwaparcer = count >= 100 || vol >= 10000 || lp >= 1000;
-    return { earlySwaparcer: isEarlySwaparcer };
-  }, [profileStats, calculatedLpTotalValue]);
+    // STRICT LOCK: frontend must never recompute badge eligibility from
+    // swap/volume/LP thresholds. Snapshot-backed server access state is the
+    // single source of truth.
+    return { earlySwaparcer: !!privpayAccess?.isEarlySwaparcer };
+  }, [privpayAccess?.isEarlySwaparcer]);
 
   useEffect(() => {
     // Prevent race condition: Only calculate totals AFTER both balances AND prices are available.
@@ -10796,57 +10789,52 @@ export default function App() {
                                 }}
                               >
                                 {/* Early Swaparcer Badge */}
-                                {(() => {
-                                  const unlocked = badgeState.earlySwaparcer;
-
-                                  return (
-                                    <div
-                                      className="badgeTile"
+                                {badgeState.earlySwaparcer ? (
+                                  <div
+                                    className="badgeTile"
+                                    style={{
+                                      width: 140,
+                                      height: 160,
+                                      borderRadius: 12,
+                                      background: "rgba(0, 255, 255, 0.15)",
+                                      border: "1px solid rgba(0, 255, 255, 0.5)",
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      overflow: "hidden",
+                                      gap: 6
+                                    }}
+                                  >
+                                    <img
+                                      src="/badges/early-swaparcer.png"
+                                      alt="Early Swaparcer"
                                       style={{
-                                        width: 140,
-                                        height: 160,
-                                        borderRadius: 12,
-                                        background: unlocked
-                                          ? "rgba(0, 255, 255, 0.15)"
-                                          : "rgba(255, 255, 255, 0.03)",
-                                        border: `1px solid ${
-                                          unlocked
-                                            ? "rgba(0, 255, 255, 0.5)"
-                                            : "rgba(255, 255, 255, 0.05)"
-                                        }`,
-                                        opacity: unlocked ? 1 : 0.4,
-                                        filter: unlocked ? "none" : "grayscale(100%)",
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        overflow: "hidden",
-                                        gap: 6
+                                        width: "100%",
+                                        height: 112,
+                                        objectFit: "cover",
+                                      }}
+                                    />
+                                    <div
+                                      className="badgeLabel"
+                                      style={{
+                                        fontSize: "0.75em",
+                                        fontWeight: 700,
+                                        color: "cyan",
+                                        textTransform: "uppercase"
                                       }}
                                     >
-                                      <img
-                                        src="/badges/early-swaparcer.png"
-                                        alt="Early Swaparcer"
-                                        style={{
-                                          width: "100%",
-                                          height: 112,
-                                          objectFit: "cover",
-                                        }}
-                                      />
-                                      <div
-                                        className="badgeLabel"
-                                        style={{
-                                          fontSize: "0.75em",
-                                          fontWeight: 700,
-                                          color: unlocked ? "cyan" : "inherit",
-                                          textTransform: "uppercase"
-                                        }}
-                                      >
-                                        Early Swaparcer
-                                      </div>
+                                      Early Swaparcer
                                     </div>
-                                  );
-                                })()}
+                                  </div>
+                                ) : (
+                                  <div
+                                    className="muted"
+                                    style={{ fontSize: "0.78em", opacity: 0.75 }}
+                                  >
+                                    No badges yet.
+                                  </div>
+                                )}
 
                                 
                               </div>
