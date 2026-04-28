@@ -1350,16 +1350,31 @@ export default function App() {
 
   async function waitForTxBestEffort(txHash, timeoutMs = 45000) {
     if (!txHash || txHash === "SUBMITTED") return null;
-    const perProviderTimeout = Math.max(8000, Math.floor(timeoutMs / Math.max(1, READ_RPC_URLS.length)));
+    const perProviderTimeout = Math.max(
+      8000,
+      Math.floor(timeoutMs / Math.max(1, READ_RPC_URLS.length))
+    );
     try {
-      return await withReadProviders(
-        async (provider) =>
-          await Promise.race([
+      const waiters = READ_RPC_URLS.map(async (url) => {
+        try {
+          const provider = getReadProviderForUrl(url);
+          const mined = await Promise.race([
             provider.waitForTransaction(txHash, 1, perProviderTimeout),
-            new Promise((resolve) => setTimeout(() => resolve(null), perProviderTimeout)),
-          ]),
-        "waitForTransaction"
-      );
+            new Promise((resolve) =>
+              setTimeout(() => resolve(null), perProviderTimeout)
+            ),
+          ]);
+          return mined || null;
+        } catch (e) {
+          console.warn(
+            `[RPC] waitForTransaction failed on ${url}`,
+            e?.message || e
+          );
+          return null;
+        }
+      });
+      const results = await Promise.all(waiters);
+      return results.find((r) => !!r) || null;
     } catch (e) {
       console.warn("[RPC] waitForTxBestEffort failed:", e?.message || e);
       return null;
@@ -1369,14 +1384,161 @@ export default function App() {
   async function getTxReceiptBestEffort(txHash) {
     if (!txHash || txHash === "SUBMITTED") return null;
     try {
-      return await withReadProviders(
-        async (provider) => await provider.getTransactionReceipt(txHash),
-        "getTransactionReceipt"
-      );
+      const lookups = READ_RPC_URLS.map(async (url) => {
+        try {
+          const provider = getReadProviderForUrl(url);
+          return (await provider.getTransactionReceipt(txHash)) || null;
+        } catch (e) {
+          console.warn(
+            `[RPC] getTransactionReceipt failed on ${url}`,
+            e?.message || e
+          );
+          return null;
+        }
+      });
+      const results = await Promise.all(lookups);
+      return results.find((r) => !!r) || null;
     } catch (e) {
       console.warn("[RPC] getTxReceiptBestEffort failed:", e?.message || e);
       return null;
     }
+  }
+
+  function asBigInt(value) {
+    if (value === null || value === undefined) return null;
+    try {
+      return BigInt(value);
+    } catch {
+      return null;
+    }
+  }
+
+  function maxBigInt(...values) {
+    let out = null;
+    for (const v of values) {
+      const n = asBigInt(v);
+      if (n == null) continue;
+      if (out == null || n > out) out = n;
+    }
+    return out;
+  }
+
+  function bumpByPercent(value, pct) {
+    const n = asBigInt(value);
+    if (n == null) return null;
+    return (n * BigInt(pct) + 99n) / 100n;
+  }
+
+  function buildReplacementFeeOverrides(previous = {}, fresh = {}, attempt = 1) {
+    const HARD_CEILING = ethers.parseUnits("220", "gwei");
+    const minPriority = ethers.parseUnits("2", "gwei");
+    const bumpPct = Math.min(180, 125 + attempt * 20);
+    const out = {};
+
+    const pPrev = asBigInt(previous?.maxPriorityFeePerGas);
+    const pFresh = asBigInt(fresh?.maxPriorityFeePerGas);
+    const mPrev = asBigInt(previous?.maxFeePerGas);
+    const mFresh = asBigInt(fresh?.maxFeePerGas);
+    const gPrev = asBigInt(previous?.gasPrice);
+    const gFresh = asBigInt(fresh?.gasPrice);
+
+    if (pPrev != null || pFresh != null || mPrev != null || mFresh != null) {
+      let priority = maxBigInt(pPrev, pFresh, minPriority);
+      let maxFee = maxBigInt(mPrev, mFresh);
+      priority = bumpByPercent(priority, bumpPct);
+      maxFee = bumpByPercent(maxFee ?? priority, bumpPct);
+      if (priority != null && maxFee != null && maxFee <= priority) {
+        maxFee = priority + ethers.parseUnits("1", "gwei");
+      }
+      if (priority != null && priority > HARD_CEILING) priority = HARD_CEILING;
+      if (maxFee != null && maxFee > HARD_CEILING) maxFee = HARD_CEILING;
+      if (priority != null) out.maxPriorityFeePerGas = priority;
+      if (maxFee != null) out.maxFeePerGas = maxFee;
+      delete out.gasPrice;
+      return out;
+    }
+
+    const gasPrice = bumpByPercent(maxBigInt(gPrev, gFresh), bumpPct);
+    if (gasPrice != null) {
+      out.gasPrice = gasPrice > HARD_CEILING ? HARD_CEILING : gasPrice;
+    }
+    return out;
+  }
+
+  function delayMs(ms) {
+    return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+  }
+
+  async function waitForAnyTxReceipt(txHashes, timeoutMs = 30000) {
+    const uniq = [...new Set((txHashes || []).filter(Boolean))];
+    if (!uniq.length) return null;
+    const deadline = Date.now() + Math.max(0, timeoutMs);
+    while (Date.now() < deadline) {
+      for (const h of uniq) {
+        const receipt = await getTxReceiptBestEffort(h);
+        if (receipt) return receipt;
+      }
+      await delayMs(2500);
+    }
+    return null;
+  }
+
+  async function confirmTxWithAutoReplace({
+    tx,
+    timeoutMs = 90000,
+    txLabel = "Transaction",
+    replaceTx = null,
+  }) {
+    const startedAt = Date.now();
+    const seenHashes = [tx?.hash].filter(Boolean);
+    let latestTx = tx;
+    const firstWindow = Math.max(
+      12000,
+      Math.min(35000, Math.floor(timeoutMs * 0.38))
+    );
+    let mined = await waitForAnyTxReceipt(seenHashes, firstWindow);
+    if (mined) return { tx: latestTx, receipt: mined };
+
+    const maxReplacements = 2;
+    for (let attempt = 1; attempt <= maxReplacements; attempt += 1) {
+      const elapsed = Date.now() - startedAt;
+      const remaining = timeoutMs - elapsed;
+      if (remaining <= 10000) break;
+
+      if (typeof replaceTx === "function") {
+        try {
+          const replacement = await replaceTx({ attempt, latestTx, seenHashes });
+          if (replacement?.hash && !seenHashes.includes(replacement.hash)) {
+            seenHashes.push(replacement.hash);
+            latestTx = replacement;
+          }
+        } catch (e) {
+          console.warn(
+            `[TX] ${txLabel} replacement attempt ${attempt} failed`,
+            e?.message || e
+          );
+        }
+      }
+
+      mined =
+        (await waitForAnyTxReceipt(
+          seenHashes,
+          Math.max(8000, Math.min(35000, remaining))
+        )) || null;
+      if (mined) return { tx: latestTx, receipt: mined };
+    }
+
+    // Last probe before failing hard.
+    mined =
+      (await waitForAnyTxReceipt(seenHashes, 4000)) ||
+      (await waitForTxBestEffort(seenHashes[seenHashes.length - 1], 8000));
+    if (mined) return { tx: latestTx, receipt: mined };
+
+    throw new Error(
+      `${txLabel} is still pending after ${Math.round(
+        timeoutMs / 1000
+      )}s even after auto speed-up attempts. Open wallet activity to speed up/cancel the pending tx, then retry.`
+    );
   }
 
   async function assertNoWalletNonceGap(signer, signerProvider = null) {
@@ -1389,7 +1551,7 @@ export default function App() {
     if (
       Number.isFinite(latestN) &&
       Number.isFinite(pendingN) &&
-      pendingN - latestN > 2
+      pendingN - latestN > 1
     ) {
       throw new Error(
         `Wallet pending queue is stuck (nonce gap ${pendingN - latestN}). Clear/speed-up pending txs in wallet activity, then retry.`
@@ -1409,11 +1571,11 @@ export default function App() {
     const signerProvider = signer.provider ?? getReadProvider();
     await assertNoWalletNonceGap(signer, signerProvider);
 
-    const feeOverrides = await computeFastClaimOverrides(signerProvider);
-    const sendOverrides = { ...feeOverrides };
+    let activeFeeOverrides = await computeFastClaimOverrides(signerProvider);
+    const sendOverrides = { ...activeFeeOverrides };
     if (estimateGas) {
       try {
-        const est = await contract[method].estimateGas(...args, feeOverrides);
+        const est = await contract[method].estimateGas(...args, activeFeeOverrides);
         if (est) sendOverrides.gasLimit = (est * 12n) / 10n;
       } catch {
         try {
@@ -1435,20 +1597,54 @@ export default function App() {
       tx = await contract[method](...args);
     }
 
-    const mined =
-      (await waitForTxBestEffort(tx.hash, timeoutMs)) ||
-      (await getTxReceiptBestEffort(tx.hash));
-    if (!mined) {
-      throw new Error(
-        `${txLabel} is still pending after ${Math.round(
-          timeoutMs / 1000
-        )}s. To avoid stacking stuck txs, no further action was taken. Speed up/cancel the pending tx in wallet activity, then retry.`
-      );
-    }
-    if (typeof mined.status === "number" && mined.status !== 1) {
+    const initialNonce = Number.isFinite(Number(tx?.nonce)) ? Number(tx.nonce) : null;
+    const { receipt, tx: finalTx } = await confirmTxWithAutoReplace({
+      tx,
+      timeoutMs,
+      txLabel,
+      replaceTx: async ({ attempt }) => {
+        if (initialNonce == null) return null;
+        const fresh = await computeFastClaimOverrides(signerProvider);
+        const bumpedFees = buildReplacementFeeOverrides(
+          activeFeeOverrides,
+          fresh,
+          attempt
+        );
+        activeFeeOverrides = { ...activeFeeOverrides, ...bumpedFees };
+        const replacementOverrides = {
+          ...sendOverrides,
+          ...activeFeeOverrides,
+          nonce: initialNonce,
+        };
+        try {
+          return await contract[method](...args, replacementOverrides);
+        } catch (replaceErr) {
+          const msg = String(replaceErr?.message || replaceErr || "");
+          // If nonce is already consumed or tx is known, keep waiting for receipts.
+          if (/nonce (has )?already been used|nonce too low|already known/i.test(msg)) {
+            return null;
+          }
+          // One stronger retry for replacement underpriced errors.
+          if (/replacement fee too low|underpriced|max fee per gas less than block base fee/i.test(msg)) {
+            const stronger = buildReplacementFeeOverrides(
+              replacementOverrides,
+              replacementOverrides,
+              attempt + 2
+            );
+            return await contract[method](...args, {
+              ...replacementOverrides,
+              ...stronger,
+              nonce: initialNonce,
+            });
+          }
+          throw replaceErr;
+        }
+      },
+    });
+    if (typeof receipt?.status === "number" && receipt.status !== 1) {
       throw new Error(`${txLabel} failed on-chain.`);
     }
-    return { tx, receipt: mined };
+    return { tx: finalTx || tx, receipt };
   }
 
   async function sendNativeTxHardened({
@@ -1459,32 +1655,64 @@ export default function App() {
   }) {
     const signerProvider = signer.provider ?? getReadProvider();
     await assertNoWalletNonceGap(signer, signerProvider);
-    const feeOverrides = await computeFastClaimOverrides(signerProvider);
-    const req = { ...txRequest, ...feeOverrides };
+    let activeFeeOverrides = await computeFastClaimOverrides(signerProvider);
+    const req = { ...txRequest, ...activeFeeOverrides };
 
     let tx;
     try {
       tx = await signer.sendTransaction(req);
     } catch (sendErr) {
-      const hasAnyOverrides = Object.keys(feeOverrides).length > 0;
+      const hasAnyOverrides = Object.keys(activeFeeOverrides).length > 0;
       if (!hasAnyOverrides) throw sendErr;
       tx = await signer.sendTransaction(txRequest);
     }
 
-    const mined =
-      (await waitForTxBestEffort(tx.hash, timeoutMs)) ||
-      (await getTxReceiptBestEffort(tx.hash));
-    if (!mined) {
-      throw new Error(
-        `${txLabel} is still pending after ${Math.round(
-          timeoutMs / 1000
-        )}s. Speed up/cancel the pending tx in wallet activity, then retry.`
-      );
-    }
-    if (typeof mined.status === "number" && mined.status !== 1) {
+    const initialNonce = Number.isFinite(Number(tx?.nonce)) ? Number(tx.nonce) : null;
+    const { receipt, tx: finalTx } = await confirmTxWithAutoReplace({
+      tx,
+      timeoutMs,
+      txLabel,
+      replaceTx: async ({ attempt }) => {
+        if (initialNonce == null) return null;
+        const fresh = await computeFastClaimOverrides(signerProvider);
+        const bumpedFees = buildReplacementFeeOverrides(
+          activeFeeOverrides,
+          fresh,
+          attempt
+        );
+        activeFeeOverrides = { ...activeFeeOverrides, ...bumpedFees };
+        const replacementReq = {
+          ...txRequest,
+          ...activeFeeOverrides,
+          nonce: initialNonce,
+        };
+        try {
+          return await signer.sendTransaction(replacementReq);
+        } catch (replaceErr) {
+          const msg = String(replaceErr?.message || replaceErr || "");
+          if (/nonce (has )?already been used|nonce too low|already known/i.test(msg)) {
+            return null;
+          }
+          if (/replacement fee too low|underpriced|max fee per gas less than block base fee/i.test(msg)) {
+            const stronger = buildReplacementFeeOverrides(
+              replacementReq,
+              replacementReq,
+              attempt + 2
+            );
+            return await signer.sendTransaction({
+              ...replacementReq,
+              ...stronger,
+              nonce: initialNonce,
+            });
+          }
+          throw replaceErr;
+        }
+      },
+    });
+    if (typeof receipt?.status === "number" && receipt.status !== 1) {
       throw new Error(`${txLabel} failed on-chain.`);
     }
-    return { tx, receipt: mined };
+    return { tx: finalTx || tx, receipt };
   }
 
   function getActiveWalletAddress() {
@@ -5269,7 +5497,7 @@ export default function App() {
       if (
         Number.isFinite(latestN) &&
         Number.isFinite(pendingN) &&
-        pendingN - latestN > 2
+        pendingN - latestN > 1
       ) {
         throw new Error(
           `Wallet pending queue is stuck (nonce gap ${pendingN - latestN}). Clear/speed-up pending txs in wallet activity, then retry.`
@@ -6036,9 +6264,9 @@ export default function App() {
     //    without paying outlier-level tips).
     //  - maxFeePerGas = baseFee * 2 + priorityFee, hard-capped for safety.
     //  - Falls back to legacy gasPrice * 1.25 if baseFee is unavailable.
-    const MIN_TIP = ethers.parseUnits("1", "gwei");
-    const MAX_TIP = ethers.parseUnits("5", "gwei");
-    const HARD_CEILING = ethers.parseUnits("100", "gwei");
+    const MIN_TIP = ethers.parseUnits("2", "gwei");
+    const MAX_TIP = ethers.parseUnits("12", "gwei");
+    const HARD_CEILING = ethers.parseUnits("220", "gwei");
     const overrides = {};
     try {
       let priorityFeeWei = null;
@@ -6066,14 +6294,14 @@ export default function App() {
       const block = await provider.getBlock("latest").catch(() => null);
       const baseFee = block?.baseFeePerGas ? BigInt(block.baseFeePerGas) : null;
       if (baseFee != null) {
-        let maxFeePerGas = baseFee * 2n + priorityFeeWei;
+        let maxFeePerGas = baseFee * 3n + priorityFeeWei;
         if (maxFeePerGas > HARD_CEILING) maxFeePerGas = HARD_CEILING;
         overrides.maxFeePerGas = maxFeePerGas;
         overrides.maxPriorityFeePerGas = priorityFeeWei;
       } else {
         const feeData = await provider.getFeeData().catch(() => null);
         if (feeData?.gasPrice) {
-          let gp = (feeData.gasPrice * 125n) / 100n;
+          let gp = (feeData.gasPrice * 140n) / 100n;
           if (gp > HARD_CEILING) gp = HARD_CEILING;
           overrides.gasPrice = gp;
         }
@@ -6168,7 +6396,7 @@ export default function App() {
         if (
           Number.isFinite(latestN) &&
           Number.isFinite(pendingN) &&
-          pendingN - latestN > 2
+          pendingN - latestN > 1
         ) {
           throw new Error(
             `NONCE_GAP_PRE:gap=${pendingN - latestN}`
