@@ -27,6 +27,25 @@ export default async function handler(req, res) {
         }
     } while (cursor !== 0 && cursor !== "0");
 
+    const totalSwapVolume = profiles.reduce(
+      (acc, p) => acc + Number(p?.swapVolume || 0),
+      0
+    );
+    const totalSwapCount = profiles.reduce(
+      (acc, p) => acc + Number(p?.swapCount || 0),
+      0
+    );
+    const totalLP = profiles.reduce(
+      (acc, p) => acc + Number(p?.lpProvided || 0),
+      0
+    );
+    const uniqueUsers = profiles.filter((p) => {
+      const c = Number(p?.swapCount || 0);
+      const v = Number(p?.swapVolume || 0);
+      const lp = Number(p?.lpProvided || 0);
+      return c > 0 || v > 0 || lp > 0;
+    }).length;
+
     // Sort logic
     const topSwapVolume = [...profiles].sort((a, b) => (Number(b.swapVolume) || 0) - (Number(a.swapVolume) || 0)).slice(0, 10);
     const topSwapCount = [...profiles].sort((a, b) => (Number(b.swapCount) || 0) - (Number(a.swapCount) || 0)).slice(0, 10);
@@ -35,7 +54,11 @@ export default async function handler(req, res) {
     return res.status(200).json({
         topSwapVolume,
         topSwapCount,
-        topLPProvided
+        topLPProvided,
+        totalSwapVolume,
+        totalSwapCount,
+        totalLP,
+        uniqueUsers
     });
   } catch (error) {
     console.error("Error fetching leaderboard:", error);

@@ -1,5 +1,7 @@
 import "dotenv/config";
 import { ethers } from "ethers";
+import { createClient } from "../lib/server/kv.js";
+import { mkdir, writeFile } from "node:fs/promises";
 
 const SWAP_POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
 const ARCSCAN_API = "https://testnet.arcscan.app/api";
@@ -8,11 +10,17 @@ const END_BLOCK = Number(process.env.COUNT_SWAPPERS_END_BLOCK || 999999999);
 const INCLUDE_FAILED_TXS =
   String(process.env.COUNT_SWAPPERS_INCLUDE_FAILED || "false").toLowerCase() ===
   "true";
+const SCRIPT_STATS_DIR_URL = new URL("../data/stats/", import.meta.url);
+const SCRIPT_STATS_FILE_URL = new URL(
+  "../data/stats/countUniqueSwappers.latest.json",
+  import.meta.url
+);
 
 // Decode pool method calls from tx input (works even when contract emits no swap events)
 const iface = new ethers.Interface([
   "function swap(uint256 i,uint256 j,uint256 dx)"
 ]);
+const kv = createClient();
 
 async function main() {
   let startBlock = START_BLOCK;
@@ -75,6 +83,30 @@ async function main() {
   console.log("Total swap() calls:", totalSwapCalls);
   console.log("Total unique wallets that called swap():", uniqueWallets.size);
   console.log("========================================");
+  const payload = {
+    totalTxs,
+    totalSwapCalls,
+    uniqueSwapWallets: uniqueWallets.size,
+    updatedAt: new Date().toISOString(),
+    startBlock: START_BLOCK,
+    endBlock: END_BLOCK,
+    includeFailed: INCLUDE_FAILED_TXS,
+  };
+
+  try {
+    await mkdir(SCRIPT_STATS_DIR_URL, { recursive: true });
+    await writeFile(SCRIPT_STATS_FILE_URL, JSON.stringify(payload, null, 2), "utf8");
+    console.log("Saved local stats file:", SCRIPT_STATS_FILE_URL.pathname);
+  } catch (e) {
+    console.error("Failed to write local countUniqueSwappers stats file:", e?.message || e);
+  }
+
+  try {
+    await kv.set("stats:countUniqueSwappers:last", payload);
+    console.log("Saved stats:countUniqueSwappers:last to KV");
+  } catch (e) {
+    console.error("Failed to persist countUniqueSwappers stats:", e?.message || e);
+  }
 }
 
 main().catch((err) => {

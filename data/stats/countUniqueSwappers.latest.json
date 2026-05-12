@@ -1,0 +1,9 @@
+{
+  "totalTxs": 5040786,
+  "totalSwapCalls": 4950579,
+  "uniqueSwapWallets": 104878,
+  "updatedAt": "2026-05-06T11:33:59.281Z",
+  "startBlock": 0,
+  "endBlock": 999999999,
+  "includeFailed": false
+}

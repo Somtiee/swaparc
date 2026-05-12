@@ -1,4 +1,14 @@
 {
+  "rewrites": [
+    {
+      "source": "/docs",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/docs/:path*",
+      "destination": "/index.html"
+    }
+  ],
   "crons": [
     {
       "path": "/api/payments/recurring/run",
@@ -7,6 +17,10 @@
     {
       "path": "/api/payments/payroll/run",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/profile/refresh-landing-stats",
+      "schedule": "*/15 * * * *"
     }
   ],
   "headers": [

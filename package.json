@@ -22,7 +22,8 @@
     "privpay:zk-artifacts": "node scripts/setupPrivpayZkArtifacts.mjs",
     "migrate:kv-redis": "node scripts/migrateRedisToRedis.mjs",
     "circuit:privpay:compile": "node scripts/compilePrivpayCircuit.mjs",
-    "circuit:privpay:prove": "node scripts/privpayProveCli.mjs"
+    "circuit:privpay:prove": "node scripts/privpayProveCli.mjs",
+    "stats:sum-profile-volume": "node scripts/sumProfileSwapVolume.js"
   },
   "dependencies": {
     "@circle-fin/developer-controlled-wallets": "^10.1.0",
@@ -38,6 +39,7 @@
     "ioredis": "^5.10.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-router-dom": "^7.15.0",
     "snarkjs": "^0.7.6",
     "solc": "^0.8.34"
   },
