@@ -42,6 +42,7 @@ const ARC_CHAIN_ID_HEX = `0x${ARC_CHAIN_ID_DEC.toString(16)}`;
 const CIRCLE_APP_ID = import.meta.env.VITE_CIRCLE_APP_ID || "";
 /** Default read RPC for ARC Testnet (no API key). Override with VITE_ARC_RPC_URL. */
 const ARC_PUBLIC_RPC = "https://rpc.testnet.arc.network";
+const LANDING_STATS_CACHE_MAX_AGE_MS = 20 * 60 * 1000;
 
 console.log("Circle setup:", { CIRCLE_APP_ID });
 
@@ -1063,11 +1064,15 @@ export default function SwaparcApp() {
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object") return null;
+      const refreshedAt = String(parsed.refreshedAt || "");
+      const refreshedTs = refreshedAt ? Date.parse(refreshedAt) : NaN;
+      if (!Number.isFinite(refreshedTs)) return null;
+      if (Date.now() - refreshedTs > LANDING_STATS_CACHE_MAX_AGE_MS) return null;
       return {
         totalSwapVolume: Number(parsed.totalSwapVolume || 0),
         totalSwapCount: Number(parsed.totalSwapCount || 0),
         uniqueUsers: Number(parsed.uniqueUsers || 0),
-        refreshedAt: String(parsed.refreshedAt || ""),
+        refreshedAt,
       };
     } catch {
       return null;
@@ -1220,6 +1225,7 @@ export default function SwaparcApp() {
     totalTvl: 0,
     uniqueUsers: 0,
   });
+  const landingStatsAnimatedOnceRef = useRef(false);
   // circleWallet, circleWalletReady moved up
 
   useEffect(() => {
@@ -3527,6 +3533,29 @@ export default function SwaparcApp() {
       totalTvl: Number(landingStats.totalTvl || 0),
       uniqueUsers: Number(landingStats.uniqueUsers || 0),
     };
+    if (!landingStatsAnimatedOnceRef.current) {
+      landingStatsAnimatedOnceRef.current = true;
+      setAnimatedLandingStats(targets);
+      return undefined;
+    }
+    const maxTarget = Math.max(
+      1,
+      targets.totalSwapVolume,
+      targets.totalSwapCount,
+      targets.totalTvl,
+      targets.uniqueUsers
+    );
+    const maxDelta = Math.max(
+      Math.abs(targets.totalSwapVolume - animatedLandingStats.totalSwapVolume),
+      Math.abs(targets.totalSwapCount - animatedLandingStats.totalSwapCount),
+      Math.abs(targets.totalTvl - animatedLandingStats.totalTvl),
+      Math.abs(targets.uniqueUsers - animatedLandingStats.uniqueUsers)
+    );
+    // Large jumps look like “wrong data then count-up”; snap directly in that case.
+    if (maxDelta / maxTarget > 0.08) {
+      setAnimatedLandingStats(targets);
+      return undefined;
+    }
     let frame = null;
     const start = performance.now();
     const durationMs = 900;

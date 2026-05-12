@@ -1,6 +1,6 @@
 # Overview
 
-SwapArc is a web3 application on the **Arc network** focused on **stablecoin swaps**, **liquidity pools**, and **PrivPay**; private receive and payout flows backed by a **ZK privacy-pool** design. Together, these three areas cover trading, market making, and confidential on-chain settlement without replacing standard wallet custody models.
+SwapArc is a web3 application on the **Arc network** focused on **stablecoin swaps**, **liquidity pools** and **PrivPay**; private receive and payout flows backed by a **ZK privacy-pool** design. Together, these three areas cover trading, market making, and confidential on-chain settlement without replacing standard wallet custody models.
 
 **Swap** — Trade supported stablecoins against the app’s **swap pool** routes. The UI surfaces quotes, slippage, and execution steps; pricing and pool behavior follow the deployed contracts and the configured asset set on Arc. Use this when you need to move between tokens the protocol lists for spot exchange.
 
