@@ -2,9 +2,12 @@ import { kv } from "../../lib/server/kv.js";
 
 const COUNT_SWAPPERS_KEY = "stats:countUniqueSwappers:last";
 const TOTAL_SWAP_VOLUME_KEY = "stats:totalSwapVolume:last";
-const LANDING_RESPONSE_CACHE_KEY = "stats:landing:response:v2";
 const SCAN_MATCH = "profile:*";
 const SCAN_COUNT = Math.max(100, Number(process.env.STATS_REFRESH_SCAN_COUNT || 1000));
+
+/** When true, cron skips profile SCAN (emergency brake on Railway Redis egress). */
+const DISABLE_PROFILE_SCAN =
+  String(process.env.STATS_CRON_DISABLE_PROFILE_SCAN || "").toLowerCase() === "true";
 
 function assertCronAuth(req) {
   const cronSecret = String(process.env.CRON_SECRET || "");
@@ -73,6 +76,15 @@ export default async function handler(req, res) {
   try {
     assertCronAuth(req);
     const startedAt = Date.now();
+    if (DISABLE_PROFILE_SCAN) {
+      const updatedAt = new Date().toISOString();
+      return res.status(200).json({
+        ok: true,
+        skipped: true,
+        reason: "STATS_CRON_DISABLE_PROFILE_SCAN=true",
+        updatedAt,
+      });
+    }
     const scanned = await scanProfileStats();
     const updatedAt = new Date().toISOString();
 
@@ -98,8 +110,7 @@ export default async function handler(req, res) {
 
     await kv.set(COUNT_SWAPPERS_KEY, countPayload);
     await kv.set(TOTAL_SWAP_VOLUME_KEY, volumePayload);
-    // Force fresh recompute on next /api/profile/landing-stats call.
-    await kv.set(LANDING_RESPONSE_CACHE_KEY, { cachedAt: 0, payload: null });
+    // landing-stats reads these keys only (no profile SCAN on the hot path).
 
     return res.status(200).json({
       ok: true,

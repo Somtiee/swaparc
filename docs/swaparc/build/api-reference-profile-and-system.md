@@ -115,15 +115,20 @@ This route is heavier than a single-hash read because it walks keys; cache at th
 
 Cached landing-page metrics for the marketing/home experience.
 
-**Sources**
+**Sources (read-only, no `profile:*` SCAN on this route)**
 
-- **KV caches**
+- Precomputed KV keys: **`stats:countUniqueSwappers:last`**, **`stats:totalSwapVolume:last`** (updated by hourly cron — see below)
 - Optional **Arclenz** `https://arclenz.xyz/api/ecosystem/swaparc`
-- **File fallbacks** under **`data/stats/*.latest.json`** (e.g. **unique swappers**, **total volume**)
+- **File fallbacks** under **`data/stats/*.latest.json`**
+- **High-water** key **`stats:landing:highwater:v1`** so displayed totals do not regress
 
-A **short TTL in-memory/KV cache (~60s)** avoids hammering upstream.
+**Cache:** **~15 minutes** in KV plus **`Cache-Control: public, s-maxage=900`** for the CDN. This keeps Railway Redis **egress** low when `REDIS_URL` points at Railway — see [Railway Redis egress](../operate/railway-redis-egress.md).
 
-**Response:** **`200`** JSON with **`stats`** (exact fields depend on deployment and data sources). When Arclenz or files lag deploy reality, treat this endpoint as **best-effort marketing telemetry**, not a financial audit trail.
+**Response:** **`200`** JSON with **`stats`**. Best-effort marketing telemetry, not a financial audit trail.
+
+### `GET|POST /api/profile/refresh-landing-stats`
+
+**Cron-only** (Vercel schedule **hourly**). Scans **`profile:*`**, writes the two precomputed stats keys above. Requires **`Authorization: Bearer <CRON_SECRET>`** when `CRON_SECRET` is set. Set **`STATS_CRON_DISABLE_PROFILE_SCAN=true`** to skip the scan in an egress emergency.
 
 ## Public leaderboard
 

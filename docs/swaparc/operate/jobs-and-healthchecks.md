@@ -10,7 +10,15 @@ Call it from your load balancer or orchestrator as a **process-up** check only; 
 
 ## Scheduled jobs
 
-SwapArc uses scheduled payment processing routes, including recurring and payroll runs.
+SwapArc uses scheduled payment processing routes, including recurring and payroll runs, plus an **hourly** landing-stats refresh.
+
+| Route | Schedule (typical) | Purpose |
+|-------|-------------------|---------|
+| `/api/payments/recurring/run` | Every 5 min | Recurring bills |
+| `/api/payments/payroll/run` | Every 5 min | Payroll queue |
+| `/api/profile/refresh-landing-stats` | Hourly (`0 * * * *`) | Precompute landing stats keys (SCAN `profile:*` **only here**, not on homepage API) |
+
+If **`REDIS_URL`** is Railway-hosted, full profile scans on every homepage hit caused large **egress** bills. **`GET /api/profile/landing-stats`** must stay scan-free; see [Railway Redis egress](railway-redis-egress.md).
 
 ### Cron behavior
 
