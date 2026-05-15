@@ -16,7 +16,7 @@ Several patterns compounded:
 
 2. **`/api/profile/landing-stats`** used to **SCAN all profiles** on cache misses (fixed in an earlier deploy).
 
-3. **`/api/profile/refresh-landing-stats`** cron scanned all profiles on a schedule (now **every 6 hours**; set `STATS_CRON_DISABLE_PROFILE_SCAN=true` to stop entirely).
+3. **`/api/profile/refresh-landing-stats`** cron scanned all profiles on a schedule (now **once per day**; set `STATS_CRON_DISABLE_PROFILE_SCAN=true` to stop entirely).
 
 Together this can reach **hundreds of GB of egress** in a billing cycle.
 
@@ -27,8 +27,9 @@ Together this can reach **hundreds of GB of egress** in a billing cycle.
 | **leaderboard** uses Redis **sorted sets** + top-10 profile reads only (no `profile:*` SCAN) | Stops the 60s homepage poll from exporting the whole DB |
 | **landing-stats** no longer scans `profile:*` | Hot path only reads small precomputed keys + high-water marks |
 | **Response cache 15 minutes** + CDN `Cache-Control` | Far fewer KV round-trips per visitor |
-| **Landing page** polls leaderboard every **15 min** (not 60s) | Fewer API calls |
-| **Cron schedule every 6 hours** (`0 */6 * * *`) | Minimal scheduled scan traffic |
+| **Landing page** polls leaderboard every **1 hour** (not 60s) | Fewer API calls |
+| **API caches 1 hour** on landing-stats + leaderboard | Few Redis reads per visitor |
+| **Cron schedule once daily** (`0 0 * * *`) | One profile scan per day |
 | **`STATS_CRON_DISABLE_PROFILE_SCAN=true`** | Emergency stop for the cron scan only |
 
 Precomputed keys (written by the hourly cron):

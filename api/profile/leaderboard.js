@@ -1,7 +1,7 @@
 import { kv } from "../../lib/server/kv.js";
 
 const LEADERBOARD_CACHE_KEY = "stats:leaderboard:response:v1";
-const LEADERBOARD_CACHE_TTL_MS = 15 * 60 * 1000;
+const LEADERBOARD_CACHE_TTL_MS = 60 * 60 * 1000;
 const COUNT_SWAPPERS_KEY = "stats:countUniqueSwappers:last";
 const TOTAL_SWAP_VOLUME_KEY = "stats:totalSwapVolume:last";
 
@@ -65,7 +65,7 @@ export default async function handler(req, res) {
       Number(cached.cachedAt || 0) > 0 &&
       now - Number(cached.cachedAt) < LEADERBOARD_CACHE_TTL_MS
     ) {
-      res.setHeader("Cache-Control", "public, s-maxage=900, stale-while-revalidate=60");
+      res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=300");
       return res.status(200).json({
         ...cached.payload,
         egressSafe: true,
@@ -94,7 +94,7 @@ export default async function handler(req, res) {
 
     await kv.set(LEADERBOARD_CACHE_KEY, { cachedAt: now, payload });
 
-    res.setHeader("Cache-Control", "public, s-maxage=900, stale-while-revalidate=60");
+    res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=300");
     return res.status(200).json(payload);
   } catch (error) {
     console.error("Error fetching leaderboard:", error);

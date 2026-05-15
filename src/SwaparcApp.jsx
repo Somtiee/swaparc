@@ -3506,7 +3506,7 @@ export default function SwaparcApp() {
     }, 60_000);
     const leaderboardRefresh = setInterval(() => {
       fetchLeaderboard().catch(() => {});
-    }, 15 * 60 * 1000);
+    }, 60 * 60 * 1000);
     return () => {
       clearInterval(refresh);
       clearInterval(leaderboardRefresh);

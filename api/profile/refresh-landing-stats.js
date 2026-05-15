@@ -50,7 +50,8 @@ async function scanProfileStats() {
         const swapVolume = toNumber(profile.swapVolume || 0);
         totalSwapCount += swapCount;
         totalSwapVolume += swapVolume;
-        if (swapCount > 0 || swapVolume > 0) uniqueSwapWallets += 1;
+        const lp = toNumber(profile.lpProvided || 0);
+        if (swapCount > 0 || swapVolume > 0 || lp > 0) uniqueSwapWallets += 1;
       }
     }
 
