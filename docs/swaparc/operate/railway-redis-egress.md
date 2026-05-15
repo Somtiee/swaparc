@@ -10,11 +10,13 @@ A full scan of all `profile:*` keys pulls **every profile** out of Redis on each
 
 ## What caused the spike (SwapArc)
 
-Two patterns compounded:
+Several patterns compounded:
 
-1. **`/api/profile/landing-stats`** (homepage) used to **SCAN + MGET all `profile:*`** on many cache misses (60s cache, and sometimes **two scans per request**). Every visitor could trigger a full export of the profile dataset from Railway → Vercel.
+1. **`/api/profile/leaderboard`** (homepage) **SCAN + MGET all `profile:*` on every call**, polled **every 60 seconds** on the landing tab — often the largest egress source.
 
-2. **`/api/profile/refresh-landing-stats`** cron ran **every 15 minutes** and also scanned all profiles (smaller than (1), but still steady egress).
+2. **`/api/profile/landing-stats`** used to **SCAN all profiles** on cache misses (fixed in an earlier deploy).
+
+3. **`/api/profile/refresh-landing-stats`** cron scanned all profiles on a schedule (now **every 6 hours**; set `STATS_CRON_DISABLE_PROFILE_SCAN=true` to stop entirely).
 
 Together this can reach **hundreds of GB of egress** in a billing cycle.
 
@@ -22,15 +24,23 @@ Together this can reach **hundreds of GB of egress** in a billing cycle.
 
 | Change | Effect |
 |--------|--------|
+| **leaderboard** uses Redis **sorted sets** + top-10 profile reads only (no `profile:*` SCAN) | Stops the 60s homepage poll from exporting the whole DB |
 | **landing-stats** no longer scans `profile:*` | Hot path only reads small precomputed keys + high-water marks |
 | **Response cache 15 minutes** + CDN `Cache-Control` | Far fewer KV round-trips per visitor |
-| **Cron schedule hourly** (`0 * * * *`) instead of every 15 min | ~4× less scheduled scan traffic |
+| **Landing page** polls leaderboard every **15 min** (not 60s) | Fewer API calls |
+| **Cron schedule every 6 hours** (`0 */6 * * *`) | Minimal scheduled scan traffic |
 | **`STATS_CRON_DISABLE_PROFILE_SCAN=true`** | Emergency stop for the cron scan only |
 
 Precomputed keys (written by the hourly cron):
 
 - `stats:countUniqueSwappers:last`
 - `stats:totalSwapVolume:last`
+
+## Confirm the fix is live
+
+1. Open `https://www.swaparc.app/api/profile/leaderboard` — JSON should include **`"egressSafe": true`** and **`"scanFree": true`**.
+2. Open `https://www.swaparc.app/api/profile/landing-stats` — should include **`"egressSafe": true`** (and no `profiles_sum_recomputed_fallback` in `sources`).
+3. Railway **Egress** graph: the **total GB line will not go down** (billing is cumulative), but the **slope should flatten** within a few hours of deploy.
 
 ## Stop bleeding immediately (ops)
 

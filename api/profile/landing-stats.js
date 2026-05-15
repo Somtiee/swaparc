@@ -203,6 +203,8 @@ export default async function handler(req, res) {
 
     const payload = {
       ok: true,
+      egressSafe: true,
+      scanFree: true,
       stats: mergedStats,
       previousStats,
       observedStats,

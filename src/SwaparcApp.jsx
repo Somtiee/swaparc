@@ -3501,11 +3501,16 @@ export default function SwaparcApp() {
     fetchLandingNetworkStats().catch(() => {});
     fetchPoolBalances(getReadProvider()).catch(() => {});
     const refresh = setInterval(() => {
-      fetchLeaderboard().catch(() => {});
       fetchLandingNetworkStats().catch(() => {});
       fetchPoolBalances(getReadProvider()).catch(() => {});
     }, 60_000);
-    return () => clearInterval(refresh);
+    const leaderboardRefresh = setInterval(() => {
+      fetchLeaderboard().catch(() => {});
+    }, 15 * 60 * 1000);
+    return () => {
+      clearInterval(refresh);
+      clearInterval(leaderboardRefresh);
+    };
   }, [activeTab]);
 
   useEffect(() => {
