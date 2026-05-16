@@ -30,6 +30,8 @@ dist-ssr
 .env.vercel.check
 
 # Local debug / generated artifacts (do not commit)
+src/SwaparcApp.jsx.*
+!src/SwaparcApp.jsx
 eslint-errors.*
 eslint-report.json
 lint_errors.txt
