@@ -16,7 +16,7 @@ Several patterns compounded:
 
 2. **`/api/profile/landing-stats`** used to **SCAN all profiles** on cache misses (fixed in an earlier deploy).
 
-3. **`/api/profile/refresh-landing-stats`** cron scanned all profiles on a schedule (now **once per day**; set `STATS_CRON_DISABLE_PROFILE_SCAN=true` to stop entirely).
+3. **`/api/profile/refresh-landing-stats`** cron scanned all profiles on a schedule (now **once per week**; set `STATS_CRON_DISABLE_PROFILE_SCAN=true` to stop entirely).
 
 Together this can reach **hundreds of GB of egress** in a billing cycle.
 
@@ -26,10 +26,10 @@ Together this can reach **hundreds of GB of egress** in a billing cycle.
 |--------|--------|
 | **leaderboard** uses Redis **sorted sets** + top-10 profile reads only (no `profile:*` SCAN) | Stops the 60s homepage poll from exporting the whole DB |
 | **landing-stats** no longer scans `profile:*` | Hot path only reads small precomputed keys + high-water marks |
-| **Response cache 15 minutes** + CDN `Cache-Control` | Far fewer KV round-trips per visitor |
-| **Landing page** polls leaderboard every **1 hour** (not 60s) | Fewer API calls |
-| **API caches 1 hour** on landing-stats + leaderboard | Few Redis reads per visitor |
-| **Cron schedule once daily** (`0 0 * * *`) | One profile scan per day |
+| **Response cache 3 days** + CDN `Cache-Control` | Far fewer KV round-trips per visitor |
+| **Landing page** polls stats + leaderboard every **3 days** | Fewer API calls |
+| **API caches 3 days** on landing-stats + leaderboard | Few Redis reads per visitor |
+| **Cron schedule once weekly** (`0 0 * * 0`, Sunday UTC) | One profile scan per week |
 | **`STATS_CRON_DISABLE_PROFILE_SCAN=true`** | Emergency stop for the cron scan only |
 
 Precomputed keys (written by the hourly cron):
@@ -39,19 +39,19 @@ Precomputed keys (written by the hourly cron):
 
 ## How the layers fit together (plain English)
 
-Think of **four layers** — only the **daily cron** does the expensive “read every profile” work.
+Think of **four layers** — only the **weekly cron** does the expensive “read every profile” work.
 
 | Layer | What it is | Typical interval | Railway cost |
 |-------|------------|------------------|--------------|
-| **Stats cron** | Background job writes precomputed totals into Redis | **Once per day** | **High once/day** (one full scan) |
-| **API cache** (landing-stats + leaderboard) | Server saves the last JSON answer in Redis; repeats serve that blob | **6 hours** | **Tiny** per hit (one small read) |
-| **Browser poll** | Landing tab asks the API again | Stats **30 min**, leaderboard **3 h** | Triggers Vercel → Redis only when cache expired |
-| **Browser localStorage** | Your phone remembers last stats so reload feels instant | **6 hours** | **Zero** Redis |
+| **Stats cron** | Background job writes precomputed totals into Redis | **Once per week** | **High once/week** (one full scan) |
+| **API cache** (landing-stats + leaderboard) | Server saves the last JSON answer in Redis; repeats serve that blob | **3 days** | **Tiny** per hit (one small read) |
+| **Browser poll** | Landing tab asks the API again | Stats + leaderboard **3 days** | Triggers Vercel → Redis only when cache expired |
+| **Browser localStorage** | Your phone remembers last stats so reload feels instant | **3 days** | **Zero** Redis |
 
-**Why poll every 30 min if cache is 6 h?**  
-Polls are cheap now (no profile scan). The 30 min poll mainly refreshes **TVL** (on-chain pool balances, not Railway) and occasionally picks up a new cached stats blob after the daily cron. The **big numbers** (swaps, users, volume) update when the **daily cron** runs; between runs they stay stable (high-water never goes down).
+**Why poll every 3 days?**  
+Landing totals are marketing-style aggregates, not trading feeds. Weekly cron refreshes the underlying keys; API cache and polls only need to stay in sync with that cadence. **TVL** still updates from on-chain reads when the landing tab is open (not Railway Redis).
 
-**“Live” feel:** Cards still animate and TVL can move; swap/user totals step up after each daily refresh — not second-by-second.
+**“Live” feel:** Cards still animate and TVL can move; swap/user totals step up after each **weekly** cron refresh.
 
 ## Confirm the fix is live
 

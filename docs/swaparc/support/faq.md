@@ -17,6 +17,10 @@ The app is wired to a **fixed set of tokens** (for example USDC, EURC, SWPRC on 
 
 Details: [Connect a wallet](../getting-started/connect-a-wallet.md).
 
+## Is a PrivPay receipt QR less secure than pasting the claim code?
+
+No. The QR contains the **same v3 zk-claim string** as the base64 code on the receipt. Treat QR, JPEG exports and pasted codes as **equally sensitive** bearer secrets. Anyone who obtains the material can attempt a claim if they also control the recipient wallet. Scanning or uploading a receipt image does not weaken on-chain checks, it only avoids manual copy/paste.
+
 ## Why did my PrivPay claim fail with an “already claimed” or nullifier error?
 
 The **nullifier** for that note was already consumed in a successful `withdraw`. Nullifiers are **single-use**; you need a **new payment and new claim material** for another payout.

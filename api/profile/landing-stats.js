@@ -3,8 +3,10 @@ import { readFile } from "node:fs/promises";
 
 const RESPONSE_CACHE_KEY = "stats:landing:response:v2";
 /** Long TTL: each cache miss used to SCAN all profile:* keys (expensive Railway Redis egress). */
-/** Server recomputes at most once per 6h; daily cron refreshes underlying keys. */
-const RESPONSE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+/** Server recomputes at most once per 3 days; weekly cron refreshes underlying keys. */
+const RESPONSE_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const CDN_S_MAXAGE_SEC = 3 * 24 * 60 * 60;
+const CDN_STALE_SEC = 24 * 60 * 60;
 const HIGHWATER_KEY = "stats:landing:highwater:v1";
 const COUNT_SWAPPERS_KEY = "stats:countUniqueSwappers:last";
 const TOTAL_SWAP_VOLUME_KEY = "stats:totalSwapVolume:last";
@@ -151,7 +153,10 @@ export default async function handler(req, res) {
       Number(cachedResponse.cachedAt || 0) > 0 &&
       now - Number(cachedResponse.cachedAt || 0) < RESPONSE_CACHE_TTL_MS
     ) {
-      res.setHeader("Cache-Control", "public, s-maxage=900, stale-while-revalidate=60");
+      res.setHeader(
+        "Cache-Control",
+        `public, s-maxage=${CDN_S_MAXAGE_SEC}, stale-while-revalidate=${CDN_STALE_SEC}`
+      );
       return res.status(200).json(cachedResponse.payload || {});
     }
 
@@ -231,7 +236,10 @@ export default async function handler(req, res) {
       payload,
     });
 
-    res.setHeader("Cache-Control", "public, s-maxage=21600, stale-while-revalidate=1800");
+    res.setHeader(
+      "Cache-Control",
+      `public, s-maxage=${CDN_S_MAXAGE_SEC}, stale-while-revalidate=${CDN_STALE_SEC}`
+    );
     return res.status(200).json(payload);
   } catch (error) {
     console.error("landing-stats error:", error);
