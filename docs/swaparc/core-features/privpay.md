@@ -52,13 +52,32 @@ Before running claim, verify:
 - Claim code is complete and unmodified.
 - Claim code is handled as sensitive secret data.
 
-## Claim from pasted code
+## Claim paths (code, QR scan, receipt image)
 
-1. Open **PrivPay → Claim → Payments Claim**.
-2. Paste the base64 claim code.
-3. Confirm the connected wallet is the intended recipient.
-4. Start claim and wait for proving plus submission.
-5. Confirm success in **Claim history** and optionally on [Arcscan](https://testnet.arcscan.app).
+Recipients can use any of these in **PrivPay → Claim → Payments Claim**; all paths decode the same **v3 zk-claim** base64 payload (`poolClaimCode`) and run the same on-chain claim logic:
+
+| Method | What to do |
+| --- | --- |
+| **Paste code** | Paste the base64 claim code from the payer receipt. |
+| **Upload image** | Upload a PrivPay receipt JPEG or a photo of the receipt QR (the app reads the QR, not OCR of the text). |
+| **Scan QR** | Use the device camera on the receipt QR; the code is prefilled in Paste mode for you to review before claiming. |
+
+Steps after the code is loaded:
+
+1. Confirm the connected wallet matches the recipient encoded in the claim material.
+2. Tap **Claim** and wait for proving plus submission (do not share the QR or code publicly).
+3. Confirm success in **Claim history** and optionally on [Arcscan](https://testnet.arcscan.app).
+
+**QR security:** The QR encodes the **exact same bearer secret** as the pasted claim code (including note preimage fields in v3 exports). Scanning does not bypass wallet checks, relay authorization, or nullifier rules; it is only a different transport.
+
+If a claim code is too long for QR capacity, the receipt shows **copy code only** (no broken QR). You can still paste or share the code directly.
+
+## Receipt export (CSV vs JPEG)
+
+- **CSV** (Bills/Payroll history): accounting-friendly rows, including claim codes where present; same as before.
+- **JPEG** (receipt modal or history **Export JPEG**): human-readable branded receipt with summary fields and an embedded claim QR when the payload fits.
+
+Payers should share JPEG or code only over a **secure channel** intended for the recipient.
 
 ## Relay and execution (standard wallet)
 

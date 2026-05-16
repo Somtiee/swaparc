@@ -31,6 +31,13 @@ import {
 import { proveZkPoolWithdraw, proveZkPoolWithdrawWithSecrets } from "./utils/privpayZkClaim";
 import { parsePrivpayPublicSignals } from "./utils/privpayProof";
 import {
+  canEncodeClaimInQr,
+  generateClaimQrDataUrl,
+  decodeClaimQrFromImageFile,
+  startClaimQrCameraScan,
+} from "./utils/privpayClaimQr.js";
+import { downloadPrivpayReceiptJpeg } from "./utils/privpayReceiptJpeg.js";
+import {
   signPrivpayRelayDeposit,
   signPrivpayRelayWithdraw,
 } from "./utils/privpayRelayAuth";
@@ -42,10 +49,10 @@ const ARC_CHAIN_ID_HEX = `0x${ARC_CHAIN_ID_DEC.toString(16)}`;
 const CIRCLE_APP_ID = import.meta.env.VITE_CIRCLE_APP_ID || "";
 /** Default read RPC for ARC Testnet (no API key). Override with VITE_ARC_RPC_URL. */
 const ARC_PUBLIC_RPC = "https://rpc.testnet.arc.network";
-/** Browser localStorage + min gap between polls (server cache is 6h). */
-const LANDING_STATS_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
-const LANDING_STATS_CLIENT_POLL_MS = 30 * 60 * 1000;
-const LEADERBOARD_CLIENT_POLL_MS = 3 * 60 * 60 * 1000;
+/** Browser localStorage + min gap between polls (server cache is 3 days). */
+const LANDING_STATS_CACHE_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+const LANDING_STATS_CLIENT_POLL_MS = 3 * 24 * 60 * 60 * 1000;
+const LEADERBOARD_CLIENT_POLL_MS = 3 * 24 * 60 * 60 * 1000;
 
 console.log("Circle setup:", { CIRCLE_APP_ID });
 
@@ -1013,6 +1020,15 @@ export default function SwaparcApp() {
   const [privateIncomingError, setPrivateIncomingError] = useState("");
   const [privateIncomingBusyId, setPrivateIncomingBusyId] = useState("");
   const [poolClaimCodeInput, setPoolClaimCodeInput] = useState("");
+  const [poolClaimInputMode, setPoolClaimInputMode] = useState("paste");
+  const [claimQrBusy, setClaimQrBusy] = useState(false);
+  const [claimQrError, setClaimQrError] = useState("");
+  const [claimQrPrefillNote, setClaimQrPrefillNote] = useState("");
+  const [receiptQrDataUrl, setReceiptQrDataUrl] = useState(null);
+  const [receiptJpegBusy, setReceiptJpegBusy] = useState(false);
+  const claimQrVideoRef = useRef(null);
+  const claimQrScannerRef = useRef(null);
+  const claimQrFileRef = useRef(null);
   const [poolClaimBusy, setPoolClaimBusy] = useState(false);
   const [poolClaimError, setPoolClaimError] = useState("");
   const [poolClaimStatus, setPoolClaimStatus] = useState("");
@@ -4702,6 +4718,55 @@ export default function SwaparcApp() {
   }, [privpayModule, authMode, address, circleWallet?.address]);
 
   useEffect(() => {
+    let cancelled = false;
+    setReceiptQrDataUrl(null);
+    const code = String(receiptModal?.claimCode || "").trim();
+    if (!code || !canEncodeClaimInQr(code)) return undefined;
+    generateClaimQrDataUrl(code)
+      .then((url) => {
+        if (!cancelled) setReceiptQrDataUrl(url);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [receiptModal]);
+
+  useEffect(() => {
+    if (privpayModule !== "claim" || poolClaimInputMode !== "scan") {
+      claimQrScannerRef.current?.stop?.();
+      claimQrScannerRef.current = null;
+      return undefined;
+    }
+    const video = claimQrVideoRef.current;
+    if (!video) return undefined;
+    let cancelled = false;
+    setClaimQrError("");
+    const scanner = startClaimQrCameraScan({
+      videoEl: video,
+      onResult: (text) => {
+        if (cancelled) return;
+        try {
+          applyDecodedClaimCode(text);
+        } catch (e) {
+          setClaimQrError(e instanceof Error ? e.message : String(e));
+        }
+      },
+      onError: (err) => {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/NotFoundException/i.test(msg)) setClaimQrError(msg);
+      },
+    });
+    claimQrScannerRef.current = scanner;
+    return () => {
+      cancelled = true;
+      scanner.stop();
+      claimQrScannerRef.current = null;
+    };
+  }, [privpayModule, poolClaimInputMode]);
+
+  useEffect(() => {
     if (privpayModule !== "payroll") {
       setPayrollManageView("dashboard");
     }
@@ -6005,6 +6070,53 @@ export default function SwaparcApp() {
       safePage,
       totalCount: safeRows.length,
     };
+  }
+
+  function applyDecodedClaimCode(rawCode) {
+    const trimmed = String(rawCode || "").trim();
+    if (!trimmed) throw new Error("Empty claim code.");
+    const payload = decodeZkPoolClaimPayload(trimmed);
+    setPoolClaimCodeInput(trimmed);
+    setPoolClaimInputMode("paste");
+    setClaimQrError("");
+    const active = getActiveWalletAddress();
+    const recipient = normalizeAddress(
+      payload?.recipient || payload?.recipientAddress || payload?.recipientWallet || ""
+    );
+    if (active && recipient && normalizeAddress(active) !== recipient) {
+      setClaimQrPrefillNote(
+        "Code decoded, but this wallet may not match the intended recipient. Switch wallet or verify before claiming."
+      );
+    } else {
+      setClaimQrPrefillNote("QR decoded — review the code below, then tap Claim.");
+    }
+  }
+
+  async function handleClaimQrImageFile(file) {
+    if (!file) return;
+    setClaimQrBusy(true);
+    setClaimQrError("");
+    setClaimQrPrefillNote("");
+    try {
+      const text = await decodeClaimQrFromImageFile(file);
+      applyDecodedClaimCode(text);
+    } catch (e) {
+      setClaimQrError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setClaimQrBusy(false);
+    }
+  }
+
+  async function handleReceiptJpegDownload() {
+    if (!receiptModal) return;
+    setReceiptJpegBusy(true);
+    try {
+      await downloadPrivpayReceiptJpeg(receiptModal);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Could not export receipt image.");
+    } finally {
+      setReceiptJpegBusy(false);
+    }
   }
 
   function openBillReceiptCard(entry, options = {}) {
@@ -13917,15 +14029,41 @@ export default function SwaparcApp() {
                       <div className="neon-card billsHistoryCard">
                         <h3 className="billsSectionTitle">Payments Claim</h3>
                         <p className="muted" style={{ marginTop: -6, lineHeight: 1.45 }}>
-                          Paste the claim code from Receipt to claim your payment.
+                          Paste a claim code, upload a receipt image, or scan a QR — then tap Claim.
                         </p>
                         {HAS_ANY_PRIVACY_POOL ? (
                           <div style={{ marginBottom: 16 }}>
+                            <div className="claimInputModeRow">
+                              {[
+                                ["paste", "Paste code"],
+                                ["upload", "Upload image"],
+                                ["scan", "Scan QR"],
+                              ].map(([mode, label]) => (
+                                <button
+                                  key={mode}
+                                  type="button"
+                                  className={`secondaryBtn billsPayBtn claimInputModeBtn${
+                                    poolClaimInputMode === mode ? " claimInputModeBtnActive" : ""
+                                  }`}
+                                  onClick={() => {
+                                    setPoolClaimInputMode(mode);
+                                    setClaimQrError("");
+                                    setClaimQrPrefillNote("");
+                                  }}
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                            {poolClaimInputMode === "paste" ? (
                             <textarea
                               className="privpayInput poolClaimTextarea"
                               placeholder="Paste base64 zk-claim…"
                               value={poolClaimCodeInput}
-                              onChange={(e) => setPoolClaimCodeInput(e.target.value)}
+                              onChange={(e) => {
+                                setPoolClaimCodeInput(e.target.value);
+                                setClaimQrPrefillNote("");
+                              }}
                               rows={3}
                               style={{
                                 width: "100%",
@@ -13934,6 +14072,48 @@ export default function SwaparcApp() {
                                 fontSize: 12,
                               }}
                             />
+                            ) : null}
+                            {poolClaimInputMode === "upload" ? (
+                              <div className="claimQrUploadWrap">
+                                <input
+                                  ref={claimQrFileRef}
+                                  type="file"
+                                  accept="image/*"
+                                  className="claimQrFileInput"
+                                  disabled={claimQrBusy}
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    e.target.value = "";
+                                    handleClaimQrImageFile(file);
+                                  }}
+                                />
+                                <p className="claimQrHint muted">
+                                  Upload a photo or screenshot of the receipt QR. Use a clear, uncropped image.
+                                </p>
+                              </div>
+                            ) : null}
+                            {poolClaimInputMode === "scan" ? (
+                              <div className="claimQrScanWrap">
+                                <video
+                                  ref={claimQrVideoRef}
+                                  className="claimQrVideo"
+                                  muted
+                                  playsInline
+                                />
+                                <p className="claimQrHint muted">
+                                  Point your camera at the payer&apos;s receipt QR. Decoded codes fill the Paste tab — tap Claim when ready.
+                                </p>
+                              </div>
+                            ) : null}
+                            {claimQrError ? (
+                              <p className="claimQrError billError">{claimQrError}</p>
+                            ) : null}
+                            {claimQrPrefillNote ? (
+                              <p className="claimQrPrefillNote">{claimQrPrefillNote}</p>
+                            ) : null}
+                            {claimQrBusy ? (
+                              <p className="claimQrHint muted">Reading QR from image…</p>
+                            ) : null}
                             <button
                               type="button"
                               className="secondaryBtn billsPayBtn"
@@ -14333,9 +14513,40 @@ export default function SwaparcApp() {
                 readOnly
                 rows={3}
               />
+              {receiptModal.claimCode && receiptQrDataUrl ? (
+                <div className="receiptQrPanel">
+                  <p className="receiptQrCaption">
+                    Scan to claim (same as code above). QR is as sensitive as the claim code.
+                  </p>
+                  <img
+                    className="receiptQrImage"
+                    src={receiptQrDataUrl}
+                    alt="Claim QR code"
+                    width={240}
+                    height={240}
+                  />
+                </div>
+              ) : null}
+              {receiptModal.claimCode && !canEncodeClaimInQr(receiptModal.claimCode) ? (
+                <div className="receiptQrPanel">
+                  <p className="receiptQrFallback muted">
+                    Claim code is too long for a QR on this receipt. Copy the code above to claim.
+                  </p>
+                </div>
+              ) : null}
             </div>
 
-            <div className="txActions">
+            <div className="txActions receiptTxActions">
+              {receiptModal.claimCode ? (
+                <button
+                  type="button"
+                  className="secondaryBtn"
+                  disabled={receiptJpegBusy}
+                  onClick={() => handleReceiptJpegDownload()}
+                >
+                  {receiptJpegBusy ? "Exporting…" : "Download receipt (JPEG)"}
+                </button>
+              ) : null}
               {receiptModal.txHash && receiptModal.txHash !== "SUBMITTED" ? (
                 <a
                   href={`https://testnet.arcscan.app/tx/${receiptModal.txHash}`}
