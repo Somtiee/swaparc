@@ -37,6 +37,22 @@ Precomputed keys (written by the hourly cron):
 - `stats:countUniqueSwappers:last`
 - `stats:totalSwapVolume:last`
 
+## How the layers fit together (plain English)
+
+Think of **four layers** — only the **daily cron** does the expensive “read every profile” work.
+
+| Layer | What it is | Typical interval | Railway cost |
+|-------|------------|------------------|--------------|
+| **Stats cron** | Background job writes precomputed totals into Redis | **Once per day** | **High once/day** (one full scan) |
+| **API cache** (landing-stats + leaderboard) | Server saves the last JSON answer in Redis; repeats serve that blob | **6 hours** | **Tiny** per hit (one small read) |
+| **Browser poll** | Landing tab asks the API again | Stats **30 min**, leaderboard **3 h** | Triggers Vercel → Redis only when cache expired |
+| **Browser localStorage** | Your phone remembers last stats so reload feels instant | **6 hours** | **Zero** Redis |
+
+**Why poll every 30 min if cache is 6 h?**  
+Polls are cheap now (no profile scan). The 30 min poll mainly refreshes **TVL** (on-chain pool balances, not Railway) and occasionally picks up a new cached stats blob after the daily cron. The **big numbers** (swaps, users, volume) update when the **daily cron** runs; between runs they stay stable (high-water never goes down).
+
+**“Live” feel:** Cards still animate and TVL can move; swap/user totals step up after each daily refresh — not second-by-second.
+
 ## Confirm the fix is live
 
 1. Open `https://www.swaparc.app/api/profile/leaderboard` — JSON should include **`"egressSafe": true`** and **`"scanFree": true`**.
