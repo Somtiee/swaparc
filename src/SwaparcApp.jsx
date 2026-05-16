@@ -36,7 +36,10 @@ import {
   decodeClaimQrFromImageFile,
   startClaimQrCameraScan,
 } from "./utils/privpayClaimQr.js";
-import { downloadPrivpayReceiptJpeg } from "./utils/privpayReceiptJpeg.js";
+import {
+  downloadPrivpayReceiptJpeg,
+  downloadPrivpayReceiptJpegBatch,
+} from "./utils/privpayReceiptJpeg.js";
 import {
   signPrivpayRelayDeposit,
   signPrivpayRelayWithdraw,
@@ -905,7 +908,8 @@ export default function SwaparcApp() {
   });
   const [billHistory, setBillHistory] = useState(() => []);
   const [selectedBillHistoryIds, setSelectedBillHistoryIds] = useState(() => new Set());
-  const [billExportMode, setBillExportMode] = useState("unresolved");
+  const [billExportMode, setBillExportMode] = useState("selected");
+  const [billHistoryExportBusy, setBillHistoryExportBusy] = useState(false);
   const [resolvedBillHistoryIds, setResolvedBillHistoryIds] = useState(() => new Set());
   const [billForm, setBillForm] = useState({
     name: "",
@@ -973,7 +977,8 @@ export default function SwaparcApp() {
   });
   const [payrollHistory, setPayrollHistory] = useState(() => []);
   const [selectedPayrollHistoryIds, setSelectedPayrollHistoryIds] = useState(() => new Set());
-  const [payrollExportMode, setPayrollExportMode] = useState("unresolved");
+  const [payrollExportMode, setPayrollExportMode] = useState("selected");
+  const [payrollHistoryExportBusy, setPayrollHistoryExportBusy] = useState(false);
   const [resolvedPayrollHistoryIds, setResolvedPayrollHistoryIds] = useState(() => new Set());
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
   const [companyForm, setCompanyForm] = useState({
@@ -5972,7 +5977,74 @@ export default function SwaparcApp() {
     ];
   }
 
-  function exportBillHistoryEntries(entries) {
+  function markBillHistoryExported(entries) {
+    setResolvedBillHistoryIds((prev) => {
+      const next = new Set(prev);
+      for (const e of entries) next.add(e.id);
+      return next;
+    });
+    setSelectedBillHistoryIds(new Set());
+  }
+
+  function markPayrollHistoryExported(entries) {
+    setResolvedPayrollHistoryIds((prev) => {
+      const next = new Set(prev);
+      for (const e of entries) next.add(e.id);
+      return next;
+    });
+    setSelectedPayrollHistoryIds(new Set());
+  }
+
+  function billHistoryEntryToReceipt(entry, { forExport = false } = {}) {
+    const linkedBill = bills.find((b) => b.id === entry.billId) || null;
+    return {
+      kind: "bill",
+      title: entry.billName || "Bill",
+      subtitle: linkedBill?.name || entry.billName || "Bill payment",
+      typeLabel: "Bill",
+      amountLabel: `${entry.amount} ${entry.token}`,
+      receiverAddress:
+        entry.poolRecipient ||
+        linkedBill?.recipientWallet ||
+        entry.stealthAddress ||
+        null,
+      claimCode: entry.poolClaimCode || "",
+      paidAt: entry.confirmedAt || entry.createdAt || null,
+      nextDueAt: linkedBill?.nextExecutionAt || null,
+      txHash: entry.txHash || null,
+      paymentRail: entry.paymentRail || null,
+      companyName: null,
+      showClaimed: !!entry.poolClaimedAt,
+      showResolved:
+        forExport ||
+        resolvedBillHistoryIds.has(entry.id),
+    };
+  }
+
+  function payrollHistoryEntryToReceipt(entry, { forExport = false } = {}) {
+    const employee = payrollEmployees.find((e) => e.id === entry.employeeId) || null;
+    return {
+      kind: "payroll",
+      title: payrollHistoryDisplayTitle(entry),
+      subtitle: entry.role || "Salary transfer",
+      typeLabel: "Payroll",
+      amountLabel: `${entry.amount} ${entry.token}`,
+      receiverAddress:
+        entry.poolRecipient || entry.stealthAddress || entry.recipientWallet || null,
+      claimCode: entry.poolClaimCode || "",
+      paidAt: entry.confirmedAt || entry.createdAt || null,
+      nextDueAt: employee?.nextRunAt || null,
+      txHash: entry.txHash || null,
+      paymentRail: entry.paymentRail || null,
+      companyName: entry.companyName || null,
+      showClaimed: !!entry.poolClaimedAt,
+      showResolved:
+        forExport ||
+        resolvedPayrollHistoryIds.has(entry.id),
+    };
+  }
+
+  function exportBillHistoryEntriesCsv(entries) {
     if (!entries.length) return;
     exportRowsToCsv(
       `privpay_bills_${new Date().toISOString().slice(0, 10)}`,
@@ -5990,15 +6062,26 @@ export default function SwaparcApp() {
       ],
       entries.map(billHistoryToExportRow)
     );
-    setResolvedBillHistoryIds((prev) => {
-      const next = new Set(prev);
-      for (const e of entries) next.add(e.id);
-      return next;
-    });
-    setSelectedBillHistoryIds(new Set());
+    markBillHistoryExported(entries);
   }
 
-  function exportPayrollHistoryEntries(entries) {
+  async function exportBillHistoryEntriesJpeg(entries) {
+    if (!entries.length) return;
+    setBillHistoryExportBusy(true);
+    try {
+      const receipts = entries.map((e) =>
+        billHistoryEntryToReceipt(e, { forExport: true })
+      );
+      await downloadPrivpayReceiptJpegBatch(receipts, { delayMs: 280 });
+      markBillHistoryExported(entries);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Could not export receipt images.");
+    } finally {
+      setBillHistoryExportBusy(false);
+    }
+  }
+
+  function exportPayrollHistoryEntriesCsv(entries) {
     if (!entries.length) return;
     exportRowsToCsv(
       `privpay_payroll_${new Date().toISOString().slice(0, 10)}`,
@@ -6017,12 +6100,29 @@ export default function SwaparcApp() {
       ],
       entries.map(payrollHistoryToExportRow)
     );
-    setResolvedPayrollHistoryIds((prev) => {
-      const next = new Set(prev);
-      for (const e of entries) next.add(e.id);
-      return next;
-    });
-    setSelectedPayrollHistoryIds(new Set());
+    markPayrollHistoryExported(entries);
+  }
+
+  async function exportPayrollHistoryEntriesJpeg(entries) {
+    if (!entries.length) return;
+    setPayrollHistoryExportBusy(true);
+    try {
+      const receipts = entries.map((e) =>
+        payrollHistoryEntryToReceipt(e, { forExport: true })
+      );
+      await downloadPrivpayReceiptJpegBatch(receipts, { delayMs: 280 });
+      markPayrollHistoryExported(entries);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Could not export receipt images.");
+    } finally {
+      setPayrollHistoryExportBusy(false);
+    }
+  }
+
+  function historyExportDisabled(mode, selectedSize, busy) {
+    if (busy) return true;
+    if (mode === "selected" && selectedSize === 0) return true;
+    return false;
   }
 
   function toggleBillHistorySelection(id, checked) {
@@ -6120,44 +6220,15 @@ export default function SwaparcApp() {
   }
 
   function openBillReceiptCard(entry, options = {}) {
-    const linkedBill = bills.find((b) => b.id === entry.billId) || null;
-    const receiverAddress =
-      entry.poolRecipient ||
-      linkedBill?.recipientWallet ||
-      entry.stealthAddress ||
-      null;
     setReceiptModal({
-      kind: "bill",
-      title: entry.billName || "Bill",
-      subtitle: linkedBill?.name || entry.billName || "Bill payment",
-      typeLabel: "Bill",
-      amountLabel: `${entry.amount} ${entry.token}`,
-      receiverAddress,
-      claimCode: entry.poolClaimCode || "",
-      paidAt: entry.confirmedAt || entry.createdAt || null,
-      nextDueAt: linkedBill?.nextExecutionAt || null,
-      txHash: entry.txHash || null,
-      paymentRail: entry.paymentRail || null,
-      companyName: null,
+      ...billHistoryEntryToReceipt(entry),
       autoOpened: !!options.autoOpened,
     });
   }
 
   function openPayrollReceiptCard(entry, options = {}) {
-    const employee = payrollEmployees.find((e) => e.id === entry.employeeId) || null;
     setReceiptModal({
-      kind: "payroll",
-      title: payrollHistoryDisplayTitle(entry),
-      subtitle: entry.role || "Salary transfer",
-      typeLabel: "Payroll",
-      amountLabel: `${entry.amount} ${entry.token}`,
-      receiverAddress: entry.poolRecipient || entry.stealthAddress || entry.recipientWallet || null,
-      claimCode: entry.poolClaimCode || "",
-      paidAt: entry.confirmedAt || entry.createdAt || null,
-      nextDueAt: employee?.nextRunAt || null,
-      txHash: entry.txHash || null,
-      paymentRail: entry.paymentRail || null,
-      companyName: entry.companyName || null,
+      ...payrollHistoryEntryToReceipt(entry),
       autoOpened: !!options.autoOpened,
     });
   }
@@ -12976,17 +13047,40 @@ export default function SwaparcApp() {
                               <option value="unresolved">Export Unresolved</option>
                               <option value="selected">Export Selected</option>
                             </select>
-                            <button
-                              type="button"
-                              className="secondaryBtn billsPayBtn"
-                              disabled={
-                                billExportMode === "selected" &&
-                                selectedBillHistoryIds.size === 0
-                              }
-                              onClick={() => exportBillHistoryEntries(billEntriesByExportMode(billExportMode))}
-                            >
-                              Export Bills
-                            </button>
+                            <div className="historyExportBtnRow">
+                              <button
+                                type="button"
+                                className="secondaryBtn billsPayBtn"
+                                disabled={historyExportDisabled(
+                                  billExportMode,
+                                  selectedBillHistoryIds.size,
+                                  billHistoryExportBusy
+                                )}
+                                onClick={() =>
+                                  exportBillHistoryEntriesCsv(
+                                    billEntriesByExportMode(billExportMode)
+                                  )
+                                }
+                              >
+                                Export CSV
+                              </button>
+                              <button
+                                type="button"
+                                className="secondaryBtn billsPayBtn"
+                                disabled={historyExportDisabled(
+                                  billExportMode,
+                                  selectedBillHistoryIds.size,
+                                  billHistoryExportBusy
+                                )}
+                                onClick={() =>
+                                  exportBillHistoryEntriesJpeg(
+                                    billEntriesByExportMode(billExportMode)
+                                  )
+                                }
+                              >
+                                {billHistoryExportBusy ? "Exporting JPEG…" : "Export JPEG"}
+                              </button>
+                            </div>
                           </div>
                         </div>
                         <div className="historyStatusLegend" role="note">
@@ -13006,7 +13100,7 @@ export default function SwaparcApp() {
                               aria-hidden="true"
                             />
                             <span>
-                              <strong>Resolved</strong> — You exported this row to CSV; the app tags it so
+                              <strong>Resolved</strong> — You exported this row (CSV or JPEG); the app tags it so
                               “unresolved” exports only show what you have not reconciled yet.
                             </span>
                           </div>
@@ -13862,21 +13956,42 @@ export default function SwaparcApp() {
                               <option value="unresolved">Export Unresolved</option>
                               <option value="selected">Export Selected</option>
                             </select>
-                            <button
-                              type="button"
-                              className="secondaryBtn billsPayBtn"
-                              disabled={
-                                payrollExportMode === "selected" &&
-                                selectedPayrollHistoryIds.size === 0
-                              }
-                              onClick={() =>
-                                exportPayrollHistoryEntries(
-                                  payrollEntriesByExportMode(payrollExportMode)
-                                )
-                              }
-                            >
-                              Export Payroll
-                            </button>
+                            <div className="historyExportBtnRow">
+                              <button
+                                type="button"
+                                className="secondaryBtn billsPayBtn"
+                                disabled={historyExportDisabled(
+                                  payrollExportMode,
+                                  selectedPayrollHistoryIds.size,
+                                  payrollHistoryExportBusy
+                                )}
+                                onClick={() =>
+                                  exportPayrollHistoryEntriesCsv(
+                                    payrollEntriesByExportMode(payrollExportMode)
+                                  )
+                                }
+                              >
+                                Export CSV
+                              </button>
+                              <button
+                                type="button"
+                                className="secondaryBtn billsPayBtn"
+                                disabled={historyExportDisabled(
+                                  payrollExportMode,
+                                  selectedPayrollHistoryIds.size,
+                                  payrollHistoryExportBusy
+                                )}
+                                onClick={() =>
+                                  exportPayrollHistoryEntriesJpeg(
+                                    payrollEntriesByExportMode(payrollExportMode)
+                                  )
+                                }
+                              >
+                                {payrollHistoryExportBusy
+                                  ? "Exporting JPEG…"
+                                  : "Export JPEG"}
+                              </button>
+                            </div>
                           </div>
                         </div>
                         <div className="historyStatusLegend" role="note">
@@ -13896,7 +14011,7 @@ export default function SwaparcApp() {
                               aria-hidden="true"
                             />
                             <span>
-                              <strong>Resolved</strong> — You exported this row to CSV; the app tags it so
+                              <strong>Resolved</strong> — You exported this row (CSV or JPEG); the app tags it so
                               “unresolved” exports only show what you have not reconciled yet.
                             </span>
                           </div>
@@ -14446,6 +14561,16 @@ export default function SwaparcApp() {
                 <p className="receiptSub">
                   {receiptModal.kind === "payroll" ? "Payroll payout" : "Bill payment"}
                 </p>
+                {receiptModal.showClaimed || receiptModal.showResolved ? (
+                  <div className="receiptStatusPills">
+                    {receiptModal.showClaimed ? (
+                      <span className="claimedPill">Claimed</span>
+                    ) : null}
+                    {receiptModal.showResolved ? (
+                      <span className="resolvedPill">Resolved</span>
+                    ) : null}
+                  </div>
+                ) : null}
                 {receiptModal.autoOpened ? (
                   <p className="receiptAutoNote">
                     Payment successful. Receipt opened automatically - you can now close.

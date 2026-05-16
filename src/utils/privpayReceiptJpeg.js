@@ -38,6 +38,16 @@ function buildReceiptExportElement(receipt, qrDataUrl) {
       receipt.kind === "payroll" ? "Payroll payout" : "Bill payment"
     )
   );
+  if (receipt.showClaimed || receipt.showResolved) {
+    const pills = el("div", "receiptStatusPills");
+    if (receipt.showClaimed) {
+      pills.appendChild(el("span", "claimedPill", "Claimed"));
+    }
+    if (receipt.showResolved) {
+      pills.appendChild(el("span", "resolvedPill", "Resolved"));
+    }
+    headerLeft.appendChild(pills);
+  }
   header.appendChild(headerLeft);
   header.appendChild(el("span", "receiptPill", receipt.typeLabel || "Receipt"));
   root.appendChild(header);
@@ -179,14 +189,21 @@ export async function renderPrivpayReceiptJpegBlob(receipt) {
   }
 }
 
+function defaultReceiptFilename(receipt, index) {
+  const stamp = new Date().toISOString().slice(0, 10);
+  const kind = receipt.kind === "payroll" ? "payroll" : "bill";
+  const suffix = index != null ? `_${index + 1}` : "";
+  const slug = String(receipt.title || kind)
+    .replace(/[^\w.-]+/g, "_")
+    .slice(0, 40);
+  return `privpay_${kind}_receipt_${slug || kind}_${stamp}${suffix}`;
+}
+
 export async function downloadPrivpayReceiptJpeg(receipt, _logoUrl, options = {}) {
   const blob = options.captureEl
     ? await captureElementToJpegBlob(options.captureEl)
     : await renderPrivpayReceiptJpegBlob(receipt);
-  const base =
-    receipt.kind === "payroll"
-      ? `privpay_payroll_receipt_${Date.now()}`
-      : `privpay_bill_receipt_${Date.now()}`;
+  const base = options.filename || defaultReceiptFilename(receipt, options.index);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -195,4 +212,19 @@ export async function downloadPrivpayReceiptJpeg(receipt, _logoUrl, options = {}
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+/** Download one JPEG per receipt (e.g. history batch export). */
+export async function downloadPrivpayReceiptJpegBatch(receipts, options = {}) {
+  const list = Array.isArray(receipts) ? receipts.filter(Boolean) : [];
+  if (!list.length) throw new Error("No receipts to export.");
+  for (let i = 0; i < list.length; i++) {
+    await downloadPrivpayReceiptJpeg(list[i], null, {
+      index: i,
+      filename: options.filenameFor?.(list[i], i),
+    });
+    if (i < list.length - 1 && options.delayMs) {
+      await new Promise((r) => setTimeout(r, options.delayMs));
+    }
+  }
 }
