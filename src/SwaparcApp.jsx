@@ -4746,35 +4746,54 @@ export default function SwaparcApp() {
       setClaimQrCameraReady(false);
       return undefined;
     }
-    const video = claimQrVideoRef.current;
-    if (!video) return undefined;
+
     let cancelled = false;
-    setClaimQrError("");
-    setClaimQrCameraReady(false);
-    const scanner = startClaimQrCameraScan({
-      videoEl: video,
-      onResult: (text) => {
-        if (cancelled) return;
-        try {
-          applyDecodedClaimCode(text);
-        } catch (e) {
-          setClaimQrError(e instanceof Error ? e.message : String(e));
-        }
-      },
-      onError: (err) => {
-        if (cancelled) return;
-        const msg = err instanceof Error ? err.message : String(err);
-        if (!/NotFoundException/i.test(msg)) setClaimQrError(msg);
-      },
-    });
-    claimQrScannerRef.current = scanner;
-    const readyTimer = setTimeout(() => {
-      if (!cancelled) setClaimQrCameraReady(true);
-    }, 600);
+    let scanner = null;
+    let readyTimer = null;
+
+    const bootScanner = () => {
+      if (cancelled) return;
+      const video = claimQrVideoRef.current;
+      if (!video) {
+        requestAnimationFrame(bootScanner);
+        return;
+      }
+      setClaimQrError("");
+      setClaimQrCameraReady(false);
+      scanner = startClaimQrCameraScan({
+        videoEl: video,
+        onResult: (text) => {
+          if (cancelled) return;
+          try {
+            applyDecodedClaimCode(text);
+          } catch (e) {
+            setClaimQrError(e instanceof Error ? e.message : String(e));
+          }
+        },
+        onError: (err) => {
+          if (cancelled) return;
+          const msg = err instanceof Error ? err.message : String(err);
+          if (
+            !/NotFoundException/i.test(msg) &&
+            !/dimension/i.test(msg) &&
+            !/width must be greater/i.test(msg)
+          ) {
+            setClaimQrError(msg);
+          }
+        },
+      });
+      claimQrScannerRef.current = scanner;
+      readyTimer = setTimeout(() => {
+        if (!cancelled) setClaimQrCameraReady(true);
+      }, 900);
+    };
+
+    requestAnimationFrame(() => requestAnimationFrame(bootScanner));
+
     return () => {
       cancelled = true;
       clearTimeout(readyTimer);
-      scanner.stop();
+      scanner?.stop?.();
       claimQrScannerRef.current = null;
       setClaimQrCameraReady(false);
     };

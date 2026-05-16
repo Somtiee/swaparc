@@ -296,51 +296,191 @@ function pickPreferredCameraDevice(devices, preferIndex = -1) {
   return { deviceId: devices[0].deviceId, index: 0 };
 }
 
+function isTransientScanError(err) {
+  const msg = String(err?.name || err?.message || err || "").toLowerCase();
+  return (
+    /notfoundexception/i.test(msg) ||
+    /dimension/.test(msg) ||
+    /width must be greater/.test(msg) ||
+    /source width/.test(msg) ||
+    /no multiformat readers/.test(msg)
+  );
+}
+
+function waitForVideoDimensions(videoEl, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    let settled = false;
+
+    const finish = (fn) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn();
+    };
+
+    const check = () => {
+      const w = videoEl.videoWidth;
+      const h = videoEl.videoHeight;
+      if (w > 0 && h > 0) {
+        finish(() => resolve({ width: w, height: h }));
+        return true;
+      }
+      if (Date.now() - started > timeoutMs) {
+        finish(() =>
+          reject(
+            new Error(
+              "Camera preview did not start. Try Upload image, or paste the claim code."
+            )
+          )
+        );
+        return true;
+      }
+      return false;
+    };
+
+    const onTick = () => {
+      if (!check()) requestAnimationFrame(onTick);
+    };
+
+    const cleanup = () => {
+      videoEl.removeEventListener("loadedmetadata", onReady);
+      videoEl.removeEventListener("playing", onReady);
+      videoEl.removeEventListener("resize", onReady);
+    };
+
+    const onReady = () => check();
+
+    videoEl.addEventListener("loadedmetadata", onReady);
+    videoEl.addEventListener("playing", onReady);
+    videoEl.addEventListener("resize", onReady);
+
+    if (!check()) requestAnimationFrame(onTick);
+  });
+}
+
+function scanCanvasWithJsQr(canvas) {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx || canvas.width < 8 || canvas.height < 8) return null;
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const result = jsQR(imageData.data, imageData.width, imageData.height, {
+    inversionAttempts: "attemptBoth",
+  });
+  const text = String(result?.data || "").trim();
+  return text || null;
+}
+
 /**
  * Live camera QR scanner — prefers rear/environment camera on phones.
- * Returns { stop, switchCamera }.
+ * Uses jsQR on video frames (avoids ZXing "dimension" errors on mobile Safari).
  */
 export function startClaimQrCameraScan({ videoEl, onResult, onError, deviceIndex = -1 }) {
-  const reader = new BrowserQRCodeReader(SCAN_HINTS);
   let stopped = false;
-  let controls = null;
   let activeStream = null;
   let devicesCache = null;
   let activeDeviceIndex = deviceIndex;
+  let rafId = 0;
+  let scanCanvas = null;
+  let scanCtx = null;
+  let zxingReader = null;
+  let lastFrameAt = 0;
+  let zxingFrame = 0;
 
   const stopStream = () => {
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
     if (activeStream) {
       for (const track of activeStream.getTracks()) track.stop();
       activeStream = null;
     }
     if (videoEl) videoEl.srcObject = null;
+    zxingReader?.reset?.();
+    zxingReader = null;
+  };
+
+  const scanLoop = async () => {
+    if (stopped || !videoEl) return;
+
+    const w = videoEl.videoWidth;
+    const h = videoEl.videoHeight;
+    if (!w || !h) {
+      rafId = requestAnimationFrame(scanLoop);
+      return;
+    }
+
+    const now = performance.now();
+    if (now - lastFrameAt >= 100) {
+      lastFrameAt = now;
+      if (!scanCanvas) {
+        scanCanvas = document.createElement("canvas");
+        scanCtx = scanCanvas.getContext("2d", { willReadFrequently: true });
+      }
+      const maxSide = 1280;
+      const scale = Math.min(1, maxSide / Math.max(w, h));
+      scanCanvas.width = Math.max(8, Math.floor(w * scale));
+      scanCanvas.height = Math.max(8, Math.floor(h * scale));
+      scanCtx.drawImage(videoEl, 0, 0, scanCanvas.width, scanCanvas.height);
+
+      const jsText = scanCanvasWithJsQr(scanCanvas);
+      if (jsText) {
+        stopped = true;
+        stopStream();
+        onResult(jsText);
+        return;
+      }
+
+      zxingFrame += 1;
+      if (zxingFrame % 4 === 0) {
+        try {
+          if (!zxingReader) zxingReader = new BrowserQRCodeReader(SCAN_HINTS);
+          const result = await zxingReader.decodeFromImageElement(scanCanvas);
+          const text = extractQrText(result);
+          if (text) {
+            stopped = true;
+            stopStream();
+            onResult(text);
+            return;
+          }
+        } catch (e) {
+          if (!isTransientScanError(e)) {
+            onError?.(e instanceof Error ? e : new Error(String(e)));
+          }
+        }
+      }
+    }
+
+    rafId = requestAnimationFrame(scanLoop);
   };
 
   const attachAndDecode = async () => {
-    if (stopped || !videoEl) return;
+    if (!videoEl) return;
+    stopped = false;
     try {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = 0;
+
       devicesCache = await BrowserQRCodeReader.listVideoInputDevices();
       const pick = pickPreferredCameraDevice(devicesCache, activeDeviceIndex);
       activeDeviceIndex = pick.index;
 
       stopStream();
-      controls?.stop?.();
-      reader.reset?.();
 
-      const constraints = pick.deviceId
+      const videoConstraints = pick.deviceId
         ? {
             deviceId: { exact: pick.deviceId },
-            width: { ideal: 1920, min: 640 },
-            height: { ideal: 1080, min: 480 },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
           }
         : {
             facingMode: { ideal: "environment" },
-            width: { ideal: 1920, min: 640 },
-            height: { ideal: 1080, min: 480 },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
           };
 
       activeStream = await navigator.mediaDevices.getUserMedia({
-        video: constraints,
+        video: videoConstraints,
         audio: false,
       });
 
@@ -350,17 +490,8 @@ export function startClaimQrCameraScan({ videoEl, onResult, onError, deviceIndex
       videoEl.muted = true;
       await videoEl.play();
 
-      controls = await reader.decodeFromStream(activeStream, videoEl, (result, err) => {
-        if (stopped) return;
-        if (result) {
-          const text = String(result.getText?.() ?? "").trim();
-          if (text) onResult(text);
-          return;
-        }
-        if (err && !/NotFoundException/i.test(String(err?.name || err?.message || err))) {
-          onError?.(err instanceof Error ? err : new Error(String(err)));
-        }
-      });
+      await waitForVideoDimensions(videoEl);
+      rafId = requestAnimationFrame(scanLoop);
     } catch (e) {
       const msg =
         e?.name === "NotAllowedError"
@@ -377,18 +508,13 @@ export function startClaimQrCameraScan({ videoEl, onResult, onError, deviceIndex
   return {
     async stop() {
       stopped = true;
-      try {
-        controls?.stop?.();
-      } catch {
-        /* ignore */
-      }
       stopStream();
-      reader.reset?.();
     },
     async switchCamera() {
       if (!devicesCache?.length) return;
       activeDeviceIndex = (activeDeviceIndex + 1) % devicesCache.length;
-      if (!stopped) await attachAndDecode();
+      stopped = false;
+      await attachAndDecode();
     },
     getDeviceCount() {
       return devicesCache?.length || 0;
