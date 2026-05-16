@@ -148,9 +148,39 @@ function tryJsQrWithPreprocess(sourceCanvas, variant) {
   return tryJsQrOnCanvas(canvas);
 }
 
+function isZxingImageSource(source) {
+  return (
+    source instanceof HTMLImageElement || source instanceof HTMLVideoElement
+  );
+}
+
 async function tryZxingOnSource(reader, source) {
+  if (!isZxingImageSource(source)) return null;
   const result = await reader.decodeFromImageElement(source);
   return extractQrText(result);
+}
+
+function decodeCanvasWithJsQrPipeline(canvas) {
+  const direct = tryJsQrOnCanvas(canvas);
+  if (direct) return direct;
+  for (const variant of PREPROCESS_VARIANTS) {
+    const text = tryJsQrWithPreprocess(canvas, variant);
+    if (text) return text;
+  }
+  const side = Math.max(canvas.width, canvas.height);
+  if (side < 900) {
+    const up = document.createElement("canvas");
+    up.width = canvas.width * 2;
+    up.height = canvas.height * 2;
+    const ctx = up.getContext("2d", { willReadFrequently: true });
+    if (ctx) {
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(canvas, 0, 0, up.width, up.height);
+      const upText = tryJsQrOnCanvas(up);
+      if (upText) return upText;
+    }
+  }
+  return null;
 }
 
 function buildDecodeSources(imageEl) {
@@ -242,19 +272,17 @@ async function decodeFromImageElement(imageEl) {
   let lastErr = null;
 
   for (const source of sources) {
-    try {
-      return await tryZxingOnSource(reader, source);
-    } catch (e) {
-      lastErr = e;
+    if (source instanceof HTMLCanvasElement) {
+      const text = decodeCanvasWithJsQrPipeline(source);
+      if (text) return text;
+      continue;
     }
 
-    if (source instanceof HTMLCanvasElement) {
-      for (const variant of PREPROCESS_VARIANTS) {
-        const text = tryJsQrWithPreprocess(source, variant);
-        if (text) return text;
-      }
-      const direct = tryJsQrOnCanvas(source);
-      if (direct) return direct;
+    try {
+      const zxingText = await tryZxingOnSource(reader, source);
+      if (zxingText) return zxingText;
+    } catch (e) {
+      lastErr = e;
     }
   }
 
@@ -303,8 +331,40 @@ function isTransientScanError(err) {
     /dimension/.test(msg) ||
     /width must be greater/.test(msg) ||
     /source width/.test(msg) ||
-    /no multiformat readers/.test(msg)
+    /no multiformat readers/.test(msg) ||
+    /imageelement/.test(msg) ||
+    /imagesource/.test(msg)
   );
+}
+
+/** Fast path for live camera frames — jsQR only (ZXing rejects canvas elements). */
+function decodeVideoFrameForClaimQr(videoEl, scanCanvas, scanCtx) {
+  const w = videoEl.videoWidth;
+  const h = videoEl.videoHeight;
+  if (!w || !h || !scanCanvas || !scanCtx) return null;
+
+  const maxSide = 1280;
+  const scale = Math.min(1, maxSide / Math.max(w, h));
+  const cw = Math.max(16, Math.floor(w * scale));
+  const ch = Math.max(16, Math.floor(h * scale));
+  scanCanvas.width = cw;
+  scanCanvas.height = ch;
+  scanCtx.drawImage(videoEl, 0, 0, cw, ch);
+
+  let text = decodeCanvasWithJsQrPipeline(scanCanvas);
+  if (text) return text;
+
+  const cropSide = Math.floor(Math.min(cw, ch) * 0.78);
+  const sx = Math.floor((cw - cropSide) / 2);
+  const sy = Math.floor((ch - cropSide) / 2);
+  const crop = document.createElement("canvas");
+  crop.width = cropSide;
+  crop.height = cropSide;
+  const cropCtx = crop.getContext("2d", { willReadFrequently: true });
+  if (!cropCtx) return null;
+  cropCtx.drawImage(scanCanvas, sx, sy, cropSide, cropSide, 0, 0, cropSide, cropSide);
+
+  return decodeCanvasWithJsQrPipeline(crop);
 }
 
 function waitForVideoDimensions(videoEl, timeoutMs = 15000) {
@@ -359,20 +419,9 @@ function waitForVideoDimensions(videoEl, timeoutMs = 15000) {
   });
 }
 
-function scanCanvasWithJsQr(canvas) {
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx || canvas.width < 8 || canvas.height < 8) return null;
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const result = jsQR(imageData.data, imageData.width, imageData.height, {
-    inversionAttempts: "attemptBoth",
-  });
-  const text = String(result?.data || "").trim();
-  return text || null;
-}
-
 /**
  * Live camera QR scanner — prefers rear/environment camera on phones.
- * Uses jsQR on video frames (avoids ZXing "dimension" errors on mobile Safari).
+ * jsQR-only on video frames (ZXing cannot decode canvas / throws ImageSource errors).
  */
 export function startClaimQrCameraScan({ videoEl, onResult, onError, deviceIndex = -1 }) {
   let stopped = false;
@@ -382,9 +431,7 @@ export function startClaimQrCameraScan({ videoEl, onResult, onError, deviceIndex
   let rafId = 0;
   let scanCanvas = null;
   let scanCtx = null;
-  let zxingReader = null;
   let lastFrameAt = 0;
-  let zxingFrame = 0;
 
   const stopStream = () => {
     if (rafId) {
@@ -396,11 +443,9 @@ export function startClaimQrCameraScan({ videoEl, onResult, onError, deviceIndex
       activeStream = null;
     }
     if (videoEl) videoEl.srcObject = null;
-    zxingReader?.reset?.();
-    zxingReader = null;
   };
 
-  const scanLoop = async () => {
+  const scanLoop = () => {
     if (stopped || !videoEl) return;
 
     const w = videoEl.videoWidth;
@@ -411,42 +456,24 @@ export function startClaimQrCameraScan({ videoEl, onResult, onError, deviceIndex
     }
 
     const now = performance.now();
-    if (now - lastFrameAt >= 100) {
+    if (now - lastFrameAt >= 80) {
       lastFrameAt = now;
       if (!scanCanvas) {
         scanCanvas = document.createElement("canvas");
         scanCtx = scanCanvas.getContext("2d", { willReadFrequently: true });
       }
-      const maxSide = 1280;
-      const scale = Math.min(1, maxSide / Math.max(w, h));
-      scanCanvas.width = Math.max(8, Math.floor(w * scale));
-      scanCanvas.height = Math.max(8, Math.floor(h * scale));
-      scanCtx.drawImage(videoEl, 0, 0, scanCanvas.width, scanCanvas.height);
 
-      const jsText = scanCanvasWithJsQr(scanCanvas);
-      if (jsText) {
-        stopped = true;
-        stopStream();
-        onResult(jsText);
-        return;
-      }
-
-      zxingFrame += 1;
-      if (zxingFrame % 4 === 0) {
-        try {
-          if (!zxingReader) zxingReader = new BrowserQRCodeReader(SCAN_HINTS);
-          const result = await zxingReader.decodeFromImageElement(scanCanvas);
-          const text = extractQrText(result);
-          if (text) {
-            stopped = true;
-            stopStream();
-            onResult(text);
-            return;
-          }
-        } catch (e) {
-          if (!isTransientScanError(e)) {
-            onError?.(e instanceof Error ? e : new Error(String(e)));
-          }
+      try {
+        const text = decodeVideoFrameForClaimQr(videoEl, scanCanvas, scanCtx);
+        if (text) {
+          stopped = true;
+          stopStream();
+          onResult(text);
+          return;
+        }
+      } catch (e) {
+        if (!isTransientScanError(e)) {
+          onError?.(e instanceof Error ? e : new Error(String(e)));
         }
       }
     }

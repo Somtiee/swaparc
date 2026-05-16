@@ -4776,7 +4776,9 @@ export default function SwaparcApp() {
           if (
             !/NotFoundException/i.test(msg) &&
             !/dimension/i.test(msg) &&
-            !/width must be greater/i.test(msg)
+            !/width must be greater/i.test(msg) &&
+            !/imageelement/i.test(msg) &&
+            !/imagesource/i.test(msg)
           ) {
             setClaimQrError(msg);
           }
