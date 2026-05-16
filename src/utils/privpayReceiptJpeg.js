@@ -2,7 +2,11 @@
  * PrivPay receipt JPEG export — captures the same DOM/CSS as the in-app Receipt modal.
  */
 
-import { canEncodeClaimInQr, generateClaimQrDataUrl } from "./privpayClaimQr.js";
+import {
+  canEncodeClaimInQr,
+  generateClaimQrDataUrl,
+  generateClaimQrDataUrlForExport,
+} from "./privpayClaimQr.js";
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -95,8 +99,8 @@ function buildReceiptExportElement(receipt, qrDataUrl) {
     const img = document.createElement("img");
     img.className = "receiptQrImage";
     img.alt = "Claim QR code";
-    img.width = 240;
-    img.height = 240;
+    img.width = 400;
+    img.height = 400;
     img.src = qrDataUrl;
     qrPanel.appendChild(img);
     claimWrap.appendChild(qrPanel);
@@ -138,7 +142,7 @@ export async function captureElementToJpegBlob(element) {
   const html2canvas = (await import("html2canvas")).default;
   const canvas = await html2canvas(element, {
     backgroundColor: "#071226",
-    scale: 2,
+    scale: 3,
     useCORS: true,
     logging: false,
     ignoreElements: (node) => node?.classList?.contains?.("receiptExportIgnore"),
@@ -173,10 +177,7 @@ export async function renderPrivpayReceiptJpegBlob(receipt) {
   const claimCode = String(receipt.claimCode || "").trim();
   let qrDataUrl = null;
   if (claimCode && canEncodeClaimInQr(claimCode)) {
-    qrDataUrl = await generateClaimQrDataUrl(claimCode, {
-      width: 280,
-      scanOptimized: true,
-    });
+    qrDataUrl = await generateClaimQrDataUrlForExport(claimCode);
   }
   const node = buildReceiptExportElement(receipt, qrDataUrl);
   document.body.appendChild(node);

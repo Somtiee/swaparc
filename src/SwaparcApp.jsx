@@ -1029,6 +1029,8 @@ export default function SwaparcApp() {
   const [claimQrBusy, setClaimQrBusy] = useState(false);
   const [claimQrError, setClaimQrError] = useState("");
   const [claimQrPrefillNote, setClaimQrPrefillNote] = useState("");
+  const [claimQrFileLabel, setClaimQrFileLabel] = useState("");
+  const [claimQrCameraReady, setClaimQrCameraReady] = useState(false);
   const [receiptQrDataUrl, setReceiptQrDataUrl] = useState(null);
   const [receiptJpegBusy, setReceiptJpegBusy] = useState(false);
   const claimQrVideoRef = useRef(null);
@@ -4727,7 +4729,7 @@ export default function SwaparcApp() {
     setReceiptQrDataUrl(null);
     const code = String(receiptModal?.claimCode || "").trim();
     if (!code || !canEncodeClaimInQr(code)) return undefined;
-    generateClaimQrDataUrl(code)
+    generateClaimQrDataUrl(code, { width: 360, scanOptimized: true })
       .then((url) => {
         if (!cancelled) setReceiptQrDataUrl(url);
       })
@@ -4741,12 +4743,14 @@ export default function SwaparcApp() {
     if (privpayModule !== "claim" || poolClaimInputMode !== "scan") {
       claimQrScannerRef.current?.stop?.();
       claimQrScannerRef.current = null;
+      setClaimQrCameraReady(false);
       return undefined;
     }
     const video = claimQrVideoRef.current;
     if (!video) return undefined;
     let cancelled = false;
     setClaimQrError("");
+    setClaimQrCameraReady(false);
     const scanner = startClaimQrCameraScan({
       videoEl: video,
       onResult: (text) => {
@@ -4764,10 +4768,15 @@ export default function SwaparcApp() {
       },
     });
     claimQrScannerRef.current = scanner;
+    const readyTimer = setTimeout(() => {
+      if (!cancelled) setClaimQrCameraReady(true);
+    }, 600);
     return () => {
       cancelled = true;
+      clearTimeout(readyTimer);
       scanner.stop();
       claimQrScannerRef.current = null;
+      setClaimQrCameraReady(false);
     };
   }, [privpayModule, poolClaimInputMode]);
 
@@ -6197,6 +6206,7 @@ export default function SwaparcApp() {
     setClaimQrBusy(true);
     setClaimQrError("");
     setClaimQrPrefillNote("");
+    setClaimQrFileLabel(file.name || "Image selected");
     try {
       const text = await decodeClaimQrFromImageFile(file);
       applyDecodedClaimCode(text);
@@ -6204,6 +6214,18 @@ export default function SwaparcApp() {
       setClaimQrError(e instanceof Error ? e.message : String(e));
     } finally {
       setClaimQrBusy(false);
+    }
+  }
+
+  function triggerClaimQrFilePicker() {
+    claimQrFileRef.current?.click();
+  }
+
+  async function switchClaimQrCamera() {
+    const scanner = claimQrScannerRef.current;
+    if (scanner?.switchCamera) {
+      setClaimQrError("");
+      await scanner.switchCamera();
     }
   }
 
@@ -14164,6 +14186,7 @@ export default function SwaparcApp() {
                                     setPoolClaimInputMode(mode);
                                     setClaimQrError("");
                                     setClaimQrPrefillNote("");
+                                    setClaimQrFileLabel("");
                                   }}
                                 >
                                   {label}
@@ -14192,9 +14215,10 @@ export default function SwaparcApp() {
                               <div className="claimQrUploadWrap">
                                 <input
                                   ref={claimQrFileRef}
+                                  id="privpayClaimQrFile"
                                   type="file"
-                                  accept="image/*"
-                                  className="claimQrFileInput"
+                                  accept="image/*,.jpg,.jpeg,.png,.webp,.heic,.heif"
+                                  className="claimQrFileInputHidden"
                                   disabled={claimQrBusy}
                                   onChange={(e) => {
                                     const file = e.target.files?.[0];
@@ -14202,21 +14226,49 @@ export default function SwaparcApp() {
                                     handleClaimQrImageFile(file);
                                   }}
                                 />
+                                <button
+                                  type="button"
+                                  className="claimQrFilePill secondaryBtn billsPayBtn"
+                                  disabled={claimQrBusy}
+                                  onClick={triggerClaimQrFilePicker}
+                                >
+                                  {claimQrBusy
+                                    ? "Reading QR…"
+                                    : claimQrFileLabel || "Choose image"}
+                                </button>
                                 <p className="claimQrHint muted">
-                                  Upload a photo or screenshot of the receipt QR. Use a clear, uncropped image.
+                                  Photos from X, WhatsApp, or screenshots work — we scan aggressively. If it fails, take a screenshot and upload that, or paste the code.
                                 </p>
                               </div>
                             ) : null}
                             {poolClaimInputMode === "scan" ? (
                               <div className="claimQrScanWrap">
-                                <video
-                                  ref={claimQrVideoRef}
-                                  className="claimQrVideo"
-                                  muted
-                                  playsInline
-                                />
+                                <div className="claimQrScanViewport">
+                                  <video
+                                    ref={claimQrVideoRef}
+                                    className="claimQrVideo"
+                                    muted
+                                    playsInline
+                                    autoPlay
+                                  />
+                                  <div className="claimQrScanOverlay" aria-hidden="true">
+                                    <span className="claimQrScanFrame" />
+                                  </div>
+                                  {!claimQrCameraReady ? (
+                                    <p className="claimQrScanLoading muted">Starting camera…</p>
+                                  ) : null}
+                                </div>
+                                <div className="claimQrScanActions">
+                                  <button
+                                    type="button"
+                                    className="secondaryBtn billsPayBtn claimQrSwitchCamBtn"
+                                    onClick={() => switchClaimQrCamera()}
+                                  >
+                                    Switch camera
+                                  </button>
+                                </div>
                                 <p className="claimQrHint muted">
-                                  Point your camera at the payer&apos;s receipt QR. Decoded codes fill the Paste tab — tap Claim when ready.
+                                  Align the QR inside the frame. Uses your rear camera when available (allow permission in Safari/Chrome).
                                 </p>
                               </div>
                             ) : null}
@@ -14391,7 +14443,7 @@ export default function SwaparcApp() {
                                 }
                               }}
                             >
-                              {poolClaimBusy ? "Proving / claiming…" : "Claim from pasted code"}
+                              {poolClaimBusy ? "Proving / claiming…" : "Claim payment"}
                             </button>
                             {poolClaimError ? (
                               <p className="quote billsErr" style={{ marginTop: 8 }}>
