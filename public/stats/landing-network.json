@@ -1,0 +1,21 @@
+{
+  "ok": true,
+  "refreshedAt": "2026-05-06T11:33:59.281Z",
+  "stats": {
+    "totalSwapVolume": 288329350921.77496,
+    "totalSwapCount": 4950579,
+    "uniqueUsers": 104878
+  },
+  "leaderboard": {
+    "topSwapVolume": [],
+    "topSwapCount": [],
+    "topLPProvided": [],
+    "totalSwapVolume": 288329350921.77496,
+    "totalSwapCount": 4950579,
+    "totalLP": 0,
+    "uniqueUsers": 104878,
+    "egressSafe": true,
+    "scanFree": true
+  },
+  "source": "seed"
+}

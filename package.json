@@ -24,12 +24,14 @@
     "circuit:privpay:compile": "node scripts/compilePrivpayCircuit.mjs",
     "circuit:privpay:prove": "node scripts/privpayProveCli.mjs",
     "stats:sum-profile-volume": "node scripts/sumProfileSwapVolume.js",
+    "stats:publish-landing": "node scripts/publishLandingStats.mjs",
     "test:claim-qr": "node scripts/testPrivpayClaimQr.mjs"
   },
   "dependencies": {
     "@circle-fin/developer-controlled-wallets": "^10.1.0",
     "@circle-fin/w3s-pw-web-sdk": "^1.1.11",
     "@noble/secp256k1": "^3.0.0",
+    "@vercel/blob": "^0.27.3",
     "@vercel/kv": "^1.0.1",
     "@walletconnect/ethereum-provider": "^2.23.1",
     "@walletconnect/modal": "^2.7.0",

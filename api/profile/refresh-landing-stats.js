@@ -1,4 +1,8 @@
 import { kv } from "../../lib/server/kv.js";
+import {
+  buildLandingPublicPayload,
+  publishLandingPublicStats,
+} from "../../lib/server/landingPublicStats.js";
 
 const COUNT_SWAPPERS_KEY = "stats:countUniqueSwappers:last";
 const TOTAL_SWAP_VOLUME_KEY = "stats:totalSwapVolume:last";
@@ -111,11 +115,19 @@ export default async function handler(req, res) {
 
     await kv.set(COUNT_SWAPPERS_KEY, countPayload);
     await kv.set(TOTAL_SWAP_VOLUME_KEY, volumePayload);
-    // landing-stats reads these keys only (no profile SCAN on the hot path).
+
+    const publicPayload = await buildLandingPublicPayload({
+      totalSwapVolume: scanned.totalSwapVolume,
+      totalSwapCount: scanned.totalSwapCount,
+      uniqueSwapWallets: scanned.uniqueSwapWallets,
+    });
+    const staticUrl = await publishLandingPublicStats(publicPayload);
 
     return res.status(200).json({
       ok: true,
       updatedAt,
+      staticPublished: true,
+      staticUrl: staticUrl || null,
       summary: {
         totalSwapVolume: scanned.totalSwapVolume,
         totalSwapCount: scanned.totalSwapCount,

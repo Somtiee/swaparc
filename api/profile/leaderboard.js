@@ -1,9 +1,15 @@
 import { kv } from "../../lib/server/kv.js";
+import {
+  LANDING_STATS_CDN_S_MAXAGE_SEC,
+  LANDING_STATS_CDN_STALE_SEC,
+  LANDING_STATS_PERIOD_MS,
+} from "../../lib/server/landingPublicStats.js";
 
 const LEADERBOARD_CACHE_KEY = "stats:leaderboard:response:v1";
-const LEADERBOARD_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
-const CDN_S_MAXAGE_SEC = 3 * 24 * 60 * 60;
-const CDN_STALE_SEC = 24 * 60 * 60;
+/** Legacy API fallback; landing reads static JSON weekly. */
+const LEADERBOARD_CACHE_TTL_MS = LANDING_STATS_PERIOD_MS;
+const CDN_S_MAXAGE_SEC = LANDING_STATS_CDN_S_MAXAGE_SEC;
+const CDN_STALE_SEC = LANDING_STATS_CDN_STALE_SEC;
 const COUNT_SWAPPERS_KEY = "stats:countUniqueSwappers:last";
 const TOTAL_SWAP_VOLUME_KEY = "stats:totalSwapVolume:last";
 

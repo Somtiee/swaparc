@@ -1,12 +1,16 @@
 import { kv } from "../../lib/server/kv.js";
 import { readFile } from "node:fs/promises";
+import {
+  LANDING_STATS_CDN_S_MAXAGE_SEC,
+  LANDING_STATS_CDN_STALE_SEC,
+  LANDING_STATS_PERIOD_MS,
+} from "../../lib/server/landingPublicStats.js";
 
 const RESPONSE_CACHE_KEY = "stats:landing:response:v2";
-/** Long TTL: each cache miss used to SCAN all profile:* keys (expensive Railway Redis egress). */
-/** Server recomputes at most once per 3 days; weekly cron refreshes underlying keys. */
-const RESPONSE_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
-const CDN_S_MAXAGE_SEC = 3 * 24 * 60 * 60;
-const CDN_STALE_SEC = 24 * 60 * 60;
+/** Legacy API fallback; landing page reads /stats/landing-network.json (no Redis on load). */
+const RESPONSE_CACHE_TTL_MS = LANDING_STATS_PERIOD_MS;
+const CDN_S_MAXAGE_SEC = LANDING_STATS_CDN_S_MAXAGE_SEC;
+const CDN_STALE_SEC = LANDING_STATS_CDN_STALE_SEC;
 const HIGHWATER_KEY = "stats:landing:highwater:v1";
 const COUNT_SWAPPERS_KEY = "stats:countUniqueSwappers:last";
 const TOTAL_SWAP_VOLUME_KEY = "stats:totalSwapVolume:last";

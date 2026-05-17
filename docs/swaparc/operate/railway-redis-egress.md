@@ -26,9 +26,9 @@ Together this can reach **hundreds of GB of egress** in a billing cycle.
 |--------|--------|
 | **leaderboard** uses Redis **sorted sets** + top-10 profile reads only (no `profile:*` SCAN) | Stops the 60s homepage poll from exporting the whole DB |
 | **landing-stats** no longer scans `profile:*` | Hot path only reads small precomputed keys + high-water marks |
-| **Response cache 3 days** + CDN `Cache-Control` | Far fewer KV round-trips per visitor |
-| **Landing page** polls stats + leaderboard every **3 days** | Fewer API calls |
-| **API caches 3 days** on landing-stats + leaderboard | Few Redis reads per visitor |
+| **Static `/stats/landing-network.json`** (weekly cron) | Landing loads **zero Railway Redis** for stats/leaderboard |
+| **Response cache 7 days** + CDN `Cache-Control` | Legacy API fallback only |
+| **Landing TVL** polls on-chain RPC every **60s** | Live TVL; not Railway |
 | **Cron schedule once weekly** (`0 0 * * 0`, Sunday UTC) | One profile scan per week |
 | **`STATS_CRON_DISABLE_PROFILE_SCAN=true`** | Emergency stop for the cron scan only |
 
@@ -44,14 +44,12 @@ Think of **four layers** — only the **weekly cron** does the expensive “read
 | Layer | What it is | Typical interval | Railway cost |
 |-------|------------|------------------|--------------|
 | **Stats cron** | Background job writes precomputed totals into Redis | **Once per week** | **High once/week** (one full scan) |
-| **API cache** (landing-stats + leaderboard) | Server saves the last JSON answer in Redis; repeats serve that blob | **3 days** | **Tiny** per hit (one small read) |
-| **Browser poll** | Landing tab asks the API again | Stats + leaderboard **3 days** | Triggers Vercel → Redis only when cache expired |
-| **Browser localStorage** | Your phone remembers last stats so reload feels instant | **3 days** | **Zero** Redis |
+| **Static JSON** (`/stats/landing-network.json`) | Weekly cron writes file (+ optional Vercel Blob); browser fetches from CDN | **7 days** | **Zero** Redis on landing page load |
+| **API cache** (landing-stats + leaderboard) | Legacy fallback if static missing | **7 days** | Tiny only on fallback |
+| **Browser localStorage** | Remembers last stats for instant paint | **7 days** | **Zero** Redis |
+| **TVL poll** | On-chain pool balances via public RPC | **60 seconds** | **Zero** Redis |
 
-**Why poll every 3 days?**  
-Landing totals are marketing-style aggregates, not trading feeds. Weekly cron refreshes the underlying keys; API cache and polls only need to stay in sync with that cadence. **TVL** still updates from on-chain reads when the landing tab is open (not Railway Redis).
-
-**“Live” feel:** Cards still animate and TVL can move; swap/user totals step up after each **weekly** cron refresh.
+**“Live” feel:** TVL updates every minute on the landing tab; swap volume / user counts update after each **Sunday** cron publish.
 
 ## Confirm the fix is live
 

@@ -52,10 +52,12 @@ const ARC_CHAIN_ID_HEX = `0x${ARC_CHAIN_ID_DEC.toString(16)}`;
 const CIRCLE_APP_ID = import.meta.env.VITE_CIRCLE_APP_ID || "";
 /** Default read RPC for ARC Testnet (no API key). Override with VITE_ARC_RPC_URL. */
 const ARC_PUBLIC_RPC = "https://rpc.testnet.arc.network";
-/** Browser localStorage + min gap between polls (server cache is 3 days). */
-const LANDING_STATS_CACHE_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
-const LANDING_STATS_CLIENT_POLL_MS = 3 * 24 * 60 * 60 * 1000;
-const LEADERBOARD_CLIENT_POLL_MS = 3 * 24 * 60 * 60 * 1000;
+/** Weekly static landing stats (Sunday cron); TVL stays live via RPC. */
+const LANDING_STATS_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const LANDING_STATIC_STATS_URL =
+  import.meta.env.VITE_LANDING_STATS_URL || "/stats/landing-network.json";
+/** On-chain pool TVL only — does not use Railway Redis. */
+const LANDING_TVL_POLL_MS = 60 * 1000;
 
 console.log("Circle setup:", { CIRCLE_APP_ID });
 
@@ -1252,8 +1254,6 @@ export default function SwaparcApp() {
     uniqueUsers: 0,
   });
   const landingStatsAnimatedOnceRef = useRef(false);
-  const lastLandingStatsFetchAtRef = useRef(0);
-  const lastLeaderboardFetchAtRef = useRef(0);
   // circleWallet, circleWalletReady moved up
 
   useEffect(() => {
@@ -3259,57 +3259,71 @@ export default function SwaparcApp() {
     };
   }, [authMode, address, circleWalletReady, circleWallet?.address, profileStats?.swapCount, profileStats?.swapVolume, profileStats?.lpProvided]);
 
+  function applyLandingPublicPayload(data) {
+    if (!data?.stats || typeof data.stats !== "object") return false;
+    const refreshedAt = String(data.refreshedAt || new Date().toISOString());
+    const nextStats = {
+      totalSwapVolume: Number(data.stats.totalSwapVolume || 0),
+      totalSwapCount: Number(data.stats.totalSwapCount || 0),
+      uniqueUsers: Number(data.stats.uniqueUsers || 0),
+      refreshedAt,
+    };
+    setLandingApiStats(nextStats);
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem("swaparc_landing_api_stats", JSON.stringify(nextStats));
+      } catch {
+        // ignore localStorage errors
+      }
+    }
+    if (data.leaderboard && typeof data.leaderboard === "object") {
+      setLeaderboard({
+        topSwapVolume: Array.isArray(data.leaderboard.topSwapVolume)
+          ? data.leaderboard.topSwapVolume
+          : [],
+        topSwapCount: Array.isArray(data.leaderboard.topSwapCount)
+          ? data.leaderboard.topSwapCount
+          : [],
+        topLPProvided: Array.isArray(data.leaderboard.topLPProvided)
+          ? data.leaderboard.topLPProvided
+          : [],
+        totalSwapVolume: Number(data.leaderboard.totalSwapVolume || nextStats.totalSwapVolume),
+        totalSwapCount: Number(data.leaderboard.totalSwapCount || nextStats.totalSwapCount),
+        uniqueUsers: Number(data.leaderboard.uniqueUsers || nextStats.uniqueUsers),
+        totalLP: Number(data.leaderboard.totalLP || 0),
+        egressSafe: true,
+        scanFree: true,
+        static: true,
+      });
+    }
+    return true;
+  }
+
+  /** CDN static JSON from weekly cron — zero Railway Redis reads on landing load. */
+  async function fetchLandingPublicStats() {
+    try {
+      const res = await fetch(LANDING_STATIC_STATS_URL, { cache: "default" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        throw new Error("Static landing stats unavailable");
+      }
+      applyLandingPublicPayload(data);
+      return true;
+    } catch (err) {
+      console.warn("Landing static stats:", err?.message || err);
+      return false;
+    }
+  }
+
   async function fetchLeaderboard() {
-    const now = Date.now();
-    if (now - lastLeaderboardFetchAtRef.current < LEADERBOARD_CLIENT_POLL_MS) return;
-    lastLeaderboardFetchAtRef.current = now;
+    const loaded = await fetchLandingPublicStats();
+    if (loaded) return;
     try {
       const res = await fetch("/api/profile/leaderboard");
       const data = await res.json();
       setLeaderboard(data);
     } catch (err) {
       console.error("Failed to fetch leaderboard", err);
-    }
-  }
-
-  async function fetchLandingNetworkStats() {
-    const now = Date.now();
-    if (now - lastLandingStatsFetchAtRef.current < LANDING_STATS_CLIENT_POLL_MS) return;
-    lastLandingStatsFetchAtRef.current = now;
-    try {
-      const res = await fetch("/api/profile/landing-stats");
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok || !data?.stats) return;
-      setLandingApiStats((prev) => {
-        const nextStats = {
-          totalSwapVolume: Math.max(
-            Number(prev?.totalSwapVolume || 0),
-            Number(data.stats.totalSwapVolume || 0)
-          ),
-          totalSwapCount: Math.max(
-            Number(prev?.totalSwapCount || 0),
-            Number(data.stats.totalSwapCount || 0)
-          ),
-          uniqueUsers: Math.max(
-            Number(prev?.uniqueUsers || 0),
-            Number(data.stats.uniqueUsers || 0)
-          ),
-          refreshedAt: String(data.refreshedAt || new Date().toISOString()),
-        };
-        if (typeof window !== "undefined") {
-          try {
-            window.localStorage.setItem(
-              "swaparc_landing_api_stats",
-              JSON.stringify(nextStats)
-            );
-          } catch {
-            // ignore localStorage errors
-          }
-        }
-        return nextStats;
-      });
-    } catch (err) {
-      console.warn("Failed to fetch landing stats", err?.message || err);
     }
   }
 
@@ -3531,19 +3545,13 @@ export default function SwaparcApp() {
 
   useEffect(() => {
     if (activeTab !== "landing") return;
-    fetchLeaderboard().catch(() => {});
-    fetchLandingNetworkStats().catch(() => {});
+    fetchLandingPublicStats().catch(() => {});
     fetchPoolBalances(getReadProvider()).catch(() => {});
-    const refresh = setInterval(() => {
-      fetchLandingNetworkStats().catch(() => {});
+    const tvlRefresh = setInterval(() => {
       fetchPoolBalances(getReadProvider()).catch(() => {});
-    }, LANDING_STATS_CLIENT_POLL_MS);
-    const leaderboardRefresh = setInterval(() => {
-      fetchLeaderboard().catch(() => {});
-    }, LEADERBOARD_CLIENT_POLL_MS);
+    }, LANDING_TVL_POLL_MS);
     return () => {
-      clearInterval(refresh);
-      clearInterval(leaderboardRefresh);
+      clearInterval(tvlRefresh);
     };
   }, [activeTab]);
 
