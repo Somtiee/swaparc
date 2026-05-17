@@ -17,12 +17,18 @@ With **Vercel Blob**, the weekly cron (`/api/profile/refresh-landing-stats`) upl
 
 ---
 
-## Step 1 — Create a Blob store (Vercel dashboard)
+## Step 1 — Create a **Public** Blob store (Vercel dashboard)
+
+> **Important:** Access mode (**Public** vs **Private**) is chosen at creation and **cannot be changed later**.  
+> If you see `Cannot use public access on a private store`, create a **new** store with **Public** access (see below).
 
 1. Open [vercel.com](https://vercel.com) → your **swaparc** project.
 2. Go to **Storage** → **Create Database / Store** → choose **Blob**.
-3. Name it (e.g. `swaparc-landing-stats`) and connect it to this project.
-4. Vercel usually adds **`BLOB_READ_WRITE_TOKEN`** to the project automatically. Confirm under **Settings → Environment Variables** (Production).
+3. On the access step, select **Public** (required — the landing page loads JSON by URL in the browser).
+4. Name it (e.g. `swaparc-landing-stats-public`) and connect it to this project.
+5. Vercel updates **`BLOB_READ_WRITE_TOKEN`** for the connected store. Confirm under **Settings → Environment Variables** (Production).
+6. **Redeploy** Production so serverless functions use the new token.
+7. (Optional) Disconnect or delete the old **Private** `swaparc-blob` store if you no longer need it.
 
 If the token is missing, open the Blob store → **`.env.local` / Connect** and copy `BLOB_READ_WRITE_TOKEN` into Production env.
 
@@ -119,7 +125,8 @@ This will **not** replace your main Vercel bill (functions, bandwidth). It shoul
 
 | Symptom | Fix |
 |---------|-----|
-| `staticUrl: null`, `blobError` in response | Read `blobError`; redeploy **after** token exists; check **Storage → swaparc-blob → Browse** for `landing-network.json` |
+| `Cannot use public access on a private store` | Store was created **Private** — create a new **Public** Blob store and redeploy (cannot flip access later) |
+| `staticUrl: null`, other `blobError` | Read `blobError`; redeploy **after** token exists; check **Storage → your store → Browse** for `landing-network.json` |
 | `blobConfigured: false` | `BLOB_READ_WRITE_TOKEN` missing on **this** deployment — redeploy |
 | Landing still hits `/stats/landing-network.json` | `VITE_LANDING_STATS_URL` unset or deploy happened **before** you added it — redeploy |
 | Old numbers after Sunday | Hard refresh; Blob/CDN cache up to 7 days is expected |
