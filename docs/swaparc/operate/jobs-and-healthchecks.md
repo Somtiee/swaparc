@@ -10,15 +10,23 @@ Call it from your load balancer or orchestrator as a **process-up** check only; 
 
 ## Scheduled jobs
 
-SwapArc uses scheduled payment processing routes, including recurring and payroll runs, plus an **hourly** landing-stats refresh.
+SwapArc uses scheduled payment processing routes, including recurring and payroll runs, plus a **weekly** landing-stats refresh.
 
 | Route | Schedule (typical) | Purpose |
 |-------|-------------------|---------|
 | `/api/payments/recurring/run` | Every 5 min | Recurring bills |
 | `/api/payments/payroll/run` | Every 5 min | Payroll queue |
-| `/api/profile/refresh-landing-stats` | Hourly (`0 * * * *`) | Precompute landing stats keys (SCAN `profile:*` **only here**, not on homepage API) |
+| `/api/profile/refresh-landing-stats` | Weekly (`0 0 * * 0`, Sunday UTC) | SCAN `profile:*` once, update Redis aggregates, publish `landing-network.json` to Vercel Blob |
 
-If **`REDIS_URL`** is Railway-hosted, full profile scans on every homepage hit caused large **egress** bills. **`GET /api/profile/landing-stats`** must stay scan-free; see [Railway Redis egress](railway-redis-egress.md).
+### Landing stats (production)
+
+- **Homepage** loads network totals from **`VITE_LANDING_STATS_URL`** (public Vercel Blob JSON) — **no Railway Redis** on page load.
+- **TVL** on the landing tab refreshes from on-chain RPC about every 60 seconds.
+- **Blob store must be Public** at creation (private stores cannot host the browser-facing JSON).
+- Env: `BLOB_READ_WRITE_TOKEN` (server), `VITE_LANDING_STATS_URL` (build-time). Manual publish: `npm run stats:publish-landing`.
+- Legacy APIs `GET /api/profile/landing-stats` and `GET /api/profile/leaderboard` remain scan-free fallbacks with long cache TTL.
+
+If **`REDIS_URL`** is Railway-hosted, avoid polling those APIs from the landing page; the weekly cron is the only full profile scan.
 
 ### Cron behavior
 

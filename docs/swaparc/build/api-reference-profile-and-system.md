@@ -122,7 +122,7 @@ Cached landing-page metrics for the marketing/home experience.
 - **File fallbacks** under **`data/stats/*.latest.json`**
 - **High-water** key **`stats:landing:highwater:v1`** so displayed totals do not regress
 
-**Cache:** **~15 minutes** in KV plus **`Cache-Control: public, s-maxage=900`** for the CDN. This keeps Railway Redis **egress** low when `REDIS_URL` points at Railway — see [Railway Redis egress](../operate/railway-redis-egress.md).
+**Cache:** **7 days** in KV plus long CDN TTL. The landing page reads static Blob JSON instead; this route is a legacy fallback only — see [Jobs & health checks](../operate/jobs-and-healthchecks.md).
 
 **Response:** **`200`** JSON with **`stats`**. Best-effort marketing telemetry, not a financial audit trail.
 

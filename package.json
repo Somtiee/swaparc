@@ -24,8 +24,7 @@
     "circuit:privpay:compile": "node scripts/compilePrivpayCircuit.mjs",
     "circuit:privpay:prove": "node scripts/privpayProveCli.mjs",
     "stats:sum-profile-volume": "node scripts/sumProfileSwapVolume.js",
-    "stats:publish-landing": "node scripts/publishLandingStats.mjs",
-    "test:claim-qr": "node scripts/testPrivpayClaimQr.mjs"
+    "stats:publish-landing": "node scripts/publishLandingStats.mjs"
   },
   "dependencies": {
     "@circle-fin/developer-controlled-wallets": "^10.1.0",
