@@ -32,7 +32,7 @@ Together this can reach **hundreds of GB of egress** in a billing cycle.
 | **Cron schedule once weekly** (`0 0 * * 0`, Sunday UTC) | One profile scan per week |
 | **`STATS_CRON_DISABLE_PROFILE_SCAN=true`** | Emergency stop for the cron scan only |
 
-Precomputed keys (written by the hourly cron):
+Precomputed keys (written by the weekly cron):
 
 - `stats:countUniqueSwappers:last`
 - `stats:totalSwapVolume:last`
@@ -75,3 +75,5 @@ Think of **four layers** — only the **weekly cron** does the expensive “read
 | **Never SCAN on user-facing routes** | Only background jobs write aggregates; APIs read O(1) keys |
 
 See also [Jobs and healthchecks](jobs-and-healthchecks.md) for cron paths.
+
+**Optional — auto-update landing JSON without redeploy:** connect Vercel Blob and set `VITE_LANDING_STATS_URL`. Step-by-step: [Landing stats via Vercel Blob](landing-stats-blob.md).

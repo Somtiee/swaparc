@@ -121,13 +121,16 @@ export default async function handler(req, res) {
       totalSwapCount: scanned.totalSwapCount,
       uniqueSwapWallets: scanned.uniqueSwapWallets,
     });
-    const staticUrl = await publishLandingPublicStats(publicPayload);
+    const publish = await publishLandingPublicStats(publicPayload);
 
     return res.status(200).json({
       ok: true,
       updatedAt,
       staticPublished: true,
-      staticUrl: staticUrl || null,
+      blobConfigured: publish.blobConfigured,
+      blobUploaded: Boolean(publish.blobUrl),
+      blobError: publish.blobError || null,
+      staticUrl: publish.blobUrl || null,
       summary: {
         totalSwapVolume: scanned.totalSwapVolume,
         totalSwapCount: scanned.totalSwapCount,

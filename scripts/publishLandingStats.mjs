@@ -22,9 +22,10 @@ async function main() {
     uniqueSwapWallets:
       Number(countStats?.uniqueUsers ?? countStats?.uniqueSwapWallets) || 0,
   });
-  const url = await publishLandingPublicStats(payload);
+  const publish = await publishLandingPublicStats(payload);
   console.log("Wrote public/stats/landing-network.json");
-  if (url) console.log("Blob URL:", url);
+  if (publish.blobUrl) console.log("Blob URL:", publish.blobUrl);
+  if (publish.blobError) console.error("Blob error:", publish.blobError);
   console.log("refreshedAt:", payload.refreshedAt);
 }
 
