@@ -19,7 +19,7 @@ Details: [Connect a wallet](../getting-started/connect-a-wallet.md).
 
 ## Is a PrivPay receipt QR less secure than pasting the claim code?
 
-No. The QR contains the **same v3 zk-claim string** as the base64 code on the receipt. Treat QR, JPEG exports and pasted codes as **equally sensitive** bearer secrets. Anyone who obtains the material can attempt a claim if they also control the recipient wallet. Scanning or uploading a receipt image does not weaken on-chain checks, it only avoids manual copy/paste.
+No. The QR on a receipt contains the **same v3 zk-claim string** as the base64 code. Treat QR images, JPEG exports, and pasted codes as **equally sensitive** bearer secrets. Anyone who obtains the material can attempt a claim if they also control the recipient wallet. Uploading a receipt image does not weaken on-chain checks; it only avoids manual copy/paste.
 
 ## Why did my PrivPay claim fail with an “already claimed” or nullifier error?
 

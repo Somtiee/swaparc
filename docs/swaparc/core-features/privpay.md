@@ -52,23 +52,22 @@ Before running claim, verify:
 - Claim code is complete and unmodified.
 - Claim code is handled as sensitive secret data.
 
-## Claim paths (code, QR scan, receipt image)
+## Claim paths (paste code or upload image)
 
-Recipients can use any of these in **PrivPay → Claim → Payments Claim**; all paths decode the same **v3 zk-claim** base64 payload (`poolClaimCode`) and run the same on-chain claim logic:
+Recipients use **PrivPay → Claim → Payments Claim** in one of two ways. Both decode the same **v3 zk-claim** base64 payload (`poolClaimCode`) and run the same on-chain claim logic:
 
 | Method | What to do |
 | --- | --- |
 | **Paste code** | Paste the base64 claim code from the payer receipt. |
-| **Upload image** | Upload a PrivPay receipt JPEG or a photo of the receipt QR (the app reads the QR, not OCR of the text). |
-| **Scan QR** | Use the device camera on the receipt QR; the code is prefilled in Paste mode for you to review before claiming. |
+| **Upload image** | Upload a PrivPay receipt JPEG or a photo/screenshot of the receipt QR (the app reads the QR, not OCR of the text). |
 
 Steps after the code is loaded:
 
 1. Confirm the connected wallet matches the recipient encoded in the claim material.
-2. Tap **Claim** and wait for proving plus submission (do not share the QR or code publicly).
+2. Tap **Claim payment** and wait for proving plus submission (do not share the QR or code publicly).
 3. Confirm success in **Claim history** and optionally on [Arcscan](https://testnet.arcscan.app).
 
-**QR security:** The QR encodes the **exact same bearer secret** as the pasted claim code (including note preimage fields in v3 exports). Scanning does not bypass wallet checks, relay authorization, or nullifier rules; it is only a different transport.
+**QR security:** Receipt QRs encode the **exact same bearer secret** as the pasted claim code (including note preimage fields in v3 exports). Uploading or pasting does not bypass wallet checks, relay authorization, or nullifier rules.
 
 If a claim code is too long for QR capacity, the receipt shows **copy code only** (no broken QR). You can still paste or share the code directly.
 

@@ -3073,8 +3073,7 @@ select.billsInput option,
   background: rgba(40, 167, 255, 0.22);
 }
 
-.claimQrUploadWrap,
-.claimQrScanWrap {
+.claimQrUploadWrap {
   margin: 10px 0;
 }
 
@@ -3118,134 +3117,6 @@ select.billsInput option,
     rgba(56, 130, 255, 0.45),
     rgba(22, 62, 140, 0.62)
   );
-}
-
-.claimQrScanViewport {
-  position: relative;
-  width: 100%;
-  max-width: 420px;
-  aspect-ratio: 1 / 1;
-  margin: 0 auto;
-  border-radius: 16px;
-  overflow: hidden;
-  border: 1px solid rgba(108, 219, 255, 0.45);
-  background: #050f22;
-}
-
-.claimQrVideo {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  min-width: 100%;
-  min-height: 100%;
-  object-fit: cover;
-  object-position: center;
-  display: block;
-  background: #050f22;
-  transform: translateZ(0);
-}
-
-.claimQrScanOverlay {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  pointer-events: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.claimQrScanFrame {
-  width: min(72%, 260px);
-  aspect-ratio: 1 / 1;
-  border: 2px solid rgba(108, 219, 255, 0.85);
-  border-radius: 14px;
-  box-shadow:
-    0 0 0 9999px rgba(5, 15, 34, 0.28),
-    0 0 24px rgba(108, 219, 255, 0.35);
-}
-
-.claimQrScanViewportActive .claimQrScanFrame {
-  animation: claimQrFramePulse 1.6s ease-in-out infinite;
-}
-
-.claimQrScanLine {
-  position: absolute;
-  left: 14%;
-  right: 14%;
-  height: 2px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(108, 219, 255, 0.95),
-    transparent
-  );
-  box-shadow: 0 0 12px rgba(108, 219, 255, 0.65);
-  animation: claimQrScanLineMove 2s ease-in-out infinite;
-}
-
-@keyframes claimQrScanLineMove {
-  0%,
-  100% {
-    top: 22%;
-    opacity: 0.55;
-  }
-  50% {
-    top: 72%;
-    opacity: 1;
-  }
-}
-
-@keyframes claimQrFramePulse {
-  0%,
-  100% {
-    border-color: rgba(108, 219, 255, 0.65);
-  }
-  50% {
-    border-color: rgba(165, 255, 222, 0.95);
-  }
-}
-
-.claimQrScanStatus {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 10px;
-  margin: 0;
-  padding: 6px 10px;
-  text-align: center;
-  font-size: 12px;
-  font-weight: 600;
-  color: #d8f6ff;
-  background: rgba(5, 15, 34, 0.78);
-  z-index: 4;
-}
-
-.claimQrScanLoading {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0;
-  background: rgba(5, 15, 34, 0.72);
-  font-size: 13px;
-}
-
-.claimQrScanActions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.claimQrSwitchCamBtn {
-  border-radius: 999px;
-  min-width: 140px;
 }
 
 .claimQrHint {
@@ -4019,16 +3890,7 @@ select.billsInput option,
     font-size: 12px;
   }
 
-  .claimQrScanViewport {
-    max-width: 100%;
-  }
-
-  .claimQrFilePill,
-  .claimQrSwitchCamBtn {
-    width: 100%;
-  }
-
-  .claimQrScanActions {
+  .claimQrFilePill {
     width: 100%;
   }
 

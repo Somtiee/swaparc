@@ -34,7 +34,6 @@ import {
   canEncodeClaimInQr,
   generateClaimQrDataUrl,
   decodeClaimQrFromImageFile,
-  startClaimQrCameraScan,
 } from "./utils/privpayClaimQr.js";
 import {
   downloadPrivpayReceiptJpeg,
@@ -56,7 +55,7 @@ const ARC_PUBLIC_RPC = "https://rpc.testnet.arc.network";
 const LANDING_STATS_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const LANDING_STATIC_STATS_URL =
   import.meta.env.VITE_LANDING_STATS_URL || "/stats/landing-network.json";
-/** On-chain pool TVL only — does not use Railway Redis. */
+/** On-chain pool TVL only â€” does not use Railway Redis. */
 const LANDING_TVL_POLL_MS = 60 * 1000;
 
 console.log("Circle setup:", { CIRCLE_APP_ID });
@@ -91,7 +90,7 @@ const HAS_ANY_PRIVACY_POOL = Object.values(PRIVACY_POOL_ADDRESS_BY_SYMBOL).some(
 );
 const PRIVACY_POOL_USE_RELAY =
   String(import.meta.env.VITE_PRIVACY_POOL_USE_RELAY || "").toLowerCase() === "true";
-/** Groth16 browser proving (`/public/circuits/privpay/…`). */
+/** Groth16 browser proving (`/public/circuits/privpay/â€¦`). */
 const PRIVPAY_WASM_URL = String(import.meta.env.VITE_PRIVPAY_WASM_URL || "");
 const PRIVPAY_ZKEY_URL = String(import.meta.env.VITE_PRIVPAY_ZKEY_URL || "");
 const PRIVPAY_PLACEHOLDER_MODE = false;
@@ -110,7 +109,7 @@ const RECURRING_FEE_ALLOWANCE_BUFFER_USDC = String(
   import.meta.env.VITE_RECURRING_FEE_ALLOWANCE_BUFFER_USDC || "2"
 );
 
-/** Same intent as Bills Pay Now guard — shown inline in Payroll Upcoming runs. */
+/** Same intent as Bills Pay Now guard â€” shown inline in Payroll Upcoming runs. */
 const PAYROLL_MANUAL_PAY_RECURRING_MSG =
   "Please toggle Recurring off to use Pay Now. While Recurring is on, payments run automatically on schedule.";
 
@@ -218,7 +217,7 @@ function privacyPoolDepositErrorMessage(err) {
   const msg = err instanceof Error ? err.message : String(err);
   if (/missing revert data|CALL_EXCEPTION|estimateGas/i.test(msg)) {
     return (
-      `${msg} — Often: wrong network (switch wallet to ARC testnet), insufficient ARC gas token, ` +
+      `${msg} â€” Often: wrong network (switch wallet to ARC testnet), insufficient ARC gas token, ` +
       `insufficient pool token balance, or the selected VITE_PRIVACY_POOL_ADDRESS_<TOKEN> points to a contract that is not this ZK pool.`
     );
   }
@@ -333,7 +332,7 @@ function friendlyPoolClaimError(err) {
     return decodePoolRevertSelector(ethers.id("InvalidProof()").slice(0, 10));
   }
   if (/too many requests|apolloerror:\s*429|rate.?limit/i.test(msg)) {
-    return "Claim provider is rate-limiting requests. Wait 20–60 seconds and try again.";
+    return "Claim provider is rate-limiting requests. Wait 20â€“60 seconds and try again.";
   }
   if (
     /root still not recognized|could not verify claim proof root|root mismatch|known historical root|from_block is too recent/i.test(
@@ -358,9 +357,9 @@ function friendlyPoolClaimError(err) {
       return "Claim relay is rate-limited. Wait about a minute and try again.";
     }
     if (relayReason) {
-      return `Claim could not be broadcast (${relayReason}). No funds were spent — please retry.`;
+      return `Claim could not be broadcast (${relayReason}). No funds were spent â€” please retry.`;
     }
-    return "Claim was signed but did not reach the network. No funds were spent — retry or try another device.";
+    return "Claim was signed but did not reach the network. No funds were spent â€” retry or try another device.";
   }
   if (msg.length > 280 && /estimateGas|CALL_EXCEPTION|execution reverted/i.test(msg)) {
     return "Claim was rejected on-chain. If you already claimed this code, it cannot be used again.";
@@ -394,7 +393,7 @@ function extractEthersRevertReason(err) {
     data = data.data;
   }
   if (typeof data !== "string" || !data.startsWith("0x") || data.length < 10) {
-    return [short, reason, nested, raw].filter(Boolean).join(" — ");
+    return [short, reason, nested, raw].filter(Boolean).join(" â€” ");
   }
 
   const selector = data.slice(0, 10);
@@ -423,7 +422,7 @@ function extractEthersRevertReason(err) {
 
   if (selector === errId("InvalidProof()")) {
     return (
-      "ZKPrivacyPool: InvalidProof — on-chain Groth16 check failed. Usually the browser wasm/zkey do not match the " +
+      "ZKPrivacyPool: InvalidProof â€” on-chain Groth16 check failed. Usually the browser wasm/zkey do not match the " +
       "deployed PrivPayGroth16Verifier (re-run npm run deploy:pool after npm run privpay:zk-artifacts, or stop regenerating zkeys after deploy)."
     );
   }
@@ -448,10 +447,10 @@ function extractEthersRevertReason(err) {
 
   return [short, reason, nested, `${selector} ${data.slice(10, 74)}`]
     .filter(Boolean)
-    .join(" — ");
+    .join(" â€” ");
 }
 
-/** Base64(JSON) using UTF-8 bytes — browser btoa() only accepts Latin-1 code units. */
+/** Base64(JSON) using UTF-8 bytes â€” browser btoa() only accepts Latin-1 code units. */
 function encodePoolClaimPayload(payload) {
   const utf8 = new TextEncoder().encode(JSON.stringify(payload));
   let bin = "";
@@ -461,7 +460,7 @@ function encodePoolClaimPayload(payload) {
 
 /**
  * v3 zk-claim: base64 JSON with note preimage for recipient Groth16 withdraw (same rail as saved notes).
- * Contains `secret` and `nullifier` — treat like a private key; share only over a secure channel.
+ * Contains `secret` and `nullifier` â€” treat like a private key; share only over a secure channel.
  */
 function finalizeZkPoolClaimExport({
   receipt,
@@ -490,7 +489,7 @@ function finalizeZkPoolClaimExport({
     merkleHeight: PRIVPAY_CIRCUIT_LEVELS,
     root: null,
     leafIndex: null,
-    hint: "SENSITIVE: preimage included. Recipient: PRIVPAY → Bills → Payments Claim → paste claim code, then claim.",
+    hint: "SENSITIVE: preimage included. Recipient: PRIVPAY â†’ Bills â†’ Payments Claim â†’ paste claim code, then claim.",
   };
   if (!receipt) {
     return { poolClaimPayload: base, poolClaimCode: encodePoolClaimPayload(base) };
@@ -541,7 +540,7 @@ function decodeZkPoolClaimPayload(rawBase64) {
   return j;
 }
 
-/** Pool address on history rows — prefer stored field; else decode from v3 poolClaimCode. */
+/** Pool address on history rows â€” prefer stored field; else decode from v3 poolClaimCode. */
 function resolvePoolAddressForClaimEntry(entry) {
   const direct = String(entry?.poolAddress || "").trim();
   if (direct.startsWith("0x")) {
@@ -858,7 +857,7 @@ function TokenSelect({ tokens, value, onChange }) {
         </span>
 
         <span className="tokenLabel">{value}</span>
-        <span className="caret">{open ? "▴" : "▾"}</span>
+        <span className="caret">{open ? "â–´" : "â–¾"}</span>
       </button>
 
       {open && (
@@ -1136,13 +1135,8 @@ export default function SwaparcApp() {
   const [claimQrError, setClaimQrError] = useState("");
   const [claimQrPrefillNote, setClaimQrPrefillNote] = useState("");
   const [claimQrFileLabel, setClaimQrFileLabel] = useState("");
-  const [claimQrCameraReady, setClaimQrCameraReady] = useState(false);
-  const [claimQrScanActive, setClaimQrScanActive] = useState(false);
-  const [claimQrScanDecoding, setClaimQrScanDecoding] = useState(false);
   const [receiptQrDataUrl, setReceiptQrDataUrl] = useState(null);
   const [receiptJpegBusy, setReceiptJpegBusy] = useState(false);
-  const claimQrVideoRef = useRef(null);
-  const claimQrScannerRef = useRef(null);
   const claimQrFileRef = useRef(null);
   const [poolClaimBusy, setPoolClaimBusy] = useState(false);
   const [poolClaimError, setPoolClaimError] = useState("");
@@ -1596,7 +1590,7 @@ export default function SwaparcApp() {
 
   // --- HELPER FUNCTIONS (Safe to use state now) ---
   function getReadProvider() {
-    // Use public ARC RPC by default so the app stays up without paid third‑party plans.
+    // Use public ARC RPC by default so the app stays up without paid thirdâ€‘party plans.
     // Optional: set VITE_ARC_RPC_URL (single provider) or add VITE_ALCHEMY_ARC_RPC_URL for fallbacks.
     const url =
       import.meta.env.VITE_ARC_RPC_URL || ARC_PUBLIC_RPC;
@@ -2575,7 +2569,7 @@ export default function SwaparcApp() {
 
   /**
    * Bills + Payroll recurring both execute on the server (relayer), not in the wallet.
-   * Payer is always `getActiveWalletAddress()` — same automation for Circle (email) and Wallet Connect (EOA).
+   * Payer is always `getActiveWalletAddress()` â€” same automation for Circle (email) and Wallet Connect (EOA).
    * While this tab is open we POST recurring/run + payroll/run on an interval so due items pay without Vercel Cron.
    */
   async function runRecurringDueOnServerThrottled(ownerLower) {
@@ -2991,7 +2985,7 @@ export default function SwaparcApp() {
 
     const getWithRetry = async (retries = 5, delayMs = 900) => {
       try {
-        setEmailStatus(`Performing device security check…`);
+        setEmailStatus(`Performing device security checkâ€¦`);
         const id = await circleSdkRef.current.getDeviceId();
         if (!id) throw new Error("Received empty deviceId");
         console.log("[Circle] deviceId from sdk.getDeviceId()", id);
@@ -3027,12 +3021,12 @@ export default function SwaparcApp() {
         (navigator.brave && (await navigator.brave.isBrave())) || false;
       
       if (isBrave) {
-        msg += "Brave browser detected — turn off Shields for this site (lion icon), then tap “Send OTP” again. ";
+        msg += "Brave browser detected â€” turn off Shields for this site (lion icon), then tap â€œSend OTPâ€ again. ";
       } else {
-        msg += "This is usually caused by strict tracking / cookie blockers. Please allow third‑party cookies (or disable strict tracking prevention) for this site, then try again. ";
+        msg += "This is usually caused by strict tracking / cookie blockers. Please allow thirdâ€‘party cookies (or disable strict tracking prevention) for this site, then try again. ";
       }
 
-      msg += "You can also retry later; just reopen the email login and press “Send OTP” again once your settings are updated.";
+      msg += "You can also retry later; just reopen the email login and press â€œSend OTPâ€ again once your settings are updated.";
 
       setEmailError(msg);
       return null;
@@ -3405,7 +3399,7 @@ export default function SwaparcApp() {
     return true;
   }
 
-  /** CDN static JSON from weekly cron — zero Railway Redis reads on landing load. */
+  /** CDN static JSON from weekly cron â€” zero Railway Redis reads on landing load. */
   async function fetchLandingPublicStats() {
     try {
       const res = await fetch(LANDING_STATIC_STATS_URL, { cache: "default" });
@@ -3704,7 +3698,7 @@ export default function SwaparcApp() {
       Math.abs(targets.totalTvl - animatedLandingStats.totalTvl),
       Math.abs(targets.uniqueUsers - animatedLandingStats.uniqueUsers)
     );
-    // Large jumps look like “wrong data then count-up”; snap directly in that case.
+    // Large jumps look like â€œwrong data then count-upâ€; snap directly in that case.
     if (maxDelta / maxTarget > 0.08) {
       setAnimatedLandingStats(targets);
       return undefined;
@@ -4032,7 +4026,7 @@ export default function SwaparcApp() {
         const { human } = await fetchSingleLpBalance(p, user);
         balances[p.id] = human;
       } catch {
-        // Do NOT mask failures as "0" — that causes misleading UX (can't remove LP, etc.)
+        // Do NOT mask failures as "0" â€” that causes misleading UX (can't remove LP, etc.)
         balances[p.id] = null;
       }
     }
@@ -4467,7 +4461,7 @@ export default function SwaparcApp() {
     if (bill?.billName) {
       const rail =
         bill.paymentRail === "privacyPool" ? "privacy pool" : "stealth receive";
-      return { title: bill.billName, subtitle: `bill • ${rail}` };
+      return { title: bill.billName, subtitle: `bill â€¢ ${rail}` };
     }
     const pay = (payrollHistory || []).find(
       (h) => String(h?.metadataHash || "").toLowerCase() === hash
@@ -4477,7 +4471,7 @@ export default function SwaparcApp() {
         pay.paymentRail === "privacyPool" ? "privacy pool" : "stealth receive";
       return {
         title: `Payroll: ${payrollHistoryDisplayTitle(pay)}`,
-        subtitle: `${pay.role || "salary"} • ${rail}`,
+        subtitle: `${pay.role || "salary"} â€¢ ${rail}`,
       };
     }
     return { title: "Incoming Payment", subtitle: "stealth receive" };
@@ -4490,7 +4484,7 @@ export default function SwaparcApp() {
       detailed &&
       !/^(call exception|transaction reverted|execution reverted)$/i.test(detailed);
     if (meaningful) {
-      const msg = detailed.length > 260 ? `${detailed.slice(0, 260)}…` : detailed;
+      const msg = detailed.length > 260 ? `${detailed.slice(0, 260)}â€¦` : detailed;
       if (/wrong network|chain id|incorrect network/i.test(msg)) {
         return `${msg} Switch the wallet to ARC testnet before claiming.`;
       }
@@ -4852,86 +4846,6 @@ export default function SwaparcApp() {
       cancelled = true;
     };
   }, [receiptModal]);
-
-  useEffect(() => {
-    if (privpayModule !== "claim" || poolClaimInputMode !== "scan") {
-      claimQrScannerRef.current?.stop?.();
-      claimQrScannerRef.current = null;
-      setClaimQrCameraReady(false);
-      setClaimQrScanActive(false);
-      setClaimQrScanDecoding(false);
-      return undefined;
-    }
-
-    let cancelled = false;
-    let scanner = null;
-
-    const bootScanner = () => {
-      if (cancelled) return;
-      const video = claimQrVideoRef.current;
-      if (!video) {
-        requestAnimationFrame(bootScanner);
-        return;
-      }
-      setClaimQrError("");
-      setClaimQrCameraReady(false);
-      setClaimQrScanActive(false);
-      setClaimQrScanDecoding(false);
-      scanner = startClaimQrCameraScan({
-        videoEl: video,
-        onCameraReady: () => {
-          if (!cancelled) {
-            setClaimQrCameraReady(true);
-            setClaimQrScanActive(true);
-          }
-        },
-        onScanFrame: () => {
-          if (!cancelled) setClaimQrScanActive(true);
-        },
-        onDecoding: (isFull) => {
-          if (!cancelled) setClaimQrScanDecoding(Boolean(isFull));
-        },
-        onResult: (text) => {
-          if (cancelled) return;
-          setClaimQrScanActive(false);
-          setClaimQrScanDecoding(false);
-          try {
-            applyDecodedClaimCode(text);
-          } catch (e) {
-            setClaimQrError(e instanceof Error ? e.message : String(e));
-          }
-        },
-        onError: (err) => {
-          if (cancelled) return;
-          setClaimQrScanActive(false);
-          setClaimQrScanDecoding(false);
-          setClaimQrCameraReady(false);
-          const msg = err instanceof Error ? err.message : String(err);
-          if (
-            !/NotFoundException/i.test(msg) &&
-            !/dimension/i.test(msg) &&
-            !/width must be greater/i.test(msg) &&
-            !/imageelement/i.test(msg) &&
-            !/imagesource/i.test(msg)
-          ) {
-            setClaimQrError(msg);
-          }
-        },
-      });
-      claimQrScannerRef.current = scanner;
-    };
-
-    requestAnimationFrame(() => requestAnimationFrame(bootScanner));
-
-    return () => {
-      cancelled = true;
-      scanner?.stop?.();
-      claimQrScannerRef.current = null;
-      setClaimQrCameraReady(false);
-      setClaimQrScanActive(false);
-      setClaimQrScanDecoding(false);
-    };
-  }, [privpayModule, poolClaimInputMode]);
 
   useEffect(() => {
     if (privpayModule !== "payroll") {
@@ -5639,7 +5553,7 @@ export default function SwaparcApp() {
       }
     })();
     // Periodic refresh so claim/resolve state stays consistent across devices
-    // (e.g. laptop marks claimed → rabby picks it up within ~25s without a
+    // (e.g. laptop marks claimed â†’ rabby picks it up within ~25s without a
     // hard refresh).
     const interval = setInterval(() => {
       if (cancelled) return;
@@ -6350,7 +6264,7 @@ export default function SwaparcApp() {
         "Code decoded, but this wallet may not match the intended recipient. Switch wallet or verify before claiming."
       );
     } else {
-      setClaimQrPrefillNote("QR decoded — review the code below, then tap Claim.");
+      setClaimQrPrefillNote("QR decoded â€” review the code below, then tap Claim.");
     }
   }
 
@@ -6372,14 +6286,6 @@ export default function SwaparcApp() {
 
   function triggerClaimQrFilePicker() {
     claimQrFileRef.current?.click();
-  }
-
-  async function switchClaimQrCamera() {
-    const scanner = claimQrScannerRef.current;
-    if (scanner?.switchCamera) {
-      setClaimQrError("");
-      await scanner.switchCamera();
-    }
   }
 
   async function handleReceiptJpegDownload() {
@@ -6773,7 +6679,7 @@ export default function SwaparcApp() {
     if (poolCodeBytes < 1000) {
       throw new Error(
         `Privacy pool at ${poolAddress} has truncated on-chain code (${poolCodeBytes} bytes). ` +
-          `ARC testnet rejects very large single contracts — redeploy with this repo (Poseidon = linked library): npm run deploy:pool, then update VITE_PRIVACY_POOL_ADDRESS_${token.symbol}.`
+          `ARC testnet rejects very large single contracts â€” redeploy with this repo (Poseidon = linked library): npm run deploy:pool, then update VITE_PRIVACY_POOL_ADDRESS_${token.symbol}.`
       );
     }
     const poolReader = new ethers.Contract(poolAddress, PRIVACY_POOL_ABI, chainProvider);
@@ -7094,7 +7000,7 @@ export default function SwaparcApp() {
       //   1. Wallet returns a hash but never propagates to the public
       //      mempool (bad custom RPC, extension glitch).
       //   2. Tx is on mempool but its nonce is 3+ higher than the
-      //      sender's confirmed on-chain nonce — earlier txs are
+      //      sender's confirmed on-chain nonce â€” earlier txs are
       //      stuck/dropped and this one can NEVER mine until the gap
       //      clears. Happens on wallets with a polluted pending queue.
       // In either case we route to the server relay which uses a
@@ -7219,12 +7125,12 @@ export default function SwaparcApp() {
         // own relayer EOA broadcast the same claim from a known-good
         // RPC. The pool's withdraw function is permissionless (anyone
         // with a valid ZK proof can call it), so this is cryptographically
-        // identical — the nullifier protects against double-spend.
+        // identical â€” the nullifier protects against double-spend.
         try {
           const diagnosis =
             raceResult.kind === "nonce_gap"
-              ? `Your wallet has a stuck transaction queue (nonce gap of ${raceResult.gap}). This claim can't mine until that clears. Routing via our server relay instead — please sign the relay authorization.`
-              : "Your wallet didn't broadcast — using our server relay to submit the claim. Please sign the relay authorization when prompted.";
+              ? `Your wallet has a stuck transaction queue (nonce gap of ${raceResult.gap}). This claim can't mine until that clears. Routing via our server relay instead â€” please sign the relay authorization.`
+              : "Your wallet didn't broadcast â€” using our server relay to submit the claim. Please sign the relay authorization when prompted.";
           setPoolZkStatus(diagnosis);
           const relaySig = await signPrivpayRelayWithdraw(signer, {
             poolAddress: wfn,
@@ -7233,7 +7139,7 @@ export default function SwaparcApp() {
             amountWei: parsed.amount,
             chainIdDec: ARC_CHAIN_ID_DEC,
           });
-          setPoolZkStatus("Submitting claim via server relay…");
+          setPoolZkStatus("Submitting claim via server relayâ€¦");
           const rr = await fetch("/api/privpay/privacy-pool-relay", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -7252,7 +7158,7 @@ export default function SwaparcApp() {
           if (!rr.ok || !rj?.ok) {
             throw new Error(
               rj?.error ||
-                "Relay submission failed — server could not broadcast the claim."
+                "Relay submission failed â€” server could not broadcast the claim."
             );
           }
           setPoolZkStatus(`Relay claim confirmed. Tx ${rj.txHash}`);
@@ -7261,7 +7167,7 @@ export default function SwaparcApp() {
           const relayMsg =
             relayErr?.message || "Server relay fallback failed.";
           throw new Error(
-            `BROADCAST_FAILED: Your wallet did not broadcast the claim and the server relay fallback also failed (${relayMsg}). No funds were spent — please retry.`
+            `BROADCAST_FAILED: Your wallet did not broadcast the claim and the server relay fallback also failed (${relayMsg}). No funds were spent â€” please retry.`
           );
         }
       }
@@ -7285,7 +7191,7 @@ export default function SwaparcApp() {
         const gap = msg.split("gap=")[1] || "?";
         try {
           setPoolZkStatus(
-            `Your wallet has a stuck pending-tx queue (gap of ${gap}). Skipping wallet broadcast and claiming via our server relay — please sign the relay authorization.`
+            `Your wallet has a stuck pending-tx queue (gap of ${gap}). Skipping wallet broadcast and claiming via our server relay â€” please sign the relay authorization.`
           );
           const relaySig = await signPrivpayRelayWithdraw(signer, {
             poolAddress: wfn,
@@ -7294,7 +7200,7 @@ export default function SwaparcApp() {
             amountWei: parsed.amount,
             chainIdDec: ARC_CHAIN_ID_DEC,
           });
-          setPoolZkStatus("Submitting claim via server relay…");
+          setPoolZkStatus("Submitting claim via server relayâ€¦");
           const rr = await fetch("/api/privpay/privacy-pool-relay", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -7313,7 +7219,7 @@ export default function SwaparcApp() {
           if (!rr.ok || !rj?.ok) {
             throw new Error(
               rj?.error ||
-                "Relay submission failed — server could not broadcast the claim."
+                "Relay submission failed â€” server could not broadcast the claim."
             );
           }
           setPoolZkStatus(`Relay claim confirmed. Tx ${rj.txHash}`);
@@ -7456,7 +7362,7 @@ export default function SwaparcApp() {
         const expected = Number(prog.expectedDeposits || 0);
         if (expected > 0 && known >= 0) {
           setPoolClaimStatus(
-            `Preparing claim context… ${known}/${expected} deposits indexed.`
+            `Preparing claim contextâ€¦ ${known}/${expected} deposits indexed.`
           );
         } else {
           setPoolClaimStatus(
@@ -7466,11 +7372,11 @@ export default function SwaparcApp() {
         await new Promise((resolve) => setTimeout(resolve, 800));
         continue;
       }
-      // 503: providers temporarily out of sync — retry a few times with backoff.
+      // 503: providers temporarily out of sync â€” retry a few times with backoff.
       if (res.status === 503 && staleRetries < 10) {
         staleRetries += 1;
         setPoolClaimStatus(
-          "Syncing pool history with the network… retrying."
+          "Syncing pool history with the networkâ€¦ retrying."
         );
         await new Promise((resolve) =>
           setTimeout(resolve, Math.min(5000, 1500 * staleRetries))
@@ -7492,7 +7398,7 @@ export default function SwaparcApp() {
     if (!active) throw new Error("Connect the recipient wallet first.");
     if (normalizeAddress(active) !== normalizeAddress(note.recipient)) {
       throw new Error(
-        `This note pays ${shortAddr(note.recipient)} — switch to that address (now ${shortAddr(active)}).`
+        `This note pays ${shortAddr(note.recipient)} â€” switch to that address (now ${shortAddr(active)}).`
       );
     }
     if (!PRIVPAY_WASM_URL || !PRIVPAY_ZKEY_URL) {
@@ -7501,7 +7407,7 @@ export default function SwaparcApp() {
       );
     }
     setPoolZkError("");
-    setPoolZkStatus("Generating ZK proof (30–90s typical in browser)…");
+    setPoolZkStatus("Generating ZK proof (30â€“90s typical in browser)â€¦");
     const provider = getReadProvider();
     const { fullProofBytes, publicSignals } = await proveZkPoolWithdraw({
       provider,
@@ -7518,7 +7424,7 @@ export default function SwaparcApp() {
 
   async function reconcilePendingClaimStatuses() {
     // For every local claim still marked as `pending` with a tx hash:
-    //  1. If a receipt exists → flip to confirmed/failed.
+    //  1. If a receipt exists â†’ flip to confirmed/failed.
     //  2. If no receipt AND the tx itself is NOT visible in any RPC's
     //     mempool or chain, the wallet very likely never broadcast it
     //     (silent wallet-side failure). After a grace period we mark
@@ -7668,7 +7574,7 @@ export default function SwaparcApp() {
         );
         setPoolClaimStatus((s) =>
           s && /Waiting for on-chain confirmation/i.test(s)
-            ? "Claim was submitted but did not confirm in time. Marked for retry — use the same claim code again."
+            ? "Claim was submitted but did not confirm in time. Marked for retry â€” use the same claim code again."
             : s
         );
         return;
@@ -7717,7 +7623,7 @@ export default function SwaparcApp() {
         return Boolean(await pool.nullifierSpent(rev));
       }
     } catch {
-      // RPC read failed — continue; submit path may still surface a revert.
+      // RPC read failed â€” continue; submit path may still surface a revert.
     }
     return false;
   }
@@ -7740,7 +7646,7 @@ export default function SwaparcApp() {
     if (!recipient) throw new Error("Claim code is missing recipient.");
     if (normalizeAddress(active) !== recipient) {
       throw new Error(
-        `This claim pays ${shortAddr(recipient)} — switch wallet (now ${shortAddr(active)}).`
+        `This claim pays ${shortAddr(recipient)} â€” switch wallet (now ${shortAddr(active)}).`
       );
     }
     const poolAddress = normalizeAddress(data.poolAddress);
@@ -7754,7 +7660,7 @@ export default function SwaparcApp() {
     if (!secret || secret.length !== 66 || !nullifier || nullifier.length !== 66) {
       throw new Error("Claim code must include secret and nullifier (full v3 zk-claim).");
     }
-    setPoolClaimStatus("Checking if this code was already claimed…");
+    setPoolClaimStatus("Checking if this code was already claimedâ€¦");
     const nullifierHashHex = ethers.hexlify(
       await computePrivpayNullifierHashBytes(secret, nullifier)
     );
@@ -7787,7 +7693,7 @@ export default function SwaparcApp() {
     }
     setPoolZkError("");
     setPoolClaimStatus("Claim/Proof in progress...");
-    setPoolZkStatus("Generating ZK proof (30–90s typical in browser)…");
+    setPoolZkStatus("Generating ZK proof (30â€“90s typical in browser)â€¦");
     let precomputedProofContext = null;
     let canonicalError = null;
     try {
@@ -7810,7 +7716,7 @@ export default function SwaparcApp() {
         ctxErr
       );
       setPoolClaimStatus(
-        "Pool history service slow — trying direct RPC scan as fallback…"
+        "Pool history service slow â€” trying direct RPC scan as fallbackâ€¦"
       );
     }
     const primaryProof = await proveClaimWithRpcFallback({
@@ -7872,7 +7778,7 @@ export default function SwaparcApp() {
     setBillRecipientInviteStatus("");
     setBillCreateBusy(true);
     try {
-      setBillCreateStatus("Validating bill details…");
+      setBillCreateStatus("Validating bill detailsâ€¦");
       const amountNum = Number(billForm.amount);
       if (!billForm.name.trim()) throw new Error("Bill name is required");
       if (!Number.isFinite(amountNum) || amountNum <= 0) {
@@ -7958,11 +7864,11 @@ export default function SwaparcApp() {
       if (bill.recurring && getActiveWalletAddress()) {
         setBillCreateStatus(
           isCircleMode()
-            ? "Requesting one-time automation approval in your Circle wallet…"
-            : "Requesting one-time automation approval in your wallet…"
+            ? "Requesting one-time automation approval in your Circle walletâ€¦"
+            : "Requesting one-time automation approval in your walletâ€¦"
         );
         const onchainAuthorizationId = await ensureRecurringOnchainAuthorization(bill);
-        setBillCreateStatus("Registering recurring schedule…");
+        setBillCreateStatus("Registering recurring scheduleâ€¦");
         const recurringRes = await fetch("/api/payments/recurring/create", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -8153,8 +8059,8 @@ export default function SwaparcApp() {
     try {
       setBillRuntimeStatus(
         isCircleMode()
-          ? `Preparing payment for "${bill.name}"… your Circle wallet will ask for approval in a moment.`
-          : `Preparing payment for "${bill.name}"…`
+          ? `Preparing payment for "${bill.name}"â€¦ your Circle wallet will ask for approval in a moment.`
+          : `Preparing payment for "${bill.name}"â€¦`
       );
       const recipientWallet = String(bill.recipientWallet || "").trim();
       const usePool = isZkRoute(bill.token, recipientWallet);
@@ -8196,14 +8102,14 @@ export default function SwaparcApp() {
       }
       const nowIso = new Date().toISOString();
       setBillRuntimeStatus(
-        `Charging network usage fee for "${bill.name}"… please approve in your wallet.`
+        `Charging network usage fee for "${bill.name}"â€¦ please approve in your wallet.`
       );
       const feeTxHash = await chargePrivpayUsageFee("bill");
 
       let log;
       if (usePool) {
         setBillRuntimeStatus(
-          `Submitting private payment for "${bill.name}"… please approve in your wallet.`
+          `Submitting private payment for "${bill.name}"â€¦ please approve in your wallet.`
         );
         const poolRes = await executePrivacyPoolPayment({
           tokenSymbol: bill.token,
@@ -8237,7 +8143,7 @@ export default function SwaparcApp() {
         };
       } else {
         setBillRuntimeStatus(
-          `Submitting private payment for "${bill.name}"… please approve in your wallet.`
+          `Submitting private payment for "${bill.name}"â€¦ please approve in your wallet.`
         );
         const { stealth, txHash, metadataHash, blockNumber, confirmedAt, payerAddress } =
           await executeStealthTokenPayment({
@@ -8299,13 +8205,13 @@ export default function SwaparcApp() {
               ? `Privacy pool deposit for "${bill.name}" submitted. Share Receipt field poolClaimCode (v3 zk-claim) with the recipient (their wallet: ${shortAddr(
                   log.poolRecipient
                 )}).`
-              : `Privacy pool deposit confirmed for "${bill.name}". Recipient pastes poolClaimCode from History → Receipt for ZK withdraw; the USDC leg to them is Pool → wallet (not your EOA on that leg).`
+              : `Privacy pool deposit confirmed for "${bill.name}". Recipient pastes poolClaimCode from History â†’ Receipt for ZK withdraw; the USDC leg to them is Pool â†’ wallet (not your EOA on that leg).`
           );
         } else {
           setBillRuntimeStatus(
             log.txHash === "SUBMITTED"
-              ? `Payment for "${bill.name}" was signed in Circle, but no chain tx hash was returned yet. Check Arc explorer for your wallet; funds go to a one-time stealth address — the recipient claims with Private receive, not their main balance.`
-              : `Payment submitted for "${bill.name}". USDC was sent to a one-time stealth address (not the recipient’s main wallet). They detect and claim it with Private receive in this app.`
+              ? `Payment for "${bill.name}" was signed in Circle, but no chain tx hash was returned yet. Check Arc explorer for your wallet; funds go to a one-time stealth address â€” the recipient claims with Private receive, not their main balance.`
+              : `Payment submitted for "${bill.name}". USDC was sent to a one-time stealth address (not the recipientâ€™s main wallet). They detect and claim it with Private receive in this app.`
           );
         }
       }
@@ -8776,11 +8682,11 @@ export default function SwaparcApp() {
         setPayrollStatus(
           dueEmployees.length === 1
             ? isCircleMode()
-              ? `Preparing payroll for ${dueEmployees[0].name || "employee"}… your Circle wallet will ask for approval in a moment.`
-              : `Preparing payroll for ${dueEmployees[0].name || "employee"}…`
+              ? `Preparing payroll for ${dueEmployees[0].name || "employee"}â€¦ your Circle wallet will ask for approval in a moment.`
+              : `Preparing payroll for ${dueEmployees[0].name || "employee"}â€¦`
             : isCircleMode()
-              ? `Preparing payroll for ${dueEmployees.length} employees… your Circle wallet will ask for approval in a moment.`
-              : `Preparing payroll for ${dueEmployees.length} employees…`
+              ? `Preparing payroll for ${dueEmployees.length} employeesâ€¦ your Circle wallet will ask for approval in a moment.`
+              : `Preparing payroll for ${dueEmployees.length} employeesâ€¦`
         );
       }
 
@@ -8793,7 +8699,7 @@ export default function SwaparcApp() {
         try {
           if (source === "manual") {
             setPayrollStatus(
-              `Charging network usage fee for ${emp.name || "employee"}… please approve in your wallet.`
+              `Charging network usage fee for ${emp.name || "employee"}â€¦ please approve in your wallet.`
             );
           }
           const empRecipient = String(emp.recipientWallet || "").trim();
@@ -8836,7 +8742,7 @@ export default function SwaparcApp() {
           if (usePool) {
             if (source === "manual") {
               setPayrollStatus(
-                `Submitting private payment for ${emp.name || "employee"}… please approve in your wallet.`
+                `Submitting private payment for ${emp.name || "employee"}â€¦ please approve in your wallet.`
               );
             }
             const poolRes = await executePrivacyPoolPayment({
@@ -8883,7 +8789,7 @@ export default function SwaparcApp() {
           } else {
             if (source === "manual") {
               setPayrollStatus(
-                `Submitting private payment for ${emp.name || "employee"}… please approve in your wallet.`
+                `Submitting private payment for ${emp.name || "employee"}â€¦ please approve in your wallet.`
               );
             }
             const {
@@ -9355,7 +9261,7 @@ export default function SwaparcApp() {
   }
 
   function formatDateTime(ts) {
-    if (!ts) return "—";
+    if (!ts) return "â€”";
     const d = new Date(Number(ts) * 1000);
     return d.toLocaleString();
   }
@@ -9409,18 +9315,18 @@ export default function SwaparcApp() {
   }
 
   function buildAddLiquidityCall(poolAddress, amounts) {
-    // Verified from Arcscan ABI: addLiquidity(uint256[]) — camelCase, no min_mint_amount param
+    // Verified from Arcscan ABI: addLiquidity(uint256[]) â€” camelCase, no min_mint_amount param
     return {
       contractAddress: poolAddress,
       abiFunctionSignature: "addLiquidity(uint256[])",
-      // Dynamic uint256[] — pass as nested array so Circle encodes correctly
+      // Dynamic uint256[] â€” pass as nested array so Circle encodes correctly
       abiParameters: [amounts.map(String)],
       amount: "0",
     };
   }
 
   function buildRemoveLiquidityCall(poolAddress, lpAmount) {
-    // Verified from Arcscan ABI: removeLiquidity(uint256) — camelCase, 1 param only
+    // Verified from Arcscan ABI: removeLiquidity(uint256) â€” camelCase, 1 param only
     return {
       contractAddress: poolAddress,
       abiFunctionSignature: "removeLiquidity(uint256)",
@@ -9459,7 +9365,7 @@ export default function SwaparcApp() {
     const runAction = async () => {
       console.log(`[CircleTx] Initiating: ${title} on ${contractAddress}`);
       setCircleActionStatus(
-        `${stagePrefix}Preparing Circle wallet request…`
+        `${stagePrefix}Preparing Circle wallet requestâ€¦`
       );
       const { userToken, encryptionKey, walletId } = requireCircleAuth();
 
@@ -9502,10 +9408,10 @@ export default function SwaparcApp() {
 
       // 2. Prompt user for PIN/Challenge via SDK (callback often includes txHash before REST does)
       setCircleActionStatus(
-        `${stagePrefix}Awaiting your approval in the Circle wallet prompt…`
+        `${stagePrefix}Awaiting your approval in the Circle wallet promptâ€¦`
       );
       const sdkChallengeResult = await executeCircleChallengeViaPrompt(challengeId, title);
-      setCircleActionStatus(`${stagePrefix}Submitting transaction to Arc…`);
+      setCircleActionStatus(`${stagePrefix}Submitting transaction to Arcâ€¦`);
       let txHash = extractCircleSdkTxHash(sdkChallengeResult);
       if (txHash) {
         console.log("[CircleChallenge] Using txHash from Circle SDK callback");
@@ -9524,7 +9430,7 @@ export default function SwaparcApp() {
 
       // 4. Best-effort confirmation only. Do not block UX for long RPC/indexer delays.
       if (txHash !== "SUBMITTED") {
-        setCircleActionStatus(`${stagePrefix}Waiting for on-chain confirmation…`);
+        setCircleActionStatus(`${stagePrefix}Waiting for on-chain confirmationâ€¦`);
         if (updateSwapQuote) {
           setQuote("Transaction submitted. Verifying confirmation...");
         }
@@ -9535,7 +9441,7 @@ export default function SwaparcApp() {
         }
       } else {
         // Challenge is complete but Circle did not surface a hash yet.
-        setCircleActionStatus(`${stagePrefix}Transaction submitted, indexing…`);
+        setCircleActionStatus(`${stagePrefix}Transaction submitted, indexingâ€¦`);
         if (updateSwapQuote) {
           setQuote("Transaction submitted...");
         }
@@ -9610,7 +9516,7 @@ export default function SwaparcApp() {
       });
     } catch (error) {
       // Error 155706 = Circle iframe failed to load (network/cookie/timing issue)
-      // Retry automatically with exponential backoff — most retries succeed within 1-2 attempts
+      // Retry automatically with exponential backoff â€” most retries succeed within 1-2 attempts
       if (error.code === 155706 && retryCount < MAX_RETRIES) {
         const delay = 1000 * (retryCount + 1); // 1s, 2s, 3s
         console.warn(`[Circle] SDK error 155706, retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})...`);
@@ -9939,7 +9845,7 @@ export default function SwaparcApp() {
       txHash,
     });
 
-    setQuote(`Swap succeeded — tx ${txHash}`);
+    setQuote(`Swap succeeded â€” tx ${txHash}`);
 
     // Update Profile Stats
     try {
@@ -9974,7 +9880,7 @@ export default function SwaparcApp() {
       return;
     }
     if (Object.keys(TOKEN_INDICES).length === 0) {
-      alert("Pool not loaded – please reconnect wallet.");
+      alert("Pool not loaded â€“ please reconnect wallet.");
       return;
     }
     if (
@@ -10125,7 +10031,7 @@ export default function SwaparcApp() {
         txHash: tx.hash,
       });
 
-      setQuote(`Swap succeeded — tx ${tx.hash}`);
+      setQuote(`Swap succeeded â€” tx ${tx.hash}`);
 
       // Update progression
       try {
@@ -10150,7 +10056,7 @@ export default function SwaparcApp() {
         fromToken: swapFrom,
         fromAmount: swapAmount,
         toToken: swapTo,
-        toAmount: "—",
+        toAmount: "â€”",
         txHash: null,
       });
     }
@@ -10345,7 +10251,7 @@ export default function SwaparcApp() {
     const newToken = { symbol, name: symbol + " (custom)", address: addr };
     setTokens((prev) => [newToken, ...prev]);
     setCustomAddr("");
-    alert(`Added ${symbol} — it appears at top of token list.`);
+    alert(`Added ${symbol} â€” it appears at top of token list.`);
   }
 
   function tokenIcon(symbol) {
@@ -10388,7 +10294,7 @@ export default function SwaparcApp() {
         const amounts = [];
         const { walletId } = requireCircleAuth();
 
-        // 1. Approvals — approve max uint256 for each token, then WAIT for on-chain confirmation
+        // 1. Approvals â€” approve max uint256 for each token, then WAIT for on-chain confirmation
         // Circle marks challenge COMPLETE immediately when signed (before tx is mined).
         // We must poll the allowance on-chain to confirm the approve settled before add_liquidity.
         for (const sym of activePreset.tokens) {
@@ -10405,14 +10311,14 @@ export default function SwaparcApp() {
           const parsed = ethers.parseUnits(rawVal, decimals);
           amounts.push(parsed.toString());
 
-          // Check existing allowance — skip approve if already sufficient
+          // Check existing allowance â€” skip approve if already sufficient
           const currentAllowance = await tokenReader.allowance(walletAddr, activePreset.poolAddress);
           if (BigInt(currentAllowance) >= BigInt(parsed)) {
             console.log(`[CircleTx] ${sym} allowance already sufficient (${currentAllowance.toString()}), skipping approve.`);
             continue;
           }
 
-          // Need to approve — send max uint256
+          // Need to approve â€” send max uint256
           const MAX_UINT256 = ethers.MaxUint256;
           setQuote(`Approving ${sym}...`);
           const approveTx = buildApproveCall(token.address, activePreset.poolAddress, MAX_UINT256);
@@ -10431,7 +10337,7 @@ export default function SwaparcApp() {
             const newAllowance = await tokenReader.allowance(walletAddr, activePreset.poolAddress);
             console.log(`[CircleTx] ${sym} on-chain allowance: ${newAllowance.toString()}`);
             if (BigInt(newAllowance) >= BigInt(parsed)) {
-              console.log(`[CircleTx] ${sym} approve confirmed on-chain ✓`);
+              console.log(`[CircleTx] ${sym} approve confirmed on-chain âœ“`);
               break;
             }
           }
@@ -10458,7 +10364,7 @@ export default function SwaparcApp() {
 
         // 3. Post-Action Updates
         // If txHash is "SUBMITTED" (chain confirmed but not yet indexed), wait before reading
-        // on-chain LP balances — otherwise balanceOf returns 0 immediately.
+        // on-chain LP balances â€” otherwise balanceOf returns 0 immediately.
         if (!txHash || txHash === "SUBMITTED") {
           setQuote("Waiting for chain to settle...");
           await new Promise((r) => setTimeout(r, 6000));
@@ -10732,12 +10638,12 @@ export default function SwaparcApp() {
                   cursor: "pointer",
                 }}
               >
-                ✕
+                âœ•
               </button>
             </div>
 
             <div style={{ fontSize: "0.9rem", color: "#e4f5ff", marginBottom: 12 }}>
-              Click Continue to open Circle’s confirmation window.
+              Click Continue to open Circleâ€™s confirmation window.
             </div>
 
             {circleExecError && (
@@ -10856,7 +10762,7 @@ export default function SwaparcApp() {
           <div className="headerRight mobileHeader">
             {/* DESKTOP ONLY BUTTONS */}
             <button className="faucetBtn desktopOnly" onClick={openFaucet}>
-              💧 Get Faucet
+              ðŸ’§ Get Faucet
             </button>
 
             {!address && authMode !== "email" && (
@@ -10917,8 +10823,8 @@ export default function SwaparcApp() {
                   onClick={() => setShowWalletMenu((prev) => !prev)}
                 >
                   {authMode === "email" && circleWallet
-                    ? `Circle · ${shortAddr(circleWallet.address)}`
-                    : `Arc Testnet · ${shortAddr(address)}`}
+                    ? `Circle Â· ${shortAddr(circleWallet.address)}`
+                    : `Arc Testnet Â· ${shortAddr(address)}`}
                 </button>
                 {showWalletMenu && (
                   <div
@@ -10983,7 +10889,7 @@ export default function SwaparcApp() {
               className="hamburgerBtn"
               onClick={() => setMobileMenuOpen(true)}
             >
-              ☰
+              â˜°
             </button>
           </div>
         </header>
@@ -11039,7 +10945,7 @@ export default function SwaparcApp() {
                     cursor: "pointer",
                   }}
                 >
-                  ✕
+                  âœ•
                 </button>
               </div>
 
@@ -11055,7 +10961,7 @@ export default function SwaparcApp() {
                     fontSize: "0.85rem",
                   }}
                 >
-                  Missing Circle App ID — go to Circle Console → Wallets → User Controlled → Configurator → App ID and set VITE_CIRCLE_APP_ID in your .env.
+                  Missing Circle App ID â€” go to Circle Console â†’ Wallets â†’ User Controlled â†’ Configurator â†’ App ID and set VITE_CIRCLE_APP_ID in your .env.
                 </div>
               )}
 
@@ -11193,7 +11099,7 @@ export default function SwaparcApp() {
 
                         setEmailErrorDetails("");
                         setEmailStatus(
-                          "OTP sent. After receiving OTP, click Verify to open Circle’s verification window."
+                          "OTP sent. After receiving OTP, click Verify to open Circleâ€™s verification window."
                         );
                         setEmailStep(2);
                       } catch (err) {
@@ -11230,7 +11136,7 @@ export default function SwaparcApp() {
                       color: "#e4f5ff",
                     }}
                   >
-                    After receiving OTP, click Verify to open Circle’s verification window.
+                    After receiving OTP, click Verify to open Circleâ€™s verification window.
                   </p>
                   <button
                     disabled={
@@ -11427,7 +11333,7 @@ export default function SwaparcApp() {
                       type="button"
                       onClick={() => setActiveTab("swap")}
                     >
-                      <span className="landingActionIcon">↔</span>
+                      <span className="landingActionIcon">â†”</span>
                       <span className="landingActionTag">SWAP</span>
                       <strong>Fast non-custodial stablecoin FX execution</strong>
                       <p>
@@ -11441,7 +11347,7 @@ export default function SwaparcApp() {
                       type="button"
                       onClick={() => setActiveTab("pools")}
                     >
-                      <span className="landingActionIcon">◌</span>
+                      <span className="landingActionIcon">â—Œ</span>
                       <span className="landingActionTag">POOLS</span>
                       <strong>Liquidity provision + treasury positions</strong>
                       <p>
@@ -11455,7 +11361,7 @@ export default function SwaparcApp() {
                       type="button"
                       onClick={() => setActiveTab("privpay")}
                     >
-                      <span className="landingActionIcon">✦</span>
+                      <span className="landingActionIcon">âœ¦</span>
                       <span className="landingActionTag">PRIVPAY</span>
                       <strong>Private bills, payroll, and claims</strong>
                       <p>
@@ -11479,29 +11385,29 @@ export default function SwaparcApp() {
                     </p>
                     <ul className="landingWhyBullets">
                       <li>
-                        <span>✦</span>
+                        <span>âœ¦</span>
                         <p>Fast, transparent stablecoin FX with deep on-chain liquidity.</p>
                       </li>
                       <li>
-                        <span>✦</span>
+                        <span>âœ¦</span>
                         <p>Liquidity positions that help teams keep treasury capital productive.</p>
                       </li>
                       <li>
-                        <span>✦</span>
+                        <span>âœ¦</span>
                         <p>
                           PrivPay confidentiality rails for bills, payroll, and claims, including
                           sender-wallet protection in operational payment flows.
                         </p>
                       </li>
                       <li>
-                        <span>✦</span>
+                        <span>âœ¦</span>
                         <p>
                           Employers can run on-chain payroll without exposing treasury addresses
                           to recipient-level wallet tracking.
                         </p>
                       </li>
                       <li>
-                        <span>✦</span>
+                        <span>âœ¦</span>
                         <p>Predictable settlement on Circle&apos;s stablecoin-native L1.</p>
                       </li>
                     </ul>
@@ -11673,13 +11579,13 @@ export default function SwaparcApp() {
                                         justifyContent: "center",
                                       }}
                                     >
-                                      <span style={{ fontSize: 20 }}>📷</span>
+                                      <span style={{ fontSize: 20 }}>ðŸ“·</span>
                                     </div>
                                   )}
                                   {!profileStats.avatar &&
                                     !editForm.avatar &&
                                     !isEditingProfile && (
-                                      <span style={{ fontSize: 28 }}>👤</span>
+                                      <span style={{ fontSize: 28 }}>ðŸ‘¤</span>
                                     )}
                                 </div>
 
@@ -11756,7 +11662,7 @@ export default function SwaparcApp() {
                                     <span className="addressPillText">
                                       {shortAddr(getActiveWalletAddress())}
                                     </span>
-                                    <span className="addressPillIcon">📋</span>
+                                    <span className="addressPillIcon">ðŸ“‹</span>
                                   </button>
                                 </div>
                               </div>
@@ -11881,7 +11787,7 @@ export default function SwaparcApp() {
                                   gap: 12,
                                 }}
                               >
-                                {/* Early Swaparcer Badge — snapshot-only.
+                                {/* Early Swaparcer Badge â€” snapshot-only.
                                     Non-holders see the same tile but greyed out. */}
                                 {(() => {
                                   const unlocked = badgeState.earlySwaparcer;
@@ -11890,7 +11796,7 @@ export default function SwaparcApp() {
                                       className="badgeTile"
                                       title={
                                         unlocked
-                                          ? "Early Swaparcer — lifetime status"
+                                          ? "Early Swaparcer â€” lifetime status"
                                           : "Early Swaparcer Badge program is closed."
                                       }
                                       style={{
@@ -12152,7 +12058,7 @@ export default function SwaparcApp() {
                         aria-label="Swap history"
                         title="History"
                       >
-                        <span className="slippageSettingsIcon">🕘</span>
+                        <span className="slippageSettingsIcon">ðŸ•˜</span>
                       </button>
                       <button
                         type="button"
@@ -12160,7 +12066,7 @@ export default function SwaparcApp() {
                         onClick={() => setShowSlippagePanel((v) => !v)}
                         aria-label="Slippage settings"
                       >
-                        <span className="slippageSettingsIcon">⚙</span>
+                        <span className="slippageSettingsIcon">âš™</span>
                         <span className="slippageSettingsValue">
                           {Number(swapSummary.slippageRaw || slippageTolerance).toFixed(1)}%
                         </span>
@@ -12232,7 +12138,7 @@ export default function SwaparcApp() {
                       <div style={{ display: "flex", flexDirection: "column", flex: 1, gap: 8 }}>
                         <div className="swapLabel" style={{ marginBottom: 0 }}>Buy</div>
                         <div className="swapInput readOnly" style={{ fontSize: estimatedTo ? 36 : 28 }}>
-                          {estimatedTo || (quote ? "…" : "0.00")}
+                          {estimatedTo || (quote ? "â€¦" : "0.00")}
                         </div>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 12 }}>
@@ -12336,7 +12242,7 @@ export default function SwaparcApp() {
                   )}
                   {swapSummary.isHighImpact && !swapSummary.isExtremeImpact && (
                     <p className="quote" style={{ marginTop: 10, color: "#f59e0b" }}>
-                      ⚠️ This trade has high price impact due to low liquidity.
+                      âš ï¸ This trade has high price impact due to low liquidity.
                     </p>
                   )}
                   {swapSummary.isExtremeImpact && (
@@ -12389,7 +12295,7 @@ export default function SwaparcApp() {
                     }}
                     onClick={() => setActiveTab("swap")}
                   >
-                    ◀ Back
+                    â—€ Back
                   </button>
                   <div className="historyToggleRow">
                     <button
@@ -12462,7 +12368,7 @@ export default function SwaparcApp() {
                           disabled={txPage === 0}
                           onClick={() => setTxPage((p) => Math.max(0, p - 1))}
                         >
-                          ◀ Prev
+                          â—€ Prev
                         </button>
 
                         <span className="pageInfo">
@@ -12475,7 +12381,7 @@ export default function SwaparcApp() {
                           disabled={endIdx >= activeHistoryTotal}
                           onClick={() => setTxPage((p) => p + 1)}
                         >
-                          Next ▶
+                          Next â–¶
                         </button>
                       </div>
                     </>
@@ -12525,7 +12431,7 @@ export default function SwaparcApp() {
                             Connect wallet to view positions.
                           </p>
                         ) : lpLoading && !lpCacheHydrated ? (
-                          <p className="muted">Loading your positions…</p>
+                          <p className="muted">Loading your positionsâ€¦</p>
                         ) : POOLS.filter((p) => Number(lpBalances[p.id] || 0) > 0).length ===
                           0 ? (
                           <div className="comingSoon">
@@ -12577,7 +12483,7 @@ export default function SwaparcApp() {
                                     )
                                   )
                                 ) : (
-                                  <span className="muted">—</span>
+                                  <span className="muted">â€”</span>
                                 )}
                               </div>
 
@@ -12670,7 +12576,7 @@ export default function SwaparcApp() {
                                       )
                                     )
                                   ) : (
-                                    <span className="muted">—</span>
+                                    <span className="muted">â€”</span>
                                   )}
                                 </div>
 
@@ -13060,7 +12966,7 @@ export default function SwaparcApp() {
                             disabled={billCreateBusy}
                           >
                             {billCreateBusy
-                              ? "Working…"
+                              ? "Workingâ€¦"
                               : editingBillId
                                 ? "Update Bill"
                                 : "Create Bill"}
@@ -13145,7 +13051,7 @@ export default function SwaparcApp() {
                                       Next:{" "}
                                       {bill.nextExecutionAt
                                         ? new Date(bill.nextExecutionAt).toLocaleString()
-                                        : "—"}
+                                        : "â€”"}
                                     </div>
                                   </div>
                                   <div className="billsItemBottom">
@@ -13212,7 +13118,7 @@ export default function SwaparcApp() {
                                   Prev
                                 </button>
                                 <span className="paginationMeta">
-                                  Page {safePage} / {totalPages} · {totalCount} bills
+                                  Page {safePage} / {totalPages} Â· {totalCount} bills
                                 </span>
                                 <button
                                   type="button"
@@ -13277,7 +13183,7 @@ export default function SwaparcApp() {
                                   )
                                 }
                               >
-                                {billHistoryExportBusy ? "Exporting JPEG…" : "Export JPEG"}
+                                {billHistoryExportBusy ? "Exporting JPEGâ€¦" : "Export JPEG"}
                               </button>
                             </div>
                           </div>
@@ -13289,7 +13195,7 @@ export default function SwaparcApp() {
                               aria-hidden="true"
                             />
                             <span>
-                              <strong>Claimed</strong> — The recipient withdrew the privacy-pool credit
+                              <strong>Claimed</strong> â€” The recipient withdrew the privacy-pool credit
                               on-chain (their claim transaction succeeded).
                             </span>
                           </div>
@@ -13299,8 +13205,8 @@ export default function SwaparcApp() {
                               aria-hidden="true"
                             />
                             <span>
-                              <strong>Resolved</strong> — You exported this row (CSV or JPEG); the app tags it so
-                              “unresolved” exports only show what you have not reconciled yet.
+                              <strong>Resolved</strong> â€” You exported this row (CSV or JPEG); the app tags it so
+                              â€œunresolvedâ€ exports only show what you have not reconciled yet.
                             </span>
                           </div>
                         </div>
@@ -13339,15 +13245,15 @@ export default function SwaparcApp() {
                                     ) : null}
                                   </div>
                                   <div className="muted">
-                                    {h.amount} {h.token} • {h.status}
-                                    {h.paymentRail === "privacyPool" ? " • privacy pool" : ""}
+                                    {h.amount} {h.token} â€¢ {h.status}
+                                    {h.paymentRail === "privacyPool" ? " â€¢ privacy pool" : ""}
                                   </div>
                                   {h.paymentRail === "privacyPool" && h.poolRecipient && (
                                     <div className="muted billsStealthAddr">
                                       Credit to wallet: {shortAddr(h.poolRecipient)}
                                       <span className="billsHint">
                                         Recipient: paste Receipt <code>poolClaimCode</code> in
-                                        Payments Claim — share only over a private channel.
+                                        Payments Claim â€” share only over a private channel.
                                       </span>
                                     </div>
                                   )}
@@ -13355,7 +13261,7 @@ export default function SwaparcApp() {
                                     <div className="muted billsStealthAddr">
                                       Stealth: {shortAddr(h.stealthAddress)}
                                       <span className="billsHint">
-                                        Recipient claims under Private receive — not on their normal wallet balance.
+                                        Recipient claims under Private receive â€” not on their normal wallet balance.
                                       </span>
                                     </div>
                                   )}
@@ -13364,7 +13270,7 @@ export default function SwaparcApp() {
                                   <div className="historyRightTimestamp">
                                     {h.createdAt
                                       ? new Date(h.createdAt).toLocaleString()
-                                      : "—"}
+                                      : "â€”"}
                                   </div>
                                   <div className="historyRightActions">
                                     {h.txHash && h.txHash !== "SUBMITTED" && (
@@ -13401,7 +13307,7 @@ export default function SwaparcApp() {
                                     Prev
                                   </button>
                                   <span className="paginationMeta">
-                                    Page {safePage} / {totalPages} · {totalCount} records
+                                    Page {safePage} / {totalPages} Â· {totalCount} records
                                   </span>
                                   <button
                                     type="button"
@@ -13446,7 +13352,7 @@ export default function SwaparcApp() {
                               <option value="">All companies</option>
                               {payrollCompanies.map((c) => (
                                 <option key={c.id} value={c.id}>
-                                  {c.name} • {c.token}
+                                  {c.name} â€¢ {c.token}
                                 </option>
                               ))}
                             </select>
@@ -13527,7 +13433,7 @@ export default function SwaparcApp() {
                                     <div>
                                       <strong>{company.name}</strong>
                                       <div className="muted billsMeta">
-                                        Token: {company.token || "USDC"} • Default schedule: {company.defaultFrequency || "monthly"}
+                                        Token: {company.token || "USDC"} â€¢ Default schedule: {company.defaultFrequency || "monthly"}
                                       </div>
                                     </div>
                                   </div>
@@ -13582,8 +13488,8 @@ export default function SwaparcApp() {
                                       <div>
                                         <strong>{emp.name}</strong>
                                         <div className="muted billsMeta">
-                                          {emp.role || "Role not set"} • {emp.salary || 0} {company?.token || "USDC"}
-                                          {emp.status === "paused" ? " • paused" : ""}
+                                          {emp.role || "Role not set"} â€¢ {emp.salary || 0} {company?.token || "USDC"}
+                                          {emp.status === "paused" ? " â€¢ paused" : ""}
                                         </div>
                                       </div>
                                     </div>
@@ -13964,7 +13870,7 @@ export default function SwaparcApp() {
                               {company && (
                                 <div className="payrollHeaderActions">
                                   <div className="muted">
-                                    {company.name} • {company.token}
+                                    {company.name} â€¢ {company.token}
                                     <span className="billsHint" style={{ display: "block", marginTop: 6 }}>
                                       Recurring salaries run on the server when due. Use Pay
                                       Now only after turning Recurring off for that employee.
@@ -13998,7 +13904,7 @@ export default function SwaparcApp() {
                                         !payrollEmployees.some((e) =>
                                           employeeMatchesPayrollCompanyFilter(e, companyId)
                                         )
-                                      ? "No employees belong to this company (or pick “All companies”)."
+                                      ? "No employees belong to this company (or pick â€œAll companiesâ€)."
                                       : "No active or paused employees in this view."}
                                 </p>
                               ) : (
@@ -14018,18 +13924,18 @@ export default function SwaparcApp() {
                                         <div>
                                           <strong>{e.name}</strong>
                                           <div className="muted billsMeta">
-                                            {payrollCompanies.find((c) => c.id === e.companyId)?.name || "Unknown company"} •{" "}
-                                            {e.role} • {e.salary}{" "}
+                                            {payrollCompanies.find((c) => c.id === e.companyId)?.name || "Unknown company"} â€¢{" "}
+                                            {e.role} â€¢ {e.salary}{" "}
                                             {company?.token ||
                                               payrollCompanies.find((c) => c.id === e.companyId)?.token ||
                                               "USDC"}
-                                            {e.status === "paused" ? " • paused" : ""}
+                                            {e.status === "paused" ? " â€¢ paused" : ""}
                                           </div>
                                           {e.failureReason && (
                                             <div className="muted billsMeta" style={{ color: "#ff9c9c" }}>
                                               Automation issue:{" "}
                                               {e.failureReason.length > 280
-                                                ? `${e.failureReason.slice(0, 280)}…`
+                                                ? `${e.failureReason.slice(0, 280)}â€¦`
                                                 : e.failureReason}
                                             </div>
                                           )}
@@ -14038,7 +13944,7 @@ export default function SwaparcApp() {
                                           Next:{" "}
                                           {e.nextRunAt
                                             ? new Date(e.nextRunAt).toLocaleString()
-                                            : "—"}
+                                            : "â€”"}
                                         </div>
                                       </div>
                                       <div className="billsItemBottom">
@@ -14115,7 +14021,7 @@ export default function SwaparcApp() {
                                           Prev
                                         </button>
                                         <span className="paginationMeta">
-                                          Page {safePage} / {totalPages} · {totalCount} employees
+                                          Page {safePage} / {totalPages} Â· {totalCount} employees
                                         </span>
                                         <button
                                           type="button"
@@ -14187,7 +14093,7 @@ export default function SwaparcApp() {
                                 }
                               >
                                 {payrollHistoryExportBusy
-                                  ? "Exporting JPEG…"
+                                  ? "Exporting JPEGâ€¦"
                                   : "Export JPEG"}
                               </button>
                             </div>
@@ -14200,7 +14106,7 @@ export default function SwaparcApp() {
                               aria-hidden="true"
                             />
                             <span>
-                              <strong>Claimed</strong> — The recipient withdrew the privacy-pool credit
+                              <strong>Claimed</strong> â€” The recipient withdrew the privacy-pool credit
                               on-chain (their claim transaction succeeded).
                             </span>
                           </div>
@@ -14210,8 +14116,8 @@ export default function SwaparcApp() {
                               aria-hidden="true"
                             />
                             <span>
-                              <strong>Resolved</strong> — You exported this row (CSV or JPEG); the app tags it so
-                              “unresolved” exports only show what you have not reconciled yet.
+                              <strong>Resolved</strong> â€” You exported this row (CSV or JPEG); the app tags it so
+                              â€œunresolvedâ€ exports only show what you have not reconciled yet.
                             </span>
                           </div>
                         </div>
@@ -14253,15 +14159,15 @@ export default function SwaparcApp() {
                                     ) : null}
                                   </div>
                                   <div className="muted">
-                                    {h.amount} {h.token} • {h.status}
-                                    {h.runId ? ` • run ${h.runId.slice(-8)}` : ""}
-                                    {h.paymentRail === "privacyPool" ? " • privacy pool" : ""}
+                                    {h.amount} {h.token} â€¢ {h.status}
+                                    {h.runId ? ` â€¢ run ${h.runId.slice(-8)}` : ""}
+                                    {h.paymentRail === "privacyPool" ? " â€¢ privacy pool" : ""}
                                   </div>
                                   {h.paymentRail === "privacyPool" && h.poolRecipient && (
                                     <div className="muted billsStealthAddr">
                                       Pays to wallet: {shortAddr(h.poolRecipient)}
                                       <span className="billsHint">
-                                        Employee: <strong>Bills → Payments Claim</strong> → paste <code>poolClaimCode</code>{" "}
+                                        Employee: <strong>Bills â†’ Payments Claim</strong> â†’ paste <code>poolClaimCode</code>{" "}
                                         from export or payer receipt.
                                       </span>
                                     </div>
@@ -14269,7 +14175,7 @@ export default function SwaparcApp() {
                                   {h.stealthAddress && (
                                     <div className="muted billsStealthAddr">
                                       Stealth: {shortAddr(h.stealthAddress)}
-                                      <span className="billsHint">Claim under Bills → Payments Claim (stealth list).</span>
+                                      <span className="billsHint">Claim under Bills â†’ Payments Claim (stealth list).</span>
                                     </div>
                                   )}
                                 </div>
@@ -14277,7 +14183,7 @@ export default function SwaparcApp() {
                                   <div className="historyRightTimestamp">
                                     {h.createdAt
                                       ? new Date(h.createdAt).toLocaleString()
-                                      : "—"}
+                                      : "â€”"}
                                   </div>
                                   <div className="historyRightActions">
                                     {h.txHash && h.txHash !== "SUBMITTED" && (
@@ -14314,7 +14220,7 @@ export default function SwaparcApp() {
                                     Prev
                                   </button>
                                   <span className="paginationMeta">
-                                    Page {safePage} / {totalPages} · {totalCount} records
+                                    Page {safePage} / {totalPages} Â· {totalCount} records
                                   </span>
                                   <button
                                     type="button"
@@ -14343,7 +14249,7 @@ export default function SwaparcApp() {
                       <div className="neon-card billsHistoryCard">
                         <h3 className="billsSectionTitle">Payments Claim</h3>
                         <p className="muted" style={{ marginTop: -6, lineHeight: 1.45 }}>
-                          Paste a claim code, upload a receipt image, or scan a QR — then tap Claim.
+                          Paste a claim code or upload a receipt image — then tap Claim payment.
                         </p>
                         {HAS_ANY_PRIVACY_POOL ? (
                           <div style={{ marginBottom: 16 }}>
@@ -14351,7 +14257,6 @@ export default function SwaparcApp() {
                               {[
                                 ["paste", "Paste code"],
                                 ["upload", "Upload image"],
-                                ["scan", "Scan QR"],
                               ].map(([mode, label]) => (
                                 <button
                                   key={mode}
@@ -14417,73 +14322,9 @@ export default function SwaparcApp() {
                                   </p>
                                 ) : (
                                   <p className="claimQrHint muted">
-                                    Photos from X, WhatsApp, or screenshots work. If scan fails, upload a screenshot.
+                                    Upload a photo or screenshot of the receipt QR (not OCR of text).
                                   </p>
                                 )}
-                              </div>
-                            ) : null}
-                            {poolClaimInputMode === "scan" ? (
-                              <div className="claimQrScanWrap">
-                                <div
-                                  className={`claimQrScanViewport${
-                                    claimQrCameraReady && claimQrScanActive
-                                      ? " claimQrScanViewportActive"
-                                      : ""
-                                  }`}
-                                >
-                                  <video
-                                    ref={claimQrVideoRef}
-                                    className="claimQrVideo"
-                                    muted
-                                    playsInline
-                                    autoPlay
-                                    disablePictureInPicture
-                                  />
-                                  <div className="claimQrScanOverlay" aria-hidden="true">
-                                    <span className="claimQrScanFrame" />
-                                    {claimQrCameraReady && claimQrScanActive ? (
-                                      <span className="claimQrScanLine" />
-                                    ) : null}
-                                  </div>
-                                  {!claimQrCameraReady ? (
-                                    <p className="claimQrScanLoading muted">Starting camera…</p>
-                                  ) : (
-                                    <p className="claimQrScanStatus muted" role="status">
-                                      {claimQrScanDecoding
-                                        ? "Analyzing frame (deep scan)…"
-                                        : "Point QR at the frame — tap Capture now if slow"}
-                                    </p>
-                                  )}
-                                </div>
-                                <div className="claimQrScanActions">
-                                  <button
-                                    type="button"
-                                    className="secondaryBtn billsPayBtn claimQrSwitchCamBtn"
-                                    onClick={() => switchClaimQrCamera()}
-                                  >
-                                    Switch camera
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="secondaryBtn billsPayBtn"
-                                    onClick={() => claimQrScannerRef.current?.captureNow?.()}
-                                  >
-                                    Capture now
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="secondaryBtn billsPayBtn"
-                                    onClick={() => {
-                                      setPoolClaimInputMode("upload");
-                                      setClaimQrError("");
-                                    }}
-                                  >
-                                    Upload instead
-                                  </button>
-                                </div>
-                                <p className="claimQrHint muted">
-                                  Uses the same QR reader as Upload image. Hold steady or tap Capture now.
-                                </p>
                               </div>
                             ) : null}
                             {claimQrError ? (
@@ -14526,7 +14367,7 @@ export default function SwaparcApp() {
                                       : r.txHash === "SUBMITTED"
                                         ? "Claim submitted. Circle accepted the transaction and hash is still indexing."
                                         : isPending
-                                          ? `Claim submitted. Tx ${r.txHash}. Waiting for on-chain confirmation — the network is slower than usual. You can safely close this page; Claim History will update when it confirms.`
+                                          ? `Claim submitted. Tx ${r.txHash}. Waiting for on-chain confirmation â€” the network is slower than usual. You can safely close this page; Claim History will update when it confirms.`
                                           : `Claim confirmed. Tx ${r.txHash}`
                                   );
                                   const claimTxHash =
@@ -14550,10 +14391,10 @@ export default function SwaparcApp() {
                                     {
                                       id: newClaimId,
                                       txHash: claimTxHash,
-                                      amount: String(payload?.amount || payload?.amountWei || "—"),
+                                      amount: String(payload?.amount || payload?.amountWei || "â€”"),
                                       token:
                                         payloadTokenSymbol ||
-                                        (payloadTokenAddress ? shortAddr(payloadTokenAddress) : "—"),
+                                        (payloadTokenAddress ? shortAddr(payloadTokenAddress) : "â€”"),
                                       tokenAddress: payloadTokenAddress || null,
                                       claimedAt: new Date().toISOString(),
                                       status: isPending ? "pending" : "confirmed",
@@ -14577,7 +14418,7 @@ export default function SwaparcApp() {
                                 }
                               }}
                             >
-                              {poolClaimBusy ? "Proving / claiming…" : "Claim payment"}
+                              {poolClaimBusy ? "Proving / claimingâ€¦" : "Claim payment"}
                             </button>
                             {poolClaimError ? (
                               <p className="quote billsErr" style={{ marginTop: 8 }}>
@@ -14613,7 +14454,7 @@ export default function SwaparcApp() {
                                         {(() => {
                                           const mapped =
                                             h?.tokenAddress ? tokenByAddress(h.tokenAddress)?.symbol : "";
-                                          const displayToken = mapped || h?.token || "—";
+                                          const displayToken = mapped || h?.token || "â€”";
                                           return (
                                             <strong>
                                               {h.amount} {displayToken}
@@ -14622,22 +14463,22 @@ export default function SwaparcApp() {
                                         })()}
                                       </div>
                                       <div className="muted">
-                                        {h.claimedAt ? new Date(h.claimedAt).toLocaleString() : "—"}
-                                        {h.status === "pending" ? " • pending confirmation" : ""}
+                                        {h.claimedAt ? new Date(h.claimedAt).toLocaleString() : "â€”"}
+                                        {h.status === "pending" ? " â€¢ pending confirmation" : ""}
                                         {h.status === "failed" &&
                                         h.failureReason === "not_broadcast"
-                                          ? " • wallet did not broadcast — retry"
+                                          ? " â€¢ wallet did not broadcast â€” retry"
                                           : h.status === "failed" &&
                                               h.failureReason === "nonce_gap"
-                                            ? " • stuck behind pending wallet txs — retry"
+                                            ? " â€¢ stuck behind pending wallet txs â€” retry"
                                           : h.status === "failed" &&
                                               h.failureReason === "unconfirmed_timeout"
-                                            ? " • not confirmed in time — retry"
+                                            ? " â€¢ not confirmed in time â€” retry"
                                             : h.status === "failed" &&
                                                 h.failureReason === "reverted"
-                                              ? " • reverted on-chain"
+                                              ? " â€¢ reverted on-chain"
                                               : h.status === "failed"
-                                                ? " • failed"
+                                                ? " â€¢ failed"
                                                 : ""}
                                       </div>
                                     </div>
@@ -14686,7 +14527,7 @@ export default function SwaparcApp() {
                                   Prev
                                 </button>
                                 <span className="paginationMeta">
-                                  Page {safePage} / {totalPages} · {totalCount} claims
+                                  Page {safePage} / {totalPages} Â· {totalCount} claims
                                 </span>
                                 <button
                                   type="button"
@@ -14769,11 +14610,11 @@ export default function SwaparcApp() {
             <div className="receiptGrid">
               <div className="receiptField">
                 <span>Bill / Salary item</span>
-                <strong>{receiptModal.title || "—"}</strong>
+                <strong>{receiptModal.title || "â€”"}</strong>
               </div>
               <div className="receiptField">
                 <span>Amount</span>
-                <strong>{receiptModal.amountLabel || "—"}</strong>
+                <strong>{receiptModal.amountLabel || "â€”"}</strong>
               </div>
               <div className="receiptField">
                 <span>Receiver address</span>
@@ -14792,7 +14633,7 @@ export default function SwaparcApp() {
                 <strong>
                   {receiptModal.nextDueAt
                     ? new Date(receiptModal.nextDueAt).toLocaleString()
-                    : "—"}
+                    : "â€”"}
                 </strong>
               </div>
               {receiptModal.companyName ? (
@@ -14855,7 +14696,7 @@ export default function SwaparcApp() {
                   disabled={receiptJpegBusy}
                   onClick={() => handleReceiptJpegDownload()}
                 >
-                  {receiptJpegBusy ? "Exporting…" : "Download receipt (JPEG)"}
+                  {receiptJpegBusy ? "Exportingâ€¦" : "Download receipt (JPEG)"}
                 </button>
               ) : null}
               {receiptModal.txHash && receiptModal.txHash !== "SUBMITTED" ? (
@@ -15004,7 +14845,7 @@ export default function SwaparcApp() {
                 onClick={() => setMobileMenuOpen(false)}
                 aria-label="Close menu"
               >
-                ✕
+                âœ•
               </button>
             </div>
 
@@ -15068,7 +14909,7 @@ export default function SwaparcApp() {
                   setMobileMenuOpen(false);
                 }}
               >
-                💧 Get Faucet
+                ðŸ’§ Get Faucet
               </button>
             </div>
 
@@ -15140,7 +14981,7 @@ export default function SwaparcApp() {
                       style={{ fontSize: 32, padding: 0, width: "70%" }}
                     />
                     <div className="muted" style={{ fontSize: 14, textAlign: "right", whiteSpace: "nowrap" }}>
-                      ≈ ${liqInputs[sym] && prices[sym] ? (Number(liqInputs[sym]) * prices[sym]).toFixed(2) : "0.00"}
+                      â‰ˆ ${liqInputs[sym] && prices[sym] ? (Number(liqInputs[sym]) * prices[sym]).toFixed(2) : "0.00"}
                     </div>
                   </div>
                 </div>
@@ -15211,7 +15052,7 @@ export default function SwaparcApp() {
                         ? Number(lpPos) < 0.0001 && Number(lpPos) > 0
                           ? "<0.0001"
                           : Number(lpPos).toFixed(4)
-                        : "—";
+                        : "â€”";
 
                     const displayValue = disabled
                       ? (removeEstimates?.[sym] != null && Number.isFinite(removeEstimates[sym])
@@ -15271,7 +15112,7 @@ export default function SwaparcApp() {
                           ? removeEstimates[sym] < 0.0001 && removeEstimates[sym] > 0
                             ? `<0.0001 ${sym}`
                             : `${removeEstimates[sym].toFixed(4)} ${sym}`
-                          : `— ${sym}`}
+                          : `â€” ${sym}`}
                       </strong>
                     </div>
                   ))}
