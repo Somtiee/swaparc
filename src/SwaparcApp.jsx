@@ -10762,7 +10762,7 @@ export default function SwaparcApp() {
           <div className="headerRight mobileHeader">
             {/* DESKTOP ONLY BUTTONS */}
             <button className="faucetBtn desktopOnly" onClick={openFaucet}>
-              ðŸ’§ Get Faucet
+              Get Faucet
             </button>
 
             {!address && authMode !== "email" && (
@@ -10823,8 +10823,8 @@ export default function SwaparcApp() {
                   onClick={() => setShowWalletMenu((prev) => !prev)}
                 >
                   {authMode === "email" && circleWallet
-                    ? `Circle Â· ${shortAddr(circleWallet.address)}`
-                    : `Arc Testnet Â· ${shortAddr(address)}`}
+                    ? `Circle | ${shortAddr(circleWallet.address)}`
+                    : `Arc Testnet | ${shortAddr(address)}`}
                 </button>
                 {showWalletMenu && (
                   <div
@@ -11579,13 +11579,13 @@ export default function SwaparcApp() {
                                         justifyContent: "center",
                                       }}
                                     >
-                                      <span style={{ fontSize: 20 }}>ðŸ“·</span>
+                                      <span style={{ fontSize: 20 }}>+</span>
                                     </div>
                                   )}
                                   {!profileStats.avatar &&
                                     !editForm.avatar &&
                                     !isEditingProfile && (
-                                      <span style={{ fontSize: 28 }}>ðŸ‘¤</span>
+                                      <span style={{ fontSize: 28 }}>@</span>
                                     )}
                                 </div>
 
@@ -11662,7 +11662,7 @@ export default function SwaparcApp() {
                                     <span className="addressPillText">
                                       {shortAddr(getActiveWalletAddress())}
                                     </span>
-                                    <span className="addressPillIcon">ðŸ“‹</span>
+                                    <span className="addressPillIcon">Copy</span>
                                   </button>
                                 </div>
                               </div>
@@ -12058,7 +12058,7 @@ export default function SwaparcApp() {
                         aria-label="Swap history"
                         title="History"
                       >
-                        <span className="slippageSettingsIcon">ðŸ•˜</span>
+                        <span className="slippageSettingsIcon">Hist</span>
                       </button>
                       <button
                         type="button"
@@ -13118,7 +13118,7 @@ export default function SwaparcApp() {
                                   Prev
                                 </button>
                                 <span className="paginationMeta">
-                                  Page {safePage} / {totalPages} Â· {totalCount} bills
+                                  Page {safePage} / {totalPages} | {totalCount} bills
                                 </span>
                                 <button
                                   type="button"
@@ -13307,7 +13307,7 @@ export default function SwaparcApp() {
                                     Prev
                                   </button>
                                   <span className="paginationMeta">
-                                    Page {safePage} / {totalPages} Â· {totalCount} records
+                                    Page {safePage} / {totalPages} | {totalCount} records
                                   </span>
                                   <button
                                     type="button"
@@ -14021,7 +14021,7 @@ export default function SwaparcApp() {
                                           Prev
                                         </button>
                                         <span className="paginationMeta">
-                                          Page {safePage} / {totalPages} Â· {totalCount} employees
+                                          Page {safePage} / {totalPages} | {totalCount} employees
                                         </span>
                                         <button
                                           type="button"
@@ -14220,7 +14220,7 @@ export default function SwaparcApp() {
                                     Prev
                                   </button>
                                   <span className="paginationMeta">
-                                    Page {safePage} / {totalPages} Â· {totalCount} records
+                                    Page {safePage} / {totalPages} | {totalCount} records
                                   </span>
                                   <button
                                     type="button"
@@ -14249,7 +14249,7 @@ export default function SwaparcApp() {
                       <div className="neon-card billsHistoryCard">
                         <h3 className="billsSectionTitle">Payments Claim</h3>
                         <p className="muted" style={{ marginTop: -6, lineHeight: 1.45 }}>
-                          Paste a claim code or upload a receipt image — then tap Claim payment.
+                          Paste a claim code or upload a receipt image - then tap Claim payment.
                         </p>
                         {HAS_ANY_PRIVACY_POOL ? (
                           <div style={{ marginBottom: 16 }}>
@@ -14278,7 +14278,7 @@ export default function SwaparcApp() {
                             {poolClaimInputMode === "paste" ? (
                             <textarea
                               className="privpayInput poolClaimTextarea"
-                              placeholder="Paste base64 zk-claim…"
+                              placeholder="Paste base64 zk-claim..."
                               value={poolClaimCodeInput}
                               onChange={(e) => {
                                 setPoolClaimCodeInput(e.target.value);
@@ -14318,7 +14318,7 @@ export default function SwaparcApp() {
                                 </button>
                                 {claimQrBusy ? (
                                   <p className="claimQrHint muted claimQrReadingHint" role="status">
-                                    Reading QR from image…
+                                    Reading QR from image...
                                   </p>
                                 ) : (
                                   <p className="claimQrHint muted">
@@ -14527,7 +14527,7 @@ export default function SwaparcApp() {
                                   Prev
                                 </button>
                                 <span className="paginationMeta">
-                                  Page {safePage} / {totalPages} Â· {totalCount} claims
+                                  Page {safePage} / {totalPages} | {totalCount} claims
                                 </span>
                                 <button
                                   type="button"
@@ -14909,7 +14909,7 @@ export default function SwaparcApp() {
                   setMobileMenuOpen(false);
                 }}
               >
-                ðŸ’§ Get Faucet
+                Get Faucet
               </button>
             </div>
 
