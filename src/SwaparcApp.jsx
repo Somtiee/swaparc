@@ -254,6 +254,7 @@ const BILL_NAME_PRESETS = [
   "Internet",
   "Water",
   "Television",
+  "Purchase",
   "Insurance",
   "Healthcare",
   "School Fees",
@@ -1033,6 +1034,7 @@ export default function SwaparcApp() {
   const [claimQrPrefillNote, setClaimQrPrefillNote] = useState("");
   const [claimQrFileLabel, setClaimQrFileLabel] = useState("");
   const [claimQrCameraReady, setClaimQrCameraReady] = useState(false);
+  const [claimQrScanActive, setClaimQrScanActive] = useState(false);
   const [receiptQrDataUrl, setReceiptQrDataUrl] = useState(null);
   const [receiptJpegBusy, setReceiptJpegBusy] = useState(false);
   const claimQrVideoRef = useRef(null);
@@ -4752,6 +4754,7 @@ export default function SwaparcApp() {
       claimQrScannerRef.current?.stop?.();
       claimQrScannerRef.current = null;
       setClaimQrCameraReady(false);
+      setClaimQrScanActive(false);
       return undefined;
     }
 
@@ -4768,10 +4771,15 @@ export default function SwaparcApp() {
       }
       setClaimQrError("");
       setClaimQrCameraReady(false);
+      setClaimQrScanActive(false);
       scanner = startClaimQrCameraScan({
         videoEl: video,
+        onScanFrame: () => {
+          if (!cancelled) setClaimQrScanActive(true);
+        },
         onResult: (text) => {
           if (cancelled) return;
+          setClaimQrScanActive(false);
           try {
             applyDecodedClaimCode(text);
           } catch (e) {
@@ -4780,6 +4788,7 @@ export default function SwaparcApp() {
         },
         onError: (err) => {
           if (cancelled) return;
+          setClaimQrScanActive(false);
           const msg = err instanceof Error ? err.message : String(err);
           if (
             !/NotFoundException/i.test(msg) &&
@@ -4794,8 +4803,11 @@ export default function SwaparcApp() {
       });
       claimQrScannerRef.current = scanner;
       readyTimer = setTimeout(() => {
-        if (!cancelled) setClaimQrCameraReady(true);
-      }, 900);
+        if (!cancelled) {
+          setClaimQrCameraReady(true);
+          setClaimQrScanActive(true);
+        }
+      }, 650);
     };
 
     requestAnimationFrame(() => requestAnimationFrame(bootScanner));
@@ -4806,6 +4818,7 @@ export default function SwaparcApp() {
       scanner?.stop?.();
       claimQrScannerRef.current = null;
       setClaimQrCameraReady(false);
+      setClaimQrScanActive(false);
     };
   }, [privpayModule, poolClaimInputMode]);
 
@@ -14266,13 +14279,21 @@ export default function SwaparcApp() {
                                     : claimQrFileLabel || "Choose image"}
                                 </button>
                                 <p className="claimQrHint muted">
-                                  Photos from X, WhatsApp, or screenshots work — we scan aggressively. If it fails, take a screenshot and upload that, or paste the code.
+                                  {claimQrBusy
+                                    ? "Reading QR from image…"
+                                    : "Photos from X, WhatsApp, or screenshots work. If scan fails, upload a screenshot."}
                                 </p>
                               </div>
                             ) : null}
                             {poolClaimInputMode === "scan" ? (
                               <div className="claimQrScanWrap">
-                                <div className="claimQrScanViewport">
+                                <div
+                                  className={`claimQrScanViewport${
+                                    claimQrCameraReady && claimQrScanActive
+                                      ? " claimQrScanViewportActive"
+                                      : ""
+                                  }`}
+                                >
                                   <video
                                     ref={claimQrVideoRef}
                                     className="claimQrVideo"
@@ -14282,10 +14303,17 @@ export default function SwaparcApp() {
                                   />
                                   <div className="claimQrScanOverlay" aria-hidden="true">
                                     <span className="claimQrScanFrame" />
+                                    {claimQrCameraReady && claimQrScanActive ? (
+                                      <span className="claimQrScanLine" />
+                                    ) : null}
                                   </div>
                                   {!claimQrCameraReady ? (
                                     <p className="claimQrScanLoading muted">Starting camera…</p>
-                                  ) : null}
+                                  ) : (
+                                    <p className="claimQrScanStatus muted" role="status">
+                                      Scan in progress, please wait…
+                                    </p>
+                                  )}
                                 </div>
                                 <div className="claimQrScanActions">
                                   <button
@@ -14295,9 +14323,19 @@ export default function SwaparcApp() {
                                   >
                                     Switch camera
                                   </button>
+                                  <button
+                                    type="button"
+                                    className="secondaryBtn billsPayBtn"
+                                    onClick={() => {
+                                      setPoolClaimInputMode("upload");
+                                      setClaimQrError("");
+                                    }}
+                                  >
+                                    Upload instead
+                                  </button>
                                 </div>
                                 <p className="claimQrHint muted">
-                                  Align the QR inside the frame. Uses your rear camera when available (allow permission in Safari/Chrome).
+                                  Hold the QR steady inside the frame. For faster results, use Upload image with a screenshot.
                                 </p>
                               </div>
                             ) : null}
