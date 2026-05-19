@@ -857,7 +857,7 @@ function TokenSelect({ tokens, value, onChange }) {
         </span>
 
         <span className="tokenLabel">{value}</span>
-        <span className="caret">{open ? "^" : "v"}</span>
+        <span className="caret">{open ? "▴" : "▾"}</span>
       </button>
 
       {open && (
@@ -10762,7 +10762,7 @@ export default function SwaparcApp() {
           <div className="headerRight mobileHeader">
             {/* DESKTOP ONLY BUTTONS */}
             <button className="faucetBtn desktopOnly" onClick={openFaucet}>
-              Get Faucet
+              💧 Get Faucet
             </button>
 
             {!address && authMode !== "email" && (
@@ -10823,8 +10823,8 @@ export default function SwaparcApp() {
                   onClick={() => setShowWalletMenu((prev) => !prev)}
                 >
                   {authMode === "email" && circleWallet
-                    ? `Circle | ${shortAddr(circleWallet.address)}`
-                    : `Arc Testnet | ${shortAddr(address)}`}
+                    ? `Circle · ${shortAddr(circleWallet.address)}`
+                    : `Arc Testnet · ${shortAddr(address)}`}
                 </button>
                 {showWalletMenu && (
                   <div
@@ -11333,7 +11333,7 @@ export default function SwaparcApp() {
                       type="button"
                       onClick={() => setActiveTab("swap")}
                     >
-                        <span className="landingActionIcon">{"<->"}</span>
+                      <span className="landingActionIcon">↔</span>
                       <span className="landingActionTag">SWAP</span>
                       <strong>Fast non-custodial stablecoin FX execution</strong>
                       <p>
@@ -11347,7 +11347,7 @@ export default function SwaparcApp() {
                       type="button"
                       onClick={() => setActiveTab("pools")}
                     >
-                      <span className="landingActionIcon">o</span>
+                      <span className="landingActionIcon">◌</span>
                       <span className="landingActionTag">POOLS</span>
                       <strong>Liquidity provision + treasury positions</strong>
                       <p>
@@ -11361,7 +11361,7 @@ export default function SwaparcApp() {
                       type="button"
                       onClick={() => setActiveTab("privpay")}
                     >
-                      <span className="landingActionIcon">*</span>
+                      <span className="landingActionIcon">✦</span>
                       <span className="landingActionTag">PRIVPAY</span>
                       <strong>Private bills, payroll, and claims</strong>
                       <p>
@@ -11385,29 +11385,29 @@ export default function SwaparcApp() {
                     </p>
                     <ul className="landingWhyBullets">
                       <li>
-                        <span>*</span>
+                        <span>✦</span>
                         <p>Fast, transparent stablecoin FX with deep on-chain liquidity.</p>
                       </li>
                       <li>
-                        <span>*</span>
+                        <span>✦</span>
                         <p>Liquidity positions that help teams keep treasury capital productive.</p>
                       </li>
                       <li>
-                        <span>*</span>
+                        <span>✦</span>
                         <p>
                           PrivPay confidentiality rails for bills, payroll, and claims, including
                           sender-wallet protection in operational payment flows.
                         </p>
                       </li>
                       <li>
-                        <span>*</span>
+                        <span>✦</span>
                         <p>
                           Employers can run on-chain payroll without exposing treasury addresses
                           to recipient-level wallet tracking.
                         </p>
                       </li>
                       <li>
-                        <span>*</span>
+                        <span>✦</span>
                         <p>Predictable settlement on Circle&apos;s stablecoin-native L1.</p>
                       </li>
                     </ul>
@@ -11579,13 +11579,13 @@ export default function SwaparcApp() {
                                         justifyContent: "center",
                                       }}
                                     >
-                                      <span style={{ fontSize: 20 }}>+</span>
+                                      <span style={{ fontSize: 20 }}>📷</span>
                                     </div>
                                   )}
                                   {!profileStats.avatar &&
                                     !editForm.avatar &&
                                     !isEditingProfile && (
-                                      <span style={{ fontSize: 28 }}>@</span>
+                                      <span style={{ fontSize: 28 }}>👤</span>
                                     )}
                                 </div>
 
@@ -11662,7 +11662,7 @@ export default function SwaparcApp() {
                                     <span className="addressPillText">
                                       {shortAddr(getActiveWalletAddress())}
                                     </span>
-                                    <span className="addressPillIcon">Copy</span>
+                                    <span className="addressPillIcon">📋</span>
                                   </button>
                                 </div>
                               </div>
@@ -12058,7 +12058,7 @@ export default function SwaparcApp() {
                         aria-label="Swap history"
                         title="History"
                       >
-                        <span className="slippageSettingsIcon">Hist</span>
+                        <span className="slippageSettingsIcon">🕘</span>
                       </button>
                       <button
                         type="button"
@@ -12066,7 +12066,7 @@ export default function SwaparcApp() {
                         onClick={() => setShowSlippagePanel((v) => !v)}
                         aria-label="Slippage settings"
                       >
-                        <span className="slippageSettingsIcon">*</span>
+                        <span className="slippageSettingsIcon">⚙</span>
                         <span className="slippageSettingsValue">
                           {Number(swapSummary.slippageRaw || slippageTolerance).toFixed(1)}%
                         </span>
@@ -13118,7 +13118,7 @@ export default function SwaparcApp() {
                                   Prev
                                 </button>
                                 <span className="paginationMeta">
-                                  Page {safePage} / {totalPages} | {totalCount} bills
+                                  Page {safePage} / {totalPages} · {totalCount} bills
                                 </span>
                                 <button
                                   type="button"
@@ -13307,7 +13307,7 @@ export default function SwaparcApp() {
                                     Prev
                                   </button>
                                   <span className="paginationMeta">
-                                    Page {safePage} / {totalPages} | {totalCount} records
+                                    Page {safePage} / {totalPages} · {totalCount} records
                                   </span>
                                   <button
                                     type="button"
@@ -14021,7 +14021,7 @@ export default function SwaparcApp() {
                                           Prev
                                         </button>
                                         <span className="paginationMeta">
-                                          Page {safePage} / {totalPages} | {totalCount} employees
+                                          Page {safePage} / {totalPages} · {totalCount} employees
                                         </span>
                                         <button
                                           type="button"
@@ -14220,7 +14220,7 @@ export default function SwaparcApp() {
                                     Prev
                                   </button>
                                   <span className="paginationMeta">
-                                    Page {safePage} / {totalPages} | {totalCount} records
+                                    Page {safePage} / {totalPages} · {totalCount} records
                                   </span>
                                   <button
                                     type="button"
@@ -14527,7 +14527,7 @@ export default function SwaparcApp() {
                                   Prev
                                 </button>
                                 <span className="paginationMeta">
-                                  Page {safePage} / {totalPages} | {totalCount} claims
+                                  Page {safePage} / {totalPages} · {totalCount} claims
                                 </span>
                                 <button
                                   type="button"
@@ -14909,7 +14909,7 @@ export default function SwaparcApp() {
                   setMobileMenuOpen(false);
                 }}
               >
-                Get Faucet
+                💧 Get Faucet
               </button>
             </div>
 

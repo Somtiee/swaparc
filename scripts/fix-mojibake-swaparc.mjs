@@ -1,5 +1,8 @@
 /**
- * Fix UTF-8 punctuation/icons saved as mojibake in SwaparcApp.jsx.
+ * Repair SwaparcApp.jsx when UTF-8 symbols were saved as Latin-1 mojibake.
+ * Restores proper Unicode (from pre-d4b7544 UI), NOT ASCII placeholders.
+ *
+ * Usage: node scripts/fix-mojibake-swaparc.mjs
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -8,62 +11,30 @@ const file = path.join(process.cwd(), "src", "SwaparcApp.jsx");
 let s = fs.readFileSync(file, "utf8");
 
 const replacements = [
-  // Emoji UTF-8 saved as Latin-1 mojibake (ðŸ…)
-  ["\u00f0\u0178\u2019\u00a7", ""], // droplet before Get Faucet
-  ["\u00f0\u0178\u201c\u00b7", "+"], // camera overlay
-  ["\u00f0\u0178\u2018\u00a4", "@"], // default avatar
-  ["\u00f0\u0178\u201c\u2039", "Copy"], // clipboard
-  ["\u00f0\u0178\u2022\u02dc", "Hist"], // history/clock
-  ["\u00c2\u00b7", " | "], // middle dot separator
-  // Curly quotes (must run before em dash — same prefix)
-  ["\u00e2\u20ac\u0153", '"'],
-  ["\u00e2\u20ac\u009d", '"'],
-  ["\u00e2\u20ac\u2122", "'"],
-  ["\u00e2\u20ac\u00a6", "..."],
-  ["\u00e2\u20ac\u00a2", " - "],
-  ["\u00e2\u20ac\u2018", "-"],
-  ["\u00e2\u2020\u2019", "->"],
-  ["\u00e2\u2020\u201d", "<->"],
-  ["\u00e2\u20ac\u201c", "-"],
-  ["\u00e2\u20ac\u201d", " - "],
-  // UI icons / symbols
-  ["\u00e2\u0161\u00a0\ufeff\u008f", "! "],
-  ["\u0161\u00a0\ufeff\u008f", "! "], // warning emoji tail after partial fix
-  ["\u00e2\u0161\u2122", "*"], // settings gear mojibake
-  ["\u00e2\u2013\u00b4", "^"],
-  ["\u00e2\u2013\u00be", "v"],
-  ["\u00e2\u2013\u00b6", ">"],
-  ["\u00e2\u2014\u20ac", "<"], // avoid in JSX text; fix < Prev manually if needed
-  ["\u00e2\u2014\u0152", "o"],
-  ["\u00e2\u0153\u201c", "OK"],
-  ["\u00e2\u0153\u2022", "x"],
-  ["\u00e2\u0153\u00a6", "*"],
-  ["\u00e2\u02dc\u00b0", "="],
-  ["\u00e2\u2030\u02c6", "~"],
+  // Emoji mojibake -> intended emoji
+  ["\u00f0\u0178\u2019\u00a7", "\u{1f4a7}"], // 💧
+  ["\u00f0\u0178\u201c\u00b7", "\u{1f4f7}"], // 📷
+  ["\u00f0\u0178\u2018\u00a4", "\u{1f464}"], // 👤
+  ["\u00f0\u0178\u201c\u2039", "\u{1f4cb}"], // 📋
+  ["\u00f0\u0178\u2022\u02dc", "\u{1f558}"], // 🕘
+  // Punctuation mojibake
+  ["\u00c2\u00b7", "\u00b7"], // ·
+  ["\u00e2\u20ac\u0153", "\u201c"],
+  ["\u00e2\u20ac\u009d", "\u201d"],
+  ["\u00e2\u20ac\u2122", "\u2019"],
+  ["\u00e2\u20ac\u00a6", "\u2026"],
+  ["\u00e2\u20ac\u00a2", "\u00b7"],
+  ["\u00e2\u20ac\u201d", "\u2014"],
+  ["\u00e2\u20ac\u201c", "\u2013"],
+  ["\u00e2\u2013\u00b4", "\u25b4"],
+  ["\u00e2\u2013\u00be", "\u25be"],
+  // Landing / swap symbol mojibake (if present)
+  ["\u00e2\u2020\u201d", "\u2194"], // ↔
 ];
 
 for (const [from, to] of replacements) {
   s = s.split(from).join(to);
 }
 
-// Tighten em-dash spacing
-s = s.replace(/  -  /g, " - ");
-
-// Fix strings where inner ASCII quotes broke JS string literals
-s = s.replace(
-  /then tap "Send OTP" again/g,
-  'then tap \\"Send OTP\\" again'
-);
-s = s.replace(
-  /press "Send OTP" again/g,
-  'press \\"Send OTP\\" again'
-);
-
-const remaining = s.match(/\u00e2[\u20ac\u2020\u2013\u2014\u0153\u0161\u02dc\u2030]/g);
 fs.writeFileSync(file, s, "utf8");
-console.log(`Done. Remaining suspect chars: ${remaining?.length ?? 0}`);
-if (remaining?.length) {
-  const idx = s.search(/\u00e2[\u20ac\u2020\u2013\u2014\u0153\u0161\u02dc\u2030]/);
-  console.error("Sample:", JSON.stringify(s.slice(idx, idx + 24)));
-  process.exit(1);
-}
+console.log("Mojibake repair pass complete (UTF-8 symbols restored).");
