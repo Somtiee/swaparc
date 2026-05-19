@@ -1138,6 +1138,7 @@ export default function SwaparcApp() {
   const [claimQrFileLabel, setClaimQrFileLabel] = useState("");
   const [claimQrCameraReady, setClaimQrCameraReady] = useState(false);
   const [claimQrScanActive, setClaimQrScanActive] = useState(false);
+  const [claimQrScanDecoding, setClaimQrScanDecoding] = useState(false);
   const [receiptQrDataUrl, setReceiptQrDataUrl] = useState(null);
   const [receiptJpegBusy, setReceiptJpegBusy] = useState(false);
   const claimQrVideoRef = useRef(null);
@@ -4858,12 +4859,12 @@ export default function SwaparcApp() {
       claimQrScannerRef.current = null;
       setClaimQrCameraReady(false);
       setClaimQrScanActive(false);
+      setClaimQrScanDecoding(false);
       return undefined;
     }
 
     let cancelled = false;
     let scanner = null;
-    let readyTimer = null;
 
     const bootScanner = () => {
       if (cancelled) return;
@@ -4875,14 +4876,25 @@ export default function SwaparcApp() {
       setClaimQrError("");
       setClaimQrCameraReady(false);
       setClaimQrScanActive(false);
+      setClaimQrScanDecoding(false);
       scanner = startClaimQrCameraScan({
         videoEl: video,
+        onCameraReady: () => {
+          if (!cancelled) {
+            setClaimQrCameraReady(true);
+            setClaimQrScanActive(true);
+          }
+        },
         onScanFrame: () => {
           if (!cancelled) setClaimQrScanActive(true);
+        },
+        onDecoding: (isFull) => {
+          if (!cancelled) setClaimQrScanDecoding(Boolean(isFull));
         },
         onResult: (text) => {
           if (cancelled) return;
           setClaimQrScanActive(false);
+          setClaimQrScanDecoding(false);
           try {
             applyDecodedClaimCode(text);
           } catch (e) {
@@ -4892,6 +4904,8 @@ export default function SwaparcApp() {
         onError: (err) => {
           if (cancelled) return;
           setClaimQrScanActive(false);
+          setClaimQrScanDecoding(false);
+          setClaimQrCameraReady(false);
           const msg = err instanceof Error ? err.message : String(err);
           if (
             !/NotFoundException/i.test(msg) &&
@@ -4905,23 +4919,17 @@ export default function SwaparcApp() {
         },
       });
       claimQrScannerRef.current = scanner;
-      readyTimer = setTimeout(() => {
-        if (!cancelled) {
-          setClaimQrCameraReady(true);
-          setClaimQrScanActive(true);
-        }
-      }, 650);
     };
 
     requestAnimationFrame(() => requestAnimationFrame(bootScanner));
 
     return () => {
       cancelled = true;
-      clearTimeout(readyTimer);
       scanner?.stop?.();
       claimQrScannerRef.current = null;
       setClaimQrCameraReady(false);
       setClaimQrScanActive(false);
+      setClaimQrScanDecoding(false);
     };
   }, [privpayModule, poolClaimInputMode]);
 
@@ -14429,6 +14437,7 @@ export default function SwaparcApp() {
                                     muted
                                     playsInline
                                     autoPlay
+                                    disablePictureInPicture
                                   />
                                   <div className="claimQrScanOverlay" aria-hidden="true">
                                     <span className="claimQrScanFrame" />
@@ -14440,7 +14449,9 @@ export default function SwaparcApp() {
                                     <p className="claimQrScanLoading muted">Starting camera…</p>
                                   ) : (
                                     <p className="claimQrScanStatus muted" role="status">
-                                      Reading QR… hold steady in the frame
+                                      {claimQrScanDecoding
+                                        ? "Analyzing frame (deep scan)…"
+                                        : "Point QR at the frame — tap Capture now if slow"}
                                     </p>
                                   )}
                                 </div>

@@ -3135,6 +3135,7 @@ select.billsInput option,
 .claimQrVideo {
   position: absolute;
   inset: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
   min-width: 100%;
@@ -3143,11 +3144,13 @@ select.billsInput option,
   object-position: center;
   display: block;
   background: #050f22;
+  transform: translateZ(0);
 }
 
 .claimQrScanOverlay {
   position: absolute;
   inset: 0;
+  z-index: 2;
   pointer-events: none;
   display: flex;
   align-items: center;
@@ -3160,7 +3163,7 @@ select.billsInput option,
   border: 2px solid rgba(108, 219, 255, 0.85);
   border-radius: 14px;
   box-shadow:
-    0 0 0 9999px rgba(5, 15, 34, 0.45),
+    0 0 0 9999px rgba(5, 15, 34, 0.28),
     0 0 24px rgba(108, 219, 255, 0.35);
 }
 
@@ -3217,12 +3220,13 @@ select.billsInput option,
   font-weight: 600;
   color: #d8f6ff;
   background: rgba(5, 15, 34, 0.78);
-  z-index: 2;
+  z-index: 4;
 }
 
 .claimQrScanLoading {
   position: absolute;
   inset: 0;
+  z-index: 4;
   display: flex;
   align-items: center;
   justify-content: center;
