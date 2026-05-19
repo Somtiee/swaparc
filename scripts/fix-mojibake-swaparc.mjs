@@ -8,6 +8,13 @@ const file = path.join(process.cwd(), "src", "SwaparcApp.jsx");
 let s = fs.readFileSync(file, "utf8");
 
 const replacements = [
+  // Emoji UTF-8 saved as Latin-1 mojibake (ðŸ…)
+  ["\u00f0\u0178\u2019\u00a7", ""], // droplet before Get Faucet
+  ["\u00f0\u0178\u201c\u00b7", "+"], // camera overlay
+  ["\u00f0\u0178\u2018\u00a4", "@"], // default avatar
+  ["\u00f0\u0178\u201c\u2039", "Copy"], // clipboard
+  ["\u00f0\u0178\u2022\u02dc", "Hist"], // history/clock
+  ["\u00c2\u00b7", " | "], // middle dot separator
   // Curly quotes (must run before em dash — same prefix)
   ["\u00e2\u20ac\u0153", '"'],
   ["\u00e2\u20ac\u009d", '"'],
