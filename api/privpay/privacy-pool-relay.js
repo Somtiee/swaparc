@@ -150,12 +150,22 @@ export default async function handler(req, res) {
 
       const abi = [
         "function withdraw(bytes proof, bytes32 nullifierHash, address recipient, uint256 amount) external",
+        "function nullifierSpent(bytes32) view returns (bool)",
       ];
       const pool = new ethers.Contract(
         ethers.getAddress(poolAddress),
         abi,
         relayer
       );
+      const spent = await pool.nullifierSpent(nh).catch(() => false);
+      if (spent) {
+        return res.status(409).json({
+          ok: false,
+          error:
+            "This claim code was already used. Each payment can only be claimed once.",
+          code: "NULLIFIER_SPENT",
+        });
+      }
       const tx = await pool.getFunction(
         "withdraw(bytes,bytes32,address,uint256)"
       )(proofBytes, nh, ethers.getAddress(recipient), amountWei);
