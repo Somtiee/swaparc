@@ -337,41 +337,18 @@ function isTransientScanError(err) {
   );
 }
 
-/** Fast path for live camera frames — jsQR only (ZXing rejects canvas elements). */
-function decodeVideoFrameForClaimQr(videoEl, scanCanvas, scanCtx, framePass = 0) {
+/** Snapshot one camera frame — fed through the same decoder as Upload image. */
+function captureVideoFrameCanvas(videoEl) {
   const w = videoEl.videoWidth;
   const h = videoEl.videoHeight;
-  if (!w || !h || !scanCanvas || !scanCtx) return null;
-
-  const maxSide = framePass === 0 ? 1600 : 1280;
-  const scale = Math.min(1, maxSide / Math.max(w, h));
-  const cw = Math.max(16, Math.floor(w * scale));
-  const ch = Math.max(16, Math.floor(h * scale));
-  scanCanvas.width = cw;
-  scanCanvas.height = ch;
-  scanCtx.drawImage(videoEl, 0, 0, cw, ch);
-
-  if (framePass !== 2) {
-    const fullText = decodeCanvasWithJsQrPipeline(scanCanvas);
-    if (fullText) return fullText;
-  }
-
-  const cropRatios = framePass === 1 ? [0.88, 0.65] : [0.78, 0.55];
-  for (const ratio of cropRatios) {
-    const cropSide = Math.floor(Math.min(cw, ch) * ratio);
-    const sx = Math.floor((cw - cropSide) / 2);
-    const sy = Math.floor((ch - cropSide) / 2);
-    const crop = document.createElement("canvas");
-    crop.width = cropSide;
-    crop.height = cropSide;
-    const cropCtx = crop.getContext("2d", { willReadFrequently: true });
-    if (!cropCtx) continue;
-    cropCtx.drawImage(scanCanvas, sx, sy, cropSide, cropSide, 0, 0, cropSide, cropSide);
-    const text = decodeCanvasWithJsQrPipeline(crop);
-    if (text) return text;
-  }
-
-  return null;
+  if (!w || !h) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(videoEl, 0, 0, w, h);
+  return canvas;
 }
 
 function waitForVideoDimensions(videoEl, timeoutMs = 15000) {
@@ -428,7 +405,7 @@ function waitForVideoDimensions(videoEl, timeoutMs = 15000) {
 
 /**
  * Live camera QR scanner — prefers rear/environment camera on phones.
- * jsQR-only on video frames (ZXing cannot decode canvas / throws ImageSource errors).
+ * Uses decodeClaimQrFromCanvas (same pipeline as Upload image).
  */
 export function startClaimQrCameraScan({
   videoEl,
@@ -442,10 +419,8 @@ export function startClaimQrCameraScan({
   let devicesCache = null;
   let activeDeviceIndex = deviceIndex;
   let rafId = 0;
-  let scanCanvas = null;
-  let scanCtx = null;
   let lastFrameAt = 0;
-  let framePass = 0;
+  let decodeInFlight = false;
 
   const stopStream = () => {
     if (rafId) {
@@ -459,6 +434,33 @@ export function startClaimQrCameraScan({
     if (videoEl) videoEl.srcObject = null;
   };
 
+  const tryDecodeFrame = () => {
+    if (stopped || !videoEl || decodeInFlight) return;
+    const w = videoEl.videoWidth;
+    const h = videoEl.videoHeight;
+    if (!w || !h) return;
+
+    const canvas = captureVideoFrameCanvas(videoEl);
+    if (!canvas) return;
+
+    decodeInFlight = true;
+    onScanFrame?.();
+    decodeClaimQrFromCanvas(canvas)
+      .then((text) => {
+        if (stopped || !text) return;
+        stopped = true;
+        stopStream();
+        onResult(text);
+      })
+      .catch((e) => {
+        if (stopped || isTransientScanError(e)) return;
+        // Keep scanning — upload path also retries via multi-scale sources.
+      })
+      .finally(() => {
+        decodeInFlight = false;
+      });
+  };
+
   const scanLoop = () => {
     if (stopped || !videoEl) return;
 
@@ -470,28 +472,9 @@ export function startClaimQrCameraScan({
     }
 
     const now = performance.now();
-    if (now - lastFrameAt >= 45) {
+    if (now - lastFrameAt >= 550 && !decodeInFlight) {
       lastFrameAt = now;
-      if (!scanCanvas) {
-        scanCanvas = document.createElement("canvas");
-        scanCtx = scanCanvas.getContext("2d", { willReadFrequently: true });
-      }
-
-      try {
-        onScanFrame?.();
-        const text = decodeVideoFrameForClaimQr(videoEl, scanCanvas, scanCtx, framePass);
-        framePass = (framePass + 1) % 3;
-        if (text) {
-          stopped = true;
-          stopStream();
-          onResult(text);
-          return;
-        }
-      } catch (e) {
-        if (!isTransientScanError(e)) {
-          onError?.(e instanceof Error ? e : new Error(String(e)));
-        }
-      }
+      tryDecodeFrame();
     }
 
     rafId = requestAnimationFrame(scanLoop);
@@ -510,22 +493,28 @@ export function startClaimQrCameraScan({
 
       stopStream();
 
-      const videoConstraints = pick.deviceId
-        ? {
-            deviceId: { exact: pick.deviceId },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          }
-        : {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          };
-
-      activeStream = await navigator.mediaDevices.getUserMedia({
-        video: videoConstraints,
-        audio: false,
-      });
+      const base = pick.deviceId
+        ? { deviceId: { exact: pick.deviceId } }
+        : { facingMode: { ideal: "environment" } };
+      const constraintAttempts = [
+        { ...base, width: { ideal: 1920 }, height: { ideal: 1080 }, focusMode: { ideal: "continuous" } },
+        { ...base, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        { ...base, width: { ideal: 1280 }, height: { ideal: 720 } },
+        base,
+      ];
+      let streamErr = null;
+      for (const video of constraintAttempts) {
+        try {
+          activeStream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+          streamErr = null;
+          break;
+        } catch (e) {
+          streamErr = e;
+        }
+      }
+      if (!activeStream) {
+        throw streamErr || new Error("Could not open camera.");
+      }
 
       videoEl.srcObject = activeStream;
       videoEl.setAttribute("playsinline", "true");
@@ -558,6 +547,11 @@ export function startClaimQrCameraScan({
       activeDeviceIndex = (activeDeviceIndex + 1) % devicesCache.length;
       stopped = false;
       await attachAndDecode();
+    },
+    captureNow() {
+      if (stopped || !videoEl) return;
+      lastFrameAt = 0;
+      tryDecodeFrame();
     },
     getDeviceCount() {
       return devicesCache?.length || 0;

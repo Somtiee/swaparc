@@ -14401,15 +14401,17 @@ export default function SwaparcApp() {
                                   disabled={claimQrBusy}
                                   onClick={triggerClaimQrFilePicker}
                                 >
-                                  {claimQrBusy
-                                    ? "Reading QR…"
-                                    : claimQrFileLabel || "Choose image"}
+                                  {claimQrFileLabel || "Choose image"}
                                 </button>
-                                {!claimQrBusy ? (
+                                {claimQrBusy ? (
+                                  <p className="claimQrHint muted claimQrReadingHint" role="status">
+                                    Reading QR from image…
+                                  </p>
+                                ) : (
                                   <p className="claimQrHint muted">
                                     Photos from X, WhatsApp, or screenshots work. If scan fails, upload a screenshot.
                                   </p>
-                                ) : null}
+                                )}
                               </div>
                             ) : null}
                             {poolClaimInputMode === "scan" ? (
@@ -14438,7 +14440,7 @@ export default function SwaparcApp() {
                                     <p className="claimQrScanLoading muted">Starting camera…</p>
                                   ) : (
                                     <p className="claimQrScanStatus muted" role="status">
-                                      Scan in progress, please wait…
+                                      Reading QR… hold steady in the frame
                                     </p>
                                   )}
                                 </div>
@@ -14453,6 +14455,13 @@ export default function SwaparcApp() {
                                   <button
                                     type="button"
                                     className="secondaryBtn billsPayBtn"
+                                    onClick={() => claimQrScannerRef.current?.captureNow?.()}
+                                  >
+                                    Capture now
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="secondaryBtn billsPayBtn"
                                     onClick={() => {
                                       setPoolClaimInputMode("upload");
                                       setClaimQrError("");
@@ -14462,7 +14471,7 @@ export default function SwaparcApp() {
                                   </button>
                                 </div>
                                 <p className="claimQrHint muted">
-                                  Hold the QR steady inside the frame. For faster results, use Upload image with a screenshot.
+                                  Uses the same QR reader as Upload image. Hold steady or tap Capture now.
                                 </p>
                               </div>
                             ) : null}

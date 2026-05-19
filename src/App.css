@@ -3250,6 +3250,11 @@ select.billsInput option,
   line-height: 1.45;
 }
 
+.claimQrReadingHint {
+  color: #a8ecff;
+  font-weight: 600;
+}
+
 .claimQrError {
   margin: 8px 0;
   font-size: 13px;
