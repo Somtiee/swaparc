@@ -271,6 +271,120 @@ function bytesLikeToHex(value) {
   return String(value);
 }
 
+const CLAIM_ALREADY_USED_MSG =
+  "This claim code was already used. Each payment can only be claimed once.";
+
+function getRevertDataHex(err) {
+  if (!err) return null;
+  let data = err?.data ?? err?.info?.error?.data ?? err?.error?.data ?? null;
+  if (data && typeof data === "object" && typeof data.data === "string") {
+    data = data.data;
+  }
+  if (typeof data === "string" && data.startsWith("0x") && data.length >= 10) {
+    return data.slice(0, 10);
+  }
+  const raw = String(err?.message || err?.shortMessage || "");
+  const match = raw.match(/data="(0x[a-fA-F0-9]{8,})"/);
+  if (match?.[1]) return match[1].slice(0, 10);
+  const bare = raw.match(/\b(0x[a-fA-F0-9]{8})\b/);
+  if (bare?.[1]) return bare[1];
+  return null;
+}
+
+function decodePoolRevertSelector(selector) {
+  if (!selector) return "";
+  const errId = (sig) => ethers.id(sig).slice(0, 10);
+  if (selector === errId("NullifierSpent()")) return CLAIM_ALREADY_USED_MSG;
+  if (selector === errId("InvalidProof()")) {
+    return (
+      "On-chain proof check failed. Browser proving keys must match the deployed verifier " +
+      "(redeploy pool after npm run privpay:zk-artifacts, or hard-refresh the site)."
+    );
+  }
+  if (selector === errId("RootUnknown()")) {
+    return "This pool no longer recognizes the payment root (wrong network, stale RPC, or wrong pool address).";
+  }
+  if (selector === errId("PublicSignalMismatch()")) {
+    return "Withdraw details do not match the proof. Paste the full claim code from the payer receipt.";
+  }
+  if (selector === errId("CommitmentAmountMismatch()")) {
+    return "Payment amount in the claim code does not match what was deposited.";
+  }
+  if (selector === errId("CommitmentAlreadyUsed()")) {
+    return "This deposit commitment was already used on-chain.";
+  }
+  return "";
+}
+
+/** User-facing claim error (hides raw RPC / estimateGas dumps when possible). */
+function friendlyPoolClaimError(err) {
+  const selectorMsg = decodePoolRevertSelector(getRevertDataHex(err));
+  if (selectorMsg) return selectorMsg;
+
+  const decoded = extractEthersRevertReason(err);
+  const msg = decoded || (err instanceof Error ? err.message : String(err || ""));
+  if (/already claimed|nullifier spent|NullifierSpent|already used|0x63734faa/i.test(msg)) {
+    return CLAIM_ALREADY_USED_MSG;
+  }
+  if (/PrivPayClaim_.*line:\s*38|Assert Failed/i.test(msg)) {
+    return "Claim prover files are out of sync. Run npm run privpay:zk-artifacts, hard refresh, then retry.";
+  }
+  if (/InvalidProof|0x09bde339/i.test(msg)) {
+    return decodePoolRevertSelector(ethers.id("InvalidProof()").slice(0, 10));
+  }
+  if (/too many requests|apolloerror:\s*429|rate.?limit/i.test(msg)) {
+    return "Claim provider is rate-limiting requests. Wait 20–60 seconds and try again.";
+  }
+  if (
+    /root still not recognized|could not verify claim proof root|root mismatch|known historical root|from_block is too recent/i.test(
+      msg
+    )
+  ) {
+    return "Claim could not be verified against pool history. Check network/pool settings and try again.";
+  }
+  if (/BROADCAST_FAILED/i.test(msg)) {
+    const relayMatch = msg.match(/relay fallback (?:also )?failed \(([^)]+)\)/i);
+    const relayReason = relayMatch?.[1]?.trim() || "";
+    if (/nonce gap|stuck pending/i.test(msg)) {
+      return "Wallet has stuck pending transactions. Clear activity in your wallet extension, then retry. No funds were spent.";
+    }
+    if (/relay not configured/i.test(relayReason)) {
+      return "Server relay is not configured for this deployment. Retry later or use a standard wallet. No funds were spent.";
+    }
+    if (/pool not allowed|allowlist/i.test(relayReason)) {
+      return "This pool is not on the relay allowlist. No funds were spent.";
+    }
+    if (/rate limit/i.test(relayReason)) {
+      return "Claim relay is rate-limited. Wait about a minute and try again.";
+    }
+    if (relayReason) {
+      return `Claim could not be broadcast (${relayReason}). No funds were spent — please retry.`;
+    }
+    return "Claim was signed but did not reach the network. No funds were spent — retry or try another device.";
+  }
+  if (msg.length > 280 && /estimateGas|CALL_EXCEPTION|execution reverted/i.test(msg)) {
+    return "Claim was rejected on-chain. If you already claimed this code, it cannot be used again.";
+  }
+  return msg;
+}
+
+async function poolNullifierAlreadySpent(poolAddress, nullifierHashHex) {
+  const poolAddr = normalizeAddress(poolAddress);
+  const nh = ethers.zeroPadValue(nullifierHashHex, 32);
+  const provider = getReadProvider();
+  const pool = new ethers.Contract(poolAddr, PRIVACY_POOL_ABI, provider);
+  try {
+    if (await pool.nullifierSpent(nh)) return true;
+    const rev = reverseHex32Bytes(nh);
+    if (rev && rev.toLowerCase() !== nh.toLowerCase()) {
+      return Boolean(await pool.nullifierSpent(rev));
+    }
+  } catch {
+    // RPC read failed — continue; submit path may still surface a revert.
+  }
+  return false;
+}
+
 /** Best-effort revert reason for ethers v6 / RPC errors (helps debug failed claims). */
 function extractEthersRevertReason(err) {
   if (!err) return "";
@@ -284,6 +398,12 @@ function extractEthersRevertReason(err) {
     err?.info?.error?.message || err?.error?.message || err?.data?.message || ""
   ).trim();
   const raw = String(err?.message || "").trim();
+
+  const selectorOnly = getRevertDataHex(err);
+  if (selectorOnly) {
+    const friendly = decodePoolRevertSelector(selectorOnly);
+    if (friendly) return friendly;
+  }
 
   let data =
     err?.data ?? err?.info?.error?.data ?? err?.error?.data ?? null;
@@ -328,7 +448,7 @@ function extractEthersRevertReason(err) {
     return "ZKPrivacyPool: merkle root from proof is not a known historical root for this pool (wrong network, stale RPC, or wrong pool address).";
   }
   if (selector === errId("NullifierSpent()")) {
-    return "ZKPrivacyPool: this payment was already claimed (nullifier spent).";
+    return CLAIM_ALREADY_USED_MSG;
   }
   if (selector === errId("PublicSignalMismatch()")) {
     return "ZKPrivacyPool: withdraw arguments do not match proof public signals.";
@@ -7626,6 +7746,13 @@ export default function SwaparcApp() {
     if (!secret || secret.length !== 66 || !nullifier || nullifier.length !== 66) {
       throw new Error("Claim code must include secret and nullifier (full v3 zk-claim).");
     }
+    setPoolClaimStatus("Checking if this code was already claimed…");
+    const nullifierHashHex = ethers.hexlify(
+      await computePrivpayNullifierHashBytes(secret, nullifier)
+    );
+    if (await poolNullifierAlreadySpent(poolAddress, nullifierHashHex)) {
+      throw new Error(CLAIM_ALREADY_USED_MSG);
+    }
     let amountWei =
       data.amountWei != null && data.amountWei !== ""
         ? String(data.amountWei)
@@ -14425,85 +14552,8 @@ export default function SwaparcApp() {
                                   }
                                   setPoolClaimCodeInput("");
                                 } catch (e) {
-                                  const msg = extractEthersRevertReason(e) || e?.message || String(e);
                                   setPoolClaimStatus("");
-                                  if (/BROADCAST_FAILED/i.test(msg)) {
-                                    // Pull the actual relay error out of the
-                                    // BROADCAST_FAILED wrapper so the user sees
-                                    // something actionable instead of a generic
-                                    // wallet/network message.
-                                    const relayMatch = msg.match(
-                                      /relay fallback (?:also )?failed \(([^)]+)\)/i
-                                    );
-                                    const relayReason = relayMatch
-                                      ? relayMatch[1].trim()
-                                      : "";
-                                    if (/nonce gap|stuck pending/i.test(msg)) {
-                                      setPoolClaimError(
-                                        "Your wallet has stuck pending transactions blocking this claim (nonce gap). In your wallet extension, go to Settings → Advanced → Clear Activity/Reset Account, then retry. Or claim from a different wallet or device. No funds were spent."
-                                      );
-                                    } else if (
-                                      /relay not configured/i.test(relayReason)
-                                    ) {
-                                      setPoolClaimError(
-                                        "Claim fallback unavailable: server relayer is not configured for this deployment. Please retry from a device/wallet whose RPC is working. No funds were spent."
-                                      );
-                                    } else if (
-                                      /pool not allowed|allowlist/i.test(
-                                        relayReason
-                                      )
-                                    ) {
-                                      setPoolClaimError(
-                                        "Claim fallback blocked: this pool is not on the relay allowlist. Please retry from a device/wallet whose RPC is working. No funds were spent."
-                                      );
-                                    } else if (
-                                      /rate limit/i.test(relayReason)
-                                    ) {
-                                      setPoolClaimError(
-                                        "Claim fallback rate-limited. Please wait ~1 minute and try again. No funds were spent."
-                                      );
-                                    } else if (relayReason) {
-                                      setPoolClaimError(
-                                        `Your wallet did not broadcast and the server relay fallback also failed (${relayReason}). No funds were spent — please retry.`
-                                      );
-                                    } else {
-                                      setPoolClaimError(
-                                        "Your wallet signed the claim but the transaction did not reach the Arc network. This is a wallet/network issue on this device (custom RPC, offline, or extension glitch). No funds were spent — please retry, or try a different wallet or device."
-                                      );
-                                    }
-                                  } else if (
-                                    /already claimed|nullifier spent|NullifierSpent|this payment was already claimed/i.test(
-                                      msg
-                                    )
-                                  ) {
-                                    setPoolClaimError(
-                                      "You have already claimed this code. Each claim code can only be used once."
-                                    );
-                                  } else if (/PrivPayClaim_.*line:\s*38|Assert Failed/i.test(msg)) {
-                                    setPoolClaimError(
-                                      "Claim prover artifacts are out of sync. Regenerate/copy fresh wasm+zkey (npm run privpay:zk-artifacts), hard refresh, then retry claim."
-                                    );
-                                  } else if (/InvalidProof|0x09bde339/i.test(msg)) {
-                                    setPoolClaimError(
-                                      "On-chain proof check failed: browser proving key must match deployed verifier — redeploy pool stack after changing zk artifacts, or refresh site files from the same build you deployed."
-                                    );
-                                  } else if (
-                                    /too many requests|apolloerror:\s*429|rate.?limit/i.test(msg)
-                                  ) {
-                                    setPoolClaimError(
-                                      "Claim provider is rate-limiting requests right now. Please wait 20-60 seconds and retry once."
-                                    );
-                                  } else if (
-                                    /root still not recognized|could not verify claim proof root|root mismatch|known historical root|root is not recognized on this rpc|from_block is too recent/i.test(
-                                      msg
-                                    )
-                                  ) {
-                                    setPoolClaimError(
-                                      "Claim could not be verified against the current pool history. Check pool/network config and try again."
-                                    );
-                                  } else {
-                                    setPoolClaimError(msg);
-                                  }
+                                  setPoolClaimError(friendlyPoolClaimError(e));
                                 } finally {
                                   clearInterval(slowClaimHintTimer);
                                   setPoolClaimBusy(false);
