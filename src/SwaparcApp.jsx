@@ -368,23 +368,6 @@ function friendlyPoolClaimError(err) {
   return msg;
 }
 
-async function poolNullifierAlreadySpent(poolAddress, nullifierHashHex) {
-  const poolAddr = normalizeAddress(poolAddress);
-  const nh = ethers.zeroPadValue(nullifierHashHex, 32);
-  const provider = getReadProvider();
-  const pool = new ethers.Contract(poolAddr, PRIVACY_POOL_ABI, provider);
-  try {
-    if (await pool.nullifierSpent(nh)) return true;
-    const rev = reverseHex32Bytes(nh);
-    if (rev && rev.toLowerCase() !== nh.toLowerCase()) {
-      return Boolean(await pool.nullifierSpent(rev));
-    }
-  } catch {
-    // RPC read failed — continue; submit path may still surface a revert.
-  }
-  return false;
-}
-
 /** Best-effort revert reason for ethers v6 / RPC errors (helps debug failed claims). */
 function extractEthersRevertReason(err) {
   if (!err) return "";
@@ -7712,6 +7695,23 @@ export default function SwaparcApp() {
       setTimeout(tick, intervalMs);
     };
     setTimeout(tick, intervalMs);
+  }
+
+  async function poolNullifierAlreadySpent(poolAddress, nullifierHashHex) {
+    const poolAddr = normalizeAddress(poolAddress);
+    const nh = ethers.zeroPadValue(nullifierHashHex, 32);
+    const provider = getReadProvider();
+    const pool = new ethers.Contract(poolAddr, PRIVACY_POOL_ABI, provider);
+    try {
+      if (await pool.nullifierSpent(nh)) return true;
+      const rev = reverseHex32Bytes(nh);
+      if (rev && rev.toLowerCase() !== nh.toLowerCase()) {
+        return Boolean(await pool.nullifierSpent(rev));
+      }
+    } catch {
+      // RPC read failed — continue; submit path may still surface a revert.
+    }
+    return false;
   }
 
   async function claimPrivacyPoolFromClaimCode(rawCode) {
