@@ -1,0 +1,10 @@
+# Keep source UTF-8 so emoji/symbols in JSX do not become mojibake (e.g. via PowerShell).
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+
+[*.{jsx,js,tsx,ts,md,json}]
+charset = utf-8
