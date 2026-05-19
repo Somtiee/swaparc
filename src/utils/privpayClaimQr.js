@@ -341,14 +341,40 @@ function isTransientScanError(err) {
 function captureVideoFrameCanvas(videoEl) {
   const w = videoEl.videoWidth;
   const h = videoEl.videoHeight;
-  if (!w || !h) return null;
+  if (!w || !h || videoEl.readyState < 2) return null;
+  const maxSide = 1280;
+  const scale = Math.min(1, maxSide / Math.max(w, h));
+  const cw = Math.max(16, Math.floor(w * scale));
+  const ch = Math.max(16, Math.floor(h * scale));
   const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = cw;
+  canvas.height = ch;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return null;
-  ctx.drawImage(videoEl, 0, 0, w, h);
+  ctx.drawImage(videoEl, 0, 0, cw, ch);
   return canvas;
+}
+
+/** Fast live-frame pass (jsQR + center crop). */
+function quickDecodeCanvas(canvas) {
+  const direct = decodeCanvasWithJsQrPipeline(canvas);
+  if (direct) return direct;
+  const w = canvas.width;
+  const h = canvas.height;
+  for (const ratio of [0.82, 0.62]) {
+    const cropSide = Math.floor(Math.min(w, h) * ratio);
+    const sx = Math.floor((w - cropSide) / 2);
+    const sy = Math.floor((h - cropSide) / 2);
+    const crop = document.createElement("canvas");
+    crop.width = cropSide;
+    crop.height = cropSide;
+    const cropCtx = crop.getContext("2d", { willReadFrequently: true });
+    if (!cropCtx) continue;
+    cropCtx.drawImage(canvas, sx, sy, cropSide, cropSide, 0, 0, cropSide, cropSide);
+    const text = decodeCanvasWithJsQrPipeline(crop);
+    if (text) return text;
+  }
+  return null;
 }
 
 function waitForVideoDimensions(videoEl, timeoutMs = 15000) {
@@ -412,6 +438,8 @@ export function startClaimQrCameraScan({
   onResult,
   onError,
   onScanFrame,
+  onCameraReady,
+  onDecoding,
   deviceIndex = -1,
 }) {
   let stopped = false;
@@ -421,6 +449,8 @@ export function startClaimQrCameraScan({
   let rafId = 0;
   let lastFrameAt = 0;
   let decodeInFlight = false;
+  let scanPass = 0;
+  let scanStartedAt = Date.now();
 
   const stopStream = () => {
     if (rafId) {
@@ -434,7 +464,7 @@ export function startClaimQrCameraScan({
     if (videoEl) videoEl.srcObject = null;
   };
 
-  const tryDecodeFrame = () => {
+  const tryDecodeFrame = (forceFullPipeline = false) => {
     if (stopped || !videoEl || decodeInFlight) return;
     const w = videoEl.videoWidth;
     const h = videoEl.videoHeight;
@@ -443,26 +473,47 @@ export function startClaimQrCameraScan({
     const canvas = captureVideoFrameCanvas(videoEl);
     if (!canvas) return;
 
+    scanPass += 1;
+    const useFull =
+      forceFullPipeline || scanPass % 6 === 0 || Date.now() - scanStartedAt > 8000;
+
     decodeInFlight = true;
     onScanFrame?.();
-    decodeClaimQrFromCanvas(canvas)
+    onDecoding?.(useFull);
+
+    const decodeWork = useFull
+      ? decodeClaimQrFromCanvas(canvas)
+      : Promise.resolve(quickDecodeCanvas(canvas));
+
+    decodeWork
       .then((text) => {
         if (stopped || !text) return;
         stopped = true;
         stopStream();
         onResult(text);
       })
-      .catch((e) => {
-        if (stopped || isTransientScanError(e)) return;
-        // Keep scanning — upload path also retries via multi-scale sources.
+      .catch(() => {
+        // No QR in this frame — keep scanning.
       })
       .finally(() => {
         decodeInFlight = false;
+        if (!stopped) onDecoding?.(false);
       });
   };
 
   const scanLoop = () => {
     if (stopped || !videoEl) return;
+
+    if (Date.now() - scanStartedAt > 90000) {
+      stopped = true;
+      stopStream();
+      onError?.(
+        new Error(
+          "Could not read the QR. Tap Capture now, use Upload image with a screenshot, or paste the code."
+        )
+      );
+      return;
+    }
 
     const w = videoEl.videoWidth;
     const h = videoEl.videoHeight;
@@ -472,9 +523,9 @@ export function startClaimQrCameraScan({
     }
 
     const now = performance.now();
-    if (now - lastFrameAt >= 550 && !decodeInFlight) {
+    if (now - lastFrameAt >= 320 && !decodeInFlight) {
       lastFrameAt = now;
-      tryDecodeFrame();
+      tryDecodeFrame(false);
     }
 
     rafId = requestAnimationFrame(scanLoop);
@@ -523,6 +574,9 @@ export function startClaimQrCameraScan({
       await videoEl.play();
 
       await waitForVideoDimensions(videoEl);
+      scanStartedAt = Date.now();
+      scanPass = 0;
+      onCameraReady?.();
       rafId = requestAnimationFrame(scanLoop);
     } catch (e) {
       const msg =
@@ -551,7 +605,7 @@ export function startClaimQrCameraScan({
     captureNow() {
       if (stopped || !videoEl) return;
       lastFrameAt = 0;
-      tryDecodeFrame();
+      tryDecodeFrame(true);
     },
     getDeviceCount() {
       return devicesCache?.length || 0;
