@@ -3164,6 +3164,62 @@ select.billsInput option,
     0 0 24px rgba(108, 219, 255, 0.35);
 }
 
+.claimQrScanViewportActive .claimQrScanFrame {
+  animation: claimQrFramePulse 1.6s ease-in-out infinite;
+}
+
+.claimQrScanLine {
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(108, 219, 255, 0.95),
+    transparent
+  );
+  box-shadow: 0 0 12px rgba(108, 219, 255, 0.65);
+  animation: claimQrScanLineMove 2s ease-in-out infinite;
+}
+
+@keyframes claimQrScanLineMove {
+  0%,
+  100% {
+    top: 22%;
+    opacity: 0.55;
+  }
+  50% {
+    top: 72%;
+    opacity: 1;
+  }
+}
+
+@keyframes claimQrFramePulse {
+  0%,
+  100% {
+    border-color: rgba(108, 219, 255, 0.65);
+  }
+  50% {
+    border-color: rgba(165, 255, 222, 0.95);
+  }
+}
+
+.claimQrScanStatus {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 10px;
+  margin: 0;
+  padding: 6px 10px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #d8f6ff;
+  background: rgba(5, 15, 34, 0.78);
+  z-index: 2;
+}
+
 .claimQrScanLoading {
   position: absolute;
   inset: 0;
@@ -3177,7 +3233,9 @@ select.billsInput option,
 
 .claimQrScanActions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
+  gap: 8px;
   margin-top: 10px;
 }
 

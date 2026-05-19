@@ -338,12 +338,12 @@ function isTransientScanError(err) {
 }
 
 /** Fast path for live camera frames — jsQR only (ZXing rejects canvas elements). */
-function decodeVideoFrameForClaimQr(videoEl, scanCanvas, scanCtx) {
+function decodeVideoFrameForClaimQr(videoEl, scanCanvas, scanCtx, framePass = 0) {
   const w = videoEl.videoWidth;
   const h = videoEl.videoHeight;
   if (!w || !h || !scanCanvas || !scanCtx) return null;
 
-  const maxSide = 1280;
+  const maxSide = framePass === 0 ? 1600 : 1280;
   const scale = Math.min(1, maxSide / Math.max(w, h));
   const cw = Math.max(16, Math.floor(w * scale));
   const ch = Math.max(16, Math.floor(h * scale));
@@ -351,20 +351,27 @@ function decodeVideoFrameForClaimQr(videoEl, scanCanvas, scanCtx) {
   scanCanvas.height = ch;
   scanCtx.drawImage(videoEl, 0, 0, cw, ch);
 
-  let text = decodeCanvasWithJsQrPipeline(scanCanvas);
-  if (text) return text;
+  if (framePass !== 2) {
+    const fullText = decodeCanvasWithJsQrPipeline(scanCanvas);
+    if (fullText) return fullText;
+  }
 
-  const cropSide = Math.floor(Math.min(cw, ch) * 0.78);
-  const sx = Math.floor((cw - cropSide) / 2);
-  const sy = Math.floor((ch - cropSide) / 2);
-  const crop = document.createElement("canvas");
-  crop.width = cropSide;
-  crop.height = cropSide;
-  const cropCtx = crop.getContext("2d", { willReadFrequently: true });
-  if (!cropCtx) return null;
-  cropCtx.drawImage(scanCanvas, sx, sy, cropSide, cropSide, 0, 0, cropSide, cropSide);
+  const cropRatios = framePass === 1 ? [0.88, 0.65] : [0.78, 0.55];
+  for (const ratio of cropRatios) {
+    const cropSide = Math.floor(Math.min(cw, ch) * ratio);
+    const sx = Math.floor((cw - cropSide) / 2);
+    const sy = Math.floor((ch - cropSide) / 2);
+    const crop = document.createElement("canvas");
+    crop.width = cropSide;
+    crop.height = cropSide;
+    const cropCtx = crop.getContext("2d", { willReadFrequently: true });
+    if (!cropCtx) continue;
+    cropCtx.drawImage(scanCanvas, sx, sy, cropSide, cropSide, 0, 0, cropSide, cropSide);
+    const text = decodeCanvasWithJsQrPipeline(crop);
+    if (text) return text;
+  }
 
-  return decodeCanvasWithJsQrPipeline(crop);
+  return null;
 }
 
 function waitForVideoDimensions(videoEl, timeoutMs = 15000) {
@@ -423,7 +430,13 @@ function waitForVideoDimensions(videoEl, timeoutMs = 15000) {
  * Live camera QR scanner — prefers rear/environment camera on phones.
  * jsQR-only on video frames (ZXing cannot decode canvas / throws ImageSource errors).
  */
-export function startClaimQrCameraScan({ videoEl, onResult, onError, deviceIndex = -1 }) {
+export function startClaimQrCameraScan({
+  videoEl,
+  onResult,
+  onError,
+  onScanFrame,
+  deviceIndex = -1,
+}) {
   let stopped = false;
   let activeStream = null;
   let devicesCache = null;
@@ -432,6 +445,7 @@ export function startClaimQrCameraScan({ videoEl, onResult, onError, deviceIndex
   let scanCanvas = null;
   let scanCtx = null;
   let lastFrameAt = 0;
+  let framePass = 0;
 
   const stopStream = () => {
     if (rafId) {
@@ -456,7 +470,7 @@ export function startClaimQrCameraScan({ videoEl, onResult, onError, deviceIndex
     }
 
     const now = performance.now();
-    if (now - lastFrameAt >= 80) {
+    if (now - lastFrameAt >= 45) {
       lastFrameAt = now;
       if (!scanCanvas) {
         scanCanvas = document.createElement("canvas");
@@ -464,7 +478,9 @@ export function startClaimQrCameraScan({ videoEl, onResult, onError, deviceIndex
       }
 
       try {
-        const text = decodeVideoFrameForClaimQr(videoEl, scanCanvas, scanCtx);
+        onScanFrame?.();
+        const text = decodeVideoFrameForClaimQr(videoEl, scanCanvas, scanCtx, framePass);
+        framePass = (framePass + 1) % 3;
         if (text) {
           stopped = true;
           stopStream();
