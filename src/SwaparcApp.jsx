@@ -14405,11 +14405,11 @@ export default function SwaparcApp() {
                                     ? "Reading QR…"
                                     : claimQrFileLabel || "Choose image"}
                                 </button>
-                                <p className="claimQrHint muted">
-                                  {claimQrBusy
-                                    ? "Reading QR from image…"
-                                    : "Photos from X, WhatsApp, or screenshots work. If scan fails, upload a screenshot."}
-                                </p>
+                                {!claimQrBusy ? (
+                                  <p className="claimQrHint muted">
+                                    Photos from X, WhatsApp, or screenshots work. If scan fails, upload a screenshot.
+                                  </p>
+                                ) : null}
                               </div>
                             ) : null}
                             {poolClaimInputMode === "scan" ? (
@@ -14471,9 +14471,6 @@ export default function SwaparcApp() {
                             ) : null}
                             {claimQrPrefillNote ? (
                               <p className="claimQrPrefillNote">{claimQrPrefillNote}</p>
-                            ) : null}
-                            {claimQrBusy ? (
-                              <p className="claimQrHint muted">Reading QR from image…</p>
                             ) : null}
                             <button
                               type="button"
