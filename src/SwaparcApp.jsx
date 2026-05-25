@@ -51,7 +51,8 @@ const ARC_CHAIN_ID_HEX = `0x${ARC_CHAIN_ID_DEC.toString(16)}`;
 const CIRCLE_APP_ID = import.meta.env.VITE_CIRCLE_APP_ID || "";
 /** Default read RPC for ARC Testnet (no API key). Override with VITE_ARC_RPC_URL. */
 const ARC_PUBLIC_RPC = "https://rpc.testnet.arc.network";
-/** Weekly static landing stats (Sunday cron); TVL stays live via RPC. */
+/** Weekly static landing stats (Sunday cron); TVL via RPC once/day on landing. */
+/** localStorage fallback TTL only when CDN fetch fails (offline). */
 const LANDING_STATS_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const LANDING_STATIC_STATS_URL =
   import.meta.env.VITE_LANDING_STATS_URL || "/stats/landing-network.json";
@@ -1185,27 +1186,8 @@ export default function SwaparcApp() {
     topSwapCount: [],
     topLPProvided: [],
   });
-  const [landingApiStats, setLandingApiStats] = useState(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const raw = window.localStorage.getItem("swaparc_landing_api_stats");
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object") return null;
-      const refreshedAt = String(parsed.refreshedAt || "");
-      const refreshedTs = refreshedAt ? Date.parse(refreshedAt) : NaN;
-      if (!Number.isFinite(refreshedTs)) return null;
-      if (Date.now() - refreshedTs > LANDING_STATS_CACHE_MAX_AGE_MS) return null;
-      return {
-        totalSwapVolume: Number(parsed.totalSwapVolume || 0),
-        totalSwapCount: Number(parsed.totalSwapCount || 0),
-        uniqueUsers: Number(parsed.uniqueUsers || 0),
-        refreshedAt,
-      };
-    } catch {
-      return null;
-    }
-  });
+  /** Weekly static JSON only; set after fetch (not from localStorage on load). */
+  const [landingApiStats, setLandingApiStats] = useState(null);
   const [showConnectMenu, setShowConnectMenu] = useState(false);
   const [showWalletMenu, setShowWalletMenu] = useState(false);
   const [showResourcesMenu, setShowResourcesMenu] = useState(false);
@@ -1324,28 +1306,25 @@ export default function SwaparcApp() {
             .filter(Boolean)
         ).size
     );
-    const hasApiLandingStats = !!landingApiStats?.refreshedAt;
-    const totalSwapVolume = Number(
-      hasApiLandingStats
-        ? Math.max(Number(landingApiStats?.totalSwapVolume || 0), fallbackSwapVolume)
-        : fallbackSwapVolume
-    );
-    const totalSwapCount = Number(
-      hasApiLandingStats
-        ? Math.max(Number(landingApiStats?.totalSwapCount || 0), fallbackSwapCount)
-        : fallbackSwapCount
-    );
     const totalTvl = Number(
       totalPoolTVL() ||
         leaderboard?.totalLP ||
         lpRows.reduce((acc, row) => acc + Number(row?.lpProvided || 0), 0)
     );
-    const uniqueUsers = Number(
-      hasApiLandingStats
-        ? Math.max(Number(landingApiStats?.uniqueUsers || 0), fallbackUniqueUsers)
-        : fallbackUniqueUsers
-    );
-    return { totalSwapVolume, totalSwapCount, totalTvl, uniqueUsers };
+    if (landingApiStats?.refreshedAt) {
+      return {
+        totalSwapVolume: Number(landingApiStats.totalSwapVolume || 0),
+        totalSwapCount: Number(landingApiStats.totalSwapCount || 0),
+        uniqueUsers: Number(landingApiStats.uniqueUsers || 0),
+        totalTvl,
+      };
+    }
+    return {
+      totalSwapVolume: fallbackSwapVolume,
+      totalSwapCount: fallbackSwapCount,
+      uniqueUsers: fallbackUniqueUsers,
+      totalTvl,
+    };
   }, [leaderboard, landingApiStats, poolBalances]);
   const [animatedLandingStats, setAnimatedLandingStats] = useState({
     totalSwapVolume: 0,
@@ -3359,6 +3338,28 @@ export default function SwaparcApp() {
     };
   }, [authMode, address, circleWalletReady, circleWallet?.address, profileStats?.swapCount, profileStats?.swapVolume, profileStats?.lpProvided]);
 
+  function readLandingStatsFromLocalStorage() {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.localStorage.getItem("swaparc_landing_api_stats");
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return null;
+      const refreshedAt = String(parsed.refreshedAt || "");
+      const refreshedTs = refreshedAt ? Date.parse(refreshedAt) : NaN;
+      if (!Number.isFinite(refreshedTs)) return null;
+      if (Date.now() - refreshedTs > LANDING_STATS_CACHE_MAX_AGE_MS) return null;
+      return {
+        totalSwapVolume: Number(parsed.totalSwapVolume || 0),
+        totalSwapCount: Number(parsed.totalSwapCount || 0),
+        uniqueUsers: Number(parsed.uniqueUsers || 0),
+        refreshedAt,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   function applyLandingPublicPayload(data) {
     if (!data?.stats || typeof data.stats !== "object") return false;
     const refreshedAt = String(data.refreshedAt || new Date().toISOString());
@@ -3402,7 +3403,7 @@ export default function SwaparcApp() {
   /** CDN static JSON from weekly cron - zero Railway Redis reads on landing load. */
   async function fetchLandingPublicStats() {
     try {
-      const res = await fetch(LANDING_STATIC_STATS_URL, { cache: "default" });
+      const res = await fetch(LANDING_STATIC_STATS_URL, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
         throw new Error("Static landing stats unavailable");
@@ -3411,6 +3412,11 @@ export default function SwaparcApp() {
       return true;
     } catch (err) {
       console.warn("Landing static stats:", err?.message || err);
+      const cached = readLandingStatsFromLocalStorage();
+      if (cached) {
+        setLandingApiStats(cached);
+        return true;
+      }
       return false;
     }
   }
