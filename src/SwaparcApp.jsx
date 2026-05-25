@@ -55,8 +55,8 @@ const ARC_PUBLIC_RPC = "https://rpc.testnet.arc.network";
 const LANDING_STATS_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const LANDING_STATIC_STATS_URL =
   import.meta.env.VITE_LANDING_STATS_URL || "/stats/landing-network.json";
-/** On-chain pool TVL only - does not use Railway Redis. */
-const LANDING_TVL_POLL_MS = 60 * 1000;
+/** On-chain pool TVL only - does not use Railway Redis. Refreshed once per day on landing. */
+const LANDING_TVL_POLL_MS = 24 * 60 * 60 * 1000;
 
 console.log("Circle setup:", { CIRCLE_APP_ID });
 
