@@ -857,7 +857,13 @@ function TokenSelect({ tokens, value, onChange }) {
           />
         </span>
 
-        <span className="tokenLabel">{value}</span>
+        <span
+          className="tokenLabel"
+          data-trustgate="token-shield"
+          data-trustgate-address={tokens.find((t) => t.symbol === value)?.address || ""}
+        >
+          {value}
+        </span>
         <span className="caret">{open ? "▴" : "▾"}</span>
       </button>
 
@@ -894,7 +900,14 @@ function TokenSelect({ tokens, value, onChange }) {
                   </span>
 
                   <div style={{ textAlign: "left" }}>
-                    <div className="optSym">{t.symbol}</div>
+                    <div
+                      className="optSym"
+                      data-trustgate="token-shield"
+                      data-trustgate-address={t.address}
+                      data-trustgate-style="full"
+                    >
+                      {t.symbol}
+                    </div>
                     <div className="optName">{t.name}</div>
                   </div>
                 </button>
