@@ -1167,6 +1167,11 @@ body {
   .swapInput.readOnly {
     font-size: clamp(24px, 7.6vw, 32px) !important;
   }
+
+  .swapAmountCol .swapInput,
+  .swapAmountCol .swapInput.readOnly {
+    margin-top: 4px;
+  }
 }
 
 .tabHeader {
