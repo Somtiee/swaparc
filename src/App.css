@@ -1155,6 +1155,7 @@ body {
     flex: 0 1 auto;
     max-width: 100%;
     align-items: flex-end;
+    margin-top: 6px;
   }
 
   .swapTokenCol .tokenBalanceHint {
@@ -1171,16 +1172,16 @@ body {
   }
 
   .swapTokenCol .tokenbtn {
-    width: auto;
+    width: auto !important;
     max-width: 100%;
     min-width: 132px;
   }
 
   .swapTokenCol .tokendropdown {
-    right: 0;
-    left: auto;
-    width: min(320px, calc(100vw - 40px));
-    max-width: calc(100vw - 40px);
+    right: 0 !important;
+    left: auto !important;
+    width: min(280px, calc(100vw - 28px));
+    max-width: calc(100vw - 28px);
   }
 
   .swapInput.readOnly {
@@ -1189,7 +1190,9 @@ body {
 
   .swapAmountCol .swapInput,
   .swapAmountCol .swapInput.readOnly {
-    margin-top: 4px;
+    margin-top: 8px;
+    line-height: 1.1;
+    font-size: clamp(22px, 7vw, 32px) !important;
   }
 }
 
