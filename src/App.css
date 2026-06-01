@@ -1139,6 +1139,34 @@ body {
     font-size: 12px;
     padding: 6px 0;
   }
+
+  .swapBox {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    row-gap: 10px;
+  }
+
+  .swapAmountCol {
+    flex: 1 1 52%;
+    min-width: 0;
+  }
+
+  .swapTokenCol {
+    flex: 0 1 auto;
+    max-width: 100%;
+    align-items: flex-end;
+  }
+
+  .swapTokenCol .tokenBalanceHint {
+    max-width: 100%;
+    text-align: right;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .swapInput.readOnly {
+    font-size: clamp(24px, 7.6vw, 32px) !important;
+  }
 }
 
 .tabHeader {
@@ -3156,6 +3184,14 @@ select.billsInput option,
   font-size: 12px;
   color: #9fd8ff;
   opacity: 0.85;
+}
+
+.swapAmountCol {
+  min-width: 0;
+}
+
+.swapTokenCol {
+  min-width: 0;
 }
 
 .topNav {

@@ -12095,7 +12095,7 @@ export default function SwaparcApp() {
 
                   <div className="swapRowClean">
                     <div className="swapBox">
-                      <div style={{ display: "flex", flexDirection: "column", flex: 1, gap: 8 }}>
+                      <div className="swapAmountCol" style={{ display: "flex", flexDirection: "column", flex: 1, gap: 8 }}>
                         <div className="swapLabel" style={{ marginBottom: 0 }}>Sell</div>
                         <input
                           className="swapInput"
@@ -12107,7 +12107,7 @@ export default function SwaparcApp() {
                           onChange={(e) => setSwapAmount(e.target.value)}
                         />
                       </div>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 12 }}>
+                      <div className="swapTokenCol" style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 12 }}>
                         <TokenSelect
                           tokens={tokens}
                           value={swapFrom}
@@ -12154,13 +12154,13 @@ export default function SwaparcApp() {
 
                   <div className="swapRowClean">
                     <div className="swapBox">
-                      <div style={{ display: "flex", flexDirection: "column", flex: 1, gap: 8 }}>
+                      <div className="swapAmountCol" style={{ display: "flex", flexDirection: "column", flex: 1, gap: 8 }}>
                         <div className="swapLabel" style={{ marginBottom: 0 }}>Buy</div>
                         <div className="swapInput readOnly" style={{ fontSize: estimatedTo ? 36 : 28 }}>
                           {estimatedTo || (quote ? "..." : "0.00")}
                         </div>
                       </div>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 12 }}>
+                      <div className="swapTokenCol" style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 12 }}>
                         <TokenSelect
                           tokens={tokens}
                           value={swapTo}
