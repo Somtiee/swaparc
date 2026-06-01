@@ -1200,12 +1200,12 @@ export default function SwaparcApp() {
     { label: "Docs", to: "/docs", internal: true },
     { label: "X", href: "https://x.com/swaparc_app", external: true },
     { label: "GitHub", href: "https://github.com/Somtiee/swaparc", external: true },
-    { label: "Discord", href: "#", comingSoon: true },
+    { label: "Discord", href: "https://discord.gg/236dksh26F", external: true },
   ];
   const footerLinks = [
     { label: "GitHub", href: "https://github.com/Somtiee/swaparc", external: true },
     { label: "X", href: "https://x.com/swaparc_app", external: true },
-    { label: "Discord", href: "#", comingSoon: true },
+    { label: "Discord", href: "https://discord.gg/236dksh26F", external: true },
   ];
   const showToastMessage = (message, durationMs = 2400) => {
     setToast(message);
