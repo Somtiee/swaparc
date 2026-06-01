@@ -361,6 +361,14 @@ body {
   font-weight: 700;
 }
 
+/* Keep Trustgate badge inline with token symbol on all viewports */
+[data-trustgate="token-shield"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
 .caret {
   margin-left: auto;
   opacity: 0.75;
