@@ -12114,7 +12114,7 @@ export default function SwaparcApp() {
                           onChange={setSwapFrom}
                         />
                         {balances[swapFrom] && balances[swapFrom] !== "n/a" && (
-                          <div className="tokenBalanceHint" style={{ marginTop: 0, fontSize: 13 }}>
+                          <div className="tokenBalanceHint" style={{ fontSize: 13 }}>
                             {balances[swapFrom]}
                           </div>
                         )}
@@ -12167,7 +12167,7 @@ export default function SwaparcApp() {
                           onChange={setSwapTo}
                         />
                         {balances[swapTo] && balances[swapTo] !== "n/a" && (
-                          <div className="tokenBalanceHint" style={{ marginTop: 0, fontSize: 13 }}>
+                          <div className="tokenBalanceHint" style={{ fontSize: 13 }}>
                             {balances[swapTo]}
                           </div>
                         )}

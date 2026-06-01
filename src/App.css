@@ -1162,6 +1162,25 @@ body {
     text-align: right;
     overflow-wrap: anywhere;
     word-break: break-word;
+    margin-top: 8px;
+  }
+
+  .swapTokenCol .tokenselect {
+    width: auto;
+    align-self: flex-end;
+  }
+
+  .swapTokenCol .tokenbtn {
+    width: auto;
+    max-width: 100%;
+    min-width: 132px;
+  }
+
+  .swapTokenCol .tokendropdown {
+    right: 0;
+    left: auto;
+    width: min(320px, calc(100vw - 40px));
+    max-width: calc(100vw - 40px);
   }
 
   .swapInput.readOnly {
