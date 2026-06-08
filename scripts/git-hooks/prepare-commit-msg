@@ -1,0 +1,6 @@
+#!/bin/sh
+# Strip Cursor attribution trailers from commit messages (local hook).
+MSG_FILE="$1"
+if [ -n "$MSG_FILE" ] && [ -f "$MSG_FILE" ]; then
+  node "$(dirname "$0")/../strip-cursor-coauthor-from-msg.mjs" < "$MSG_FILE" > "$MSG_FILE.tmp" && mv "$MSG_FILE.tmp" "$MSG_FILE"
+fi

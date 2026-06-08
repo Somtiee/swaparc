@@ -1,0 +1,8 @@
+---
+description: Never add Cursor co-author or Made-with trailers to git commits or PRs
+alwaysApply: true
+---
+
+Never add `Co-authored-by: Cursor`, `Made-with: Cursor`, `cursoragent@cursor.com`, or any Cursor attribution trailer to git commits, commit messages, or pull requests.
+
+When creating commits, use plain messages only under the user's author identity.
