@@ -46,7 +46,7 @@ npm run drain:legacy-pool -- --dry-run
 npm run drain:legacy-pool
 ```
 
-Script: `scripts/drainLegacySwapPool.mjs` — alternates SWPRC→USDC, USDC→EURC, USDC→SWPRC until pool is dust.
+Script: `scripts/drainLegacySwapPool.mjs` — ping-pongs USDC→EURC and EURC→USDC from treasury until pool legs are dust (~500 USDC/EURC).
 
 **Indices (legacy):** USDC=0, EURC=1, SWPRC=2.
 

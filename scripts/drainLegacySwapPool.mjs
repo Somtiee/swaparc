@@ -9,8 +9,7 @@
  *   LEGACY_SWAP_POOL — optional override
  *   DRAIN_MAX_ROUNDS — default 500
  *   DRAIN_DUST_USDC — stop when pool legs below this (default 500)
- *   DRAIN_CHUNK_SWPRC — SWPRC per SWPRC→USDC leg (default 3000)
- *   DRAIN_CHUNK_USDC — USDC per USDC→EURC leg (default 5000)
+ *   DRAIN_CHUNK_USDC — USDC/EURC per leg (default 5000)
  *   DRAIN_PAUSE_MS — default 4000
  *
  * Usage:
@@ -29,10 +28,10 @@ const RPC = process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network";
 const POOL = process.env.LEGACY_SWAP_POOL || LEGACY_SWAP_POOL_ADDRESS;
 const MAX_ROUNDS = Number(process.env.DRAIN_MAX_ROUNDS || 500);
 const DUST_USDC = Number(process.env.DRAIN_DUST_USDC || 500);
-const CHUNK_SWPRC = process.env.DRAIN_CHUNK_SWPRC || "3000";
 const CHUNK_USDC = process.env.DRAIN_CHUNK_USDC || "5000";
 const PAUSE_MS = Number(process.env.DRAIN_PAUSE_MS || 4000);
 const DRY_RUN = process.argv.includes("--dry-run");
+const DRY_RUN_MAX_ROUNDS = 3;
 
 const TOKENS = [
   { sym: "USDC", address: "0x3600000000000000000000000000000000000000", decimals: 6, idx: 0 },
@@ -92,9 +91,14 @@ async function ensureApprove(token, wallet, spender, amount) {
   await tx.wait();
 }
 
-async function trySwap(pool, wallet, tokenIn, i, j, amountIn) {
+const MIN_TREASURY_USDC = ethers.parseUnits("100", 6);
+const MIN_TREASURY_EURC = ethers.parseUnits("100", 6);
+
+async function trySwap(pool, wallet, tokenIn, i, j, amountIn, poolOutRaw) {
+  if (!amountIn || amountIn === 0n) return null;
   const dy = await pool.get_dy(i, j, amountIn);
   if (!dy || dy === 0n) return null;
+  if (poolOutRaw[j] > 0n && dy > poolOutRaw[j]) return null;
   console.log(
     `  swap ${TOKENS[i].sym}→${TOKENS[j].sym} in ${fmt(amountIn, TOKENS[i].decimals)} → ~${fmt(dy, TOKENS[j].decimals)}`
   );
@@ -128,7 +132,9 @@ async function main() {
 
   let poolRaw = await printState("Initial", provider, pool, wallet.address);
 
-  for (let round = 1; round <= MAX_ROUNDS; round++) {
+  const maxRounds = DRY_RUN ? DRY_RUN_MAX_ROUNDS : MAX_ROUNDS;
+
+  for (let round = 1; round <= maxRounds; round++) {
     const poolUsdc = fmt(poolRaw[0], 6);
     const poolEurc = fmt(poolRaw[1], 6);
     const poolSwprc = fmt(poolRaw[2], 18);
@@ -142,40 +148,23 @@ async function main() {
     let acted = false;
     const wb = await walletBalances(provider, wallet.address);
 
-    // Pull USDC out: SWPRC → USDC
-    if (poolUsdc >= DUST_USDC && wb.SWPRC > 0n) {
-      let chunk = ethers.parseUnits(CHUNK_SWPRC, 18);
-      if (chunk > wb.SWPRC) chunk = (wb.SWPRC * 90n) / 100n;
-      if (chunk > 0n) {
-        const r = await trySwap(pool, wallet, tokenContracts.SWPRC, 2, 0, chunk);
-        if (r) acted = true;
-      }
+    // Pull EURC out of pool: treasury spends USDC.
+    if (poolEurc >= DUST_USDC && wb.USDC >= MIN_TREASURY_USDC) {
+      let chunk = ethers.parseUnits(CHUNK_USDC, 6);
+      if (chunk > wb.USDC) chunk = (wb.USDC * 90n) / 100n;
+      const r = await trySwap(pool, wallet, tokenContracts.USDC, 0, 1, chunk, poolRaw);
+      if (r) acted = true;
     }
 
     poolRaw = await pool.getBalances();
     const wb2 = await walletBalances(provider, wallet.address);
 
-    // Pull EURC out: USDC → EURC
-    if (fmt(poolRaw[1], 6) >= DUST_USDC && wb2.USDC > 0n) {
+    // Pull USDC out of pool: treasury spends EURC.
+    if (fmt(poolRaw[0], 6) >= DUST_USDC && wb2.EURC >= MIN_TREASURY_EURC) {
       let chunk = ethers.parseUnits(CHUNK_USDC, 6);
-      if (chunk > wb2.USDC) chunk = (wb2.USDC * 90n) / 100n;
-      if (chunk > 0n) {
-        const r = await trySwap(pool, wallet, tokenContracts.USDC, 0, 1, chunk);
-        if (r) acted = true;
-      }
-    }
-
-    poolRaw = await pool.getBalances();
-    const wb3 = await walletBalances(provider, wallet.address);
-
-    // Recover SWPRC stuck in pool: USDC → SWPRC
-    if (fmt(poolRaw[2], 18) >= 1 && wb3.USDC > 0n) {
-      let chunk = ethers.parseUnits("500", 6);
-      if (chunk > wb3.USDC) chunk = (wb3.USDC * 50n) / 100n;
-      if (chunk > 0n) {
-        const r = await trySwap(pool, wallet, tokenContracts.USDC, 0, 2, chunk);
-        if (r) acted = true;
-      }
+      if (chunk > wb2.EURC) chunk = (wb2.EURC * 90n) / 100n;
+      const r = await trySwap(pool, wallet, tokenContracts.EURC, 1, 0, chunk, poolRaw);
+      if (r) acted = true;
     }
 
     poolRaw = await printState(`After round ${round}`, provider, pool, wallet.address);
