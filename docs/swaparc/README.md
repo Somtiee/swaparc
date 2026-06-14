@@ -39,7 +39,7 @@ If you are not shipping software or running infrastructure, follow the **User gu
 - **APIs**
   - [API: PrivPay](build/api-reference-privpay.md) → [API: Profile & system](build/api-reference-profile-and-system.md)
 - **Security & operations**
-  - [Security overview](security-and-privacy/security.md) → [Threat model](security-and-privacy/threat-model.md) → [ZK claim security](security-and-privacy/zk-claim-security.md) → [Key management & backups](security-and-privacy/key-management-and-backups.md) → [Relayer operations](operate/relayer-operations.md) → [Jobs & health checks](operate/jobs-and-healthchecks.md)
+  - [Security overview](security-and-privacy/security.md) → [Threat model](security-and-privacy/threat-model.md) → [ZK claim security](security-and-privacy/zk-claim-security.md) → [Swap pool V2 security](security-and-privacy/swap-pool-v2-security.md) → [Key management & backups](security-and-privacy/key-management-and-backups.md) → [Relayer operations](operate/relayer-operations.md) → [Jobs & health checks](operate/jobs-and-healthchecks.md)
 
 ---
 
@@ -77,6 +77,7 @@ Source files under `docs/swaparc/`:
 - **Operate**
   - [Relayer operations](operate/relayer-operations.md) — `operate/relayer-operations.md`
   - [Jobs & health checks](operate/jobs-and-healthchecks.md) — `operate/jobs-and-healthchecks.md`
+  - [Swap pool migration (V2)](operate/swap-pool-migration.md) — legacy → upgradeable pool cutover
 - **Support**
   - [FAQ](support/faq.md) — `support/faq.md`
   - [Troubleshooting](support/troubleshooting.md) — `support/troubleshooting.md`

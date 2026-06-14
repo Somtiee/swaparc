@@ -17,6 +17,7 @@
     "deploy:stealth": "node scripts/deployStealthPayments.mjs",
     "deploy:pool": "node scripts/deployPrivacyPool.mjs",
     "deploy:recurring-automation": "node scripts/deployRecurringAutomation.mjs",
+    "deploy:swap-pool": "node scripts/deploySwapPoolV2.mjs",
     "privpay:deployer-address": "node scripts/printDeployerAddress.mjs",
     "bootstrap:privpay-env": "node scripts/bootstrapPrivpayEnv.mjs",
     "privpay:zk-artifacts": "node scripts/setupPrivpayZkArtifacts.mjs",
@@ -24,12 +25,15 @@
     "circuit:privpay:compile": "node scripts/compilePrivpayCircuit.mjs",
     "circuit:privpay:prove": "node scripts/privpayProveCli.mjs",
     "stats:sum-profile-volume": "node scripts/sumProfileSwapVolume.js",
-    "stats:publish-landing": "node scripts/publishLandingStats.mjs"
+    "stats:publish-landing": "node scripts/publishLandingStats.mjs",
+    "drain:legacy-pool": "node scripts/drainLegacySwapPool.mjs"
   },
   "dependencies": {
     "@circle-fin/developer-controlled-wallets": "^10.1.0",
     "@circle-fin/w3s-pw-web-sdk": "^1.1.11",
     "@noble/secp256k1": "^3.0.0",
+    "@openzeppelin/contracts": "^5.0.2",
+    "@openzeppelin/contracts-upgradeable": "^5.0.2",
     "@vercel/blob": "^0.27.3",
     "@vercel/kv": "^1.0.1",
     "@walletconnect/ethereum-provider": "^2.23.1",

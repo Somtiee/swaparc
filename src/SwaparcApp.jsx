@@ -64,6 +64,8 @@ console.log("Circle setup:", { CIRCLE_APP_ID });
 import { W3SSdk } from "@circle-fin/w3s-pw-web-sdk";
 
 const SWAP_POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
+/** Swap tab maintenance gate — set false after legacy drain + V2 cutover. */
+const SWAP_UPGRADE_IN_PROGRESS = true;
 const STEALTH_PAYMENTS_ADDRESS =
   import.meta.env.VITE_STEALTH_PAYMENTS_ADDRESS || "";
 /** ZKPrivacyPool addresses by token symbol (one pool per token). */
@@ -12066,7 +12068,21 @@ export default function SwaparcApp() {
                 </div>
               )}
               {activeTab === "swap" && (
-                <>
+                <div className="swapTabRoot">
+                  {SWAP_UPGRADE_IN_PROGRESS ? (
+                    <div className="swapUpgradeOverlay" role="status" aria-live="polite">
+                      <p className="swapUpgradeNeon">UPGRADE in Progress</p>
+                      <p className="swapUpgradeSub">Please check back later</p>
+                    </div>
+                  ) : null}
+                  <div
+                    className={
+                      SWAP_UPGRADE_IN_PROGRESS
+                        ? "swapTabContent swapTabContentDisabled"
+                        : "swapTabContent"
+                    }
+                    aria-hidden={SWAP_UPGRADE_IN_PROGRESS}
+                  >
                   <div className="swapCardHeader">
                     <h2 className="swapTitle">Swap</h2>
                     <div className="swapHeaderActions">
@@ -12295,7 +12311,8 @@ export default function SwaparcApp() {
                     </p>
                   )}
 
-                </>
+                  </div>
+                </div>
               )}
               {activeTab === "history" && (
                 <div className="historyBox">

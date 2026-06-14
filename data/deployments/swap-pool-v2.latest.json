@@ -1,0 +1,61 @@
+{
+  "network": "arc-testnet",
+  "chainId": 5042002,
+  "deployedAt": "2026-06-12T09:57:40.579Z",
+  "deployer": "0xD4d3E342902766344075D06c94391e61A9bB7e60",
+  "owner": "0xD4d3E342902766344075D06c94391e61A9bB7e60",
+  "treasury": "0xD4d3E342902766344075D06c94391e61A9bB7e60",
+  "proxy": "0xDC3FaDc97013eee5Da21e19c1108B1fa1E608560",
+  "implementation": "0x7C45940BeFf109505737153b6534f63d801D25A3",
+  "legacyPool": "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC",
+  "supersededProxies": [
+    "0xA2E7a570adB1195260Da3D9761D0E87edA966C2d"
+  ],
+  "parameters": {
+    "A": "200",
+    "feeBps": "4",
+    "maxFeeBps": "100"
+  },
+  "security": {
+    "upgradeable": "UUPS",
+    "patterns": [
+      "OpenZeppelin",
+      "ReentrancyGuard",
+      "SafeERC20",
+      "Pausable"
+    ],
+    "auditStatus": "internal-review-only",
+    "doc": "docs/swaparc/security-and-privacy/swap-pool-v2-security.md"
+  },
+  "tokens": [
+    {
+      "index": 0,
+      "symbol": "USDC",
+      "address": "0x3600000000000000000000000000000000000000",
+      "decimals": 6,
+      "rate": "1000000000000"
+    },
+    {
+      "index": 1,
+      "symbol": "EURC",
+      "address": "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
+      "decimals": 6,
+      "rate": "1000000000000"
+    },
+    {
+      "index": 2,
+      "symbol": "SWPRC",
+      "address": "0xBE7477BF91526FC9988C8f33e91B6db687119D45",
+      "decimals": 18,
+      "rate": "1000000000000"
+    },
+    {
+      "index": 3,
+      "symbol": "CircBTC",
+      "address": "0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF",
+      "decimals": 8,
+      "rate": "10000000000"
+    }
+  ],
+  "tokenCount": 4
+}
