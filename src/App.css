@@ -826,6 +826,13 @@ body {
   color: rgba(220, 245, 255, 0.88);
 }
 
+.swapUpgradeOverlayStandalone {
+  position: relative;
+  min-height: 320px;
+  border-radius: 16px;
+  background: rgba(6, 10, 22, 0.55);
+}
+
 .swapTabContentDisabled {
   opacity: 0.22;
   pointer-events: none;
@@ -3527,6 +3534,29 @@ select.billsInput option,
 .landingActionTilePrivpay .landingActionCta {
   background: linear-gradient(90deg, #2f67f6, #2f8cff);
   border-color: rgba(138, 183, 255, 0.66);
+}
+
+.landingActionTileDisabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+  animation: none;
+  box-shadow:
+    0 0 0 1px rgba(127, 252, 255, 0.22) inset,
+    0 8px 24px rgba(0, 180, 255, 0.12);
+}
+
+.landingActionTileDisabled:hover {
+  transform: none;
+  border-color: rgba(127, 252, 255, 0.28);
+  box-shadow:
+    0 0 0 1px rgba(127, 252, 255, 0.22) inset,
+    0 8px 24px rgba(0, 180, 255, 0.12);
+}
+
+.landingActionTileDisabled .landingActionCta {
+  background: rgba(127, 252, 255, 0.08);
+  border-color: rgba(127, 252, 255, 0.35);
+  color: #7ffcff;
 }
 
 .landingWhySection {

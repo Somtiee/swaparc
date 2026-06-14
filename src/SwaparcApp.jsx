@@ -9723,6 +9723,10 @@ export default function SwaparcApp() {
   // Use executeCircleContractAction directly.
 
   async function performSwapEmail() {
+    if (SWAP_UPGRADE_IN_PROGRESS) {
+      alert("Swaps are temporarily unavailable while we upgrade the pool. Please check back later.");
+      return;
+    }
     console.log("[CircleTx] Starting Swap...");
     if (!isCircleMode()) throw new Error("Circle wallet not ready");
 
@@ -9892,6 +9896,10 @@ export default function SwaparcApp() {
   }
 
   async function performSwap() {
+    if (SWAP_UPGRADE_IN_PROGRESS) {
+      alert("Swaps are temporarily unavailable while we upgrade the pool. Please check back later.");
+      return;
+    }
     if (!swapAmount || Number(swapAmount) <= 0) {
       alert("Enter a valid amount to swap.");
       return;
@@ -10726,7 +10734,9 @@ export default function SwaparcApp() {
               ["swap", "Swap"],
               ["pools", "Pools"],
               ["privpay", "PrivPay"],
-            ].map(([value, label]) => (
+            ]
+              .filter(([value]) => !SWAP_UPGRADE_IN_PROGRESS || value !== "swap")
+              .map(([value, label]) => (
               <button
                 key={value}
                 className={`navBtn ${activeTab === value ? "active" : ""}`}
@@ -11349,20 +11359,20 @@ export default function SwaparcApp() {
                   </section>
 
                   <section className="landingActionTileGrid">
-                    <button
-                      className="landingActionTile landingActionTileSwap landingReveal"
-                      type="button"
-                      onClick={() => setActiveTab("swap")}
+                    <div
+                      className="landingActionTile landingActionTileSwap landingReveal landingActionTileDisabled"
+                      aria-disabled="true"
+                      role="status"
                     >
                       <span className="landingActionIcon">↔</span>
                       <span className="landingActionTag">SWAP</span>
-                      <strong>Fast non-custodial stablecoin FX execution</strong>
+                      <strong>Upgrade in progress</strong>
                       <p>
-                        Convert between core stablecoin rails with transparent on-chain pricing
-                        and execution built for day-to-day treasury operations.
+                        Legacy swap pool is offline while we migrate liquidity. Swaps will return
+                        after the upgrade completes.
                       </p>
-                      <span className="landingActionCta">Start Swapping</span>
-                    </button>
+                      <span className="landingActionCta">Temporarily unavailable</span>
+                    </div>
                     <button
                       className="landingActionTile landingReveal"
                       type="button"
@@ -12070,19 +12080,14 @@ export default function SwaparcApp() {
               {activeTab === "swap" && (
                 <div className="swapTabRoot">
                   {SWAP_UPGRADE_IN_PROGRESS ? (
-                    <div className="swapUpgradeOverlay" role="status" aria-live="polite">
+                    <div className="swapUpgradeOverlay swapUpgradeOverlayStandalone" role="status" aria-live="polite">
                       <p className="swapUpgradeNeon">UPGRADE in Progress</p>
-                      <p className="swapUpgradeSub">Please check back later</p>
+                      <p className="swapUpgradeSub">
+                        Legacy swap pool is offline while we migrate liquidity. Please check back later.
+                      </p>
                     </div>
-                  ) : null}
-                  <div
-                    className={
-                      SWAP_UPGRADE_IN_PROGRESS
-                        ? "swapTabContent swapTabContentDisabled"
-                        : "swapTabContent"
-                    }
-                    aria-hidden={SWAP_UPGRADE_IN_PROGRESS}
-                  >
+                  ) : (
+                  <div className="swapTabContent">
                   <div className="swapCardHeader">
                     <h2 className="swapTitle">Swap</h2>
                     <div className="swapHeaderActions">
@@ -12312,6 +12317,7 @@ export default function SwaparcApp() {
                   )}
 
                   </div>
+                  )}
                 </div>
               )}
               {activeTab === "history" && (
@@ -12329,7 +12335,7 @@ export default function SwaparcApp() {
                       fontSize: 14,
                       padding: 0,
                     }}
-                    onClick={() => setActiveTab("swap")}
+                    onClick={() => setActiveTab(SWAP_UPGRADE_IN_PROGRESS ? "landing" : "swap")}
                   >
                     {"<-"} Back
                   </button>
@@ -14907,16 +14913,18 @@ export default function SwaparcApp() {
               >
                 Profile
               </button>
-              <button
-                type="button"
-                className={`mobileMenuNavBtn${activeTab === "swap" ? " mobileMenuNavBtnActive" : ""}`}
-                onClick={() => {
-                  setActiveTab("swap");
-                  setMobileMenuOpen(false);
-                }}
-              >
-                Swap
-              </button>
+              {!SWAP_UPGRADE_IN_PROGRESS ? (
+                <button
+                  type="button"
+                  className={`mobileMenuNavBtn${activeTab === "swap" ? " mobileMenuNavBtnActive" : ""}`}
+                  onClick={() => {
+                    setActiveTab("swap");
+                    setMobileMenuOpen(false);
+                  }}
+                >
+                  Swap
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={`mobileMenuNavBtn${activeTab === "pools" ? " mobileMenuNavBtnActive" : ""}`}
