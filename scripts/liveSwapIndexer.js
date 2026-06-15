@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { ethers } from "ethers";
 import { kv } from "../lib/server/kv.js";
+import { claimSwapTxForIndexing } from "../lib/server/swapIndexDedup.js";
 import {
   SWAP_INDEXER_V2_STATE_KEY,
   SWAP_POOL_INDEX_TO_SYMBOL,
@@ -16,9 +17,13 @@ const TERTIARY_RPC_URL = process.env.ARC_RPC_URL_TERTIARY || null;
 const GET_DY_MIN_INTERVAL_MS = Number(
   process.env.INDEXER_GET_DY_MIN_INTERVAL_MS || 120
 );
+const POLL_MS = Number(process.env.INDEXER_POLL_MS || 8000);
+const LOG_CHUNK_BLOCKS = Number(process.env.INDEXER_LOG_CHUNK_BLOCKS || 2000);
+const HEARTBEAT_EVERY = Number(process.env.INDEXER_HEARTBEAT_EVERY || 6);
 const SWAP_POOL_ADDRESS = V2_SWAP_POOL_ADDRESS;
 const POOL_ABI = [
-  "function get_dy(uint256 i, uint256 j, uint256 dx) view returns (uint256)"
+  "event Swapped(address indexed user, uint256 i, uint256 j, uint256 dx, uint256 dy)",
+  "function get_dy(uint256 i, uint256 j, uint256 dx) view returns (uint256)",
 ];
 
 const network = ethers.Network.from({
@@ -37,23 +42,19 @@ const rpcEntries = [
   { label: "primary", url: PRIMARY_RPC_URL },
   ...(FALLBACK_RPC_URL ? [{ label: "fallback", url: FALLBACK_RPC_URL }] : []),
   ...(TERTIARY_RPC_URL ? [{ label: "tertiary", url: TERTIARY_RPC_URL }] : []),
-].map((entry) => ({
-  ...entry,
-  provider: createProvider(entry.url),
-}));
-
-const poolsByUrl = new Map(
-  rpcEntries.map((r) => [r.url, new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, r.provider)])
-);
+].map((entry) => {
+  const provider = createProvider(entry.url);
+  return {
+    ...entry,
+    provider,
+    pool: new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, provider),
+  };
+});
 
 const getDyCache = new Map();
 let lastGetDyAtMs = 0;
-const iface = new ethers.Interface([
-  "function swap(uint256 i,uint256 j,uint256 dx)"
-]);
 
 const USDC_INDEX = 0;
-const ARCSCAN_API = "https://testnet.arcscan.app/api";
 const INDEXER_STATE_KEY = SWAP_INDEXER_V2_STATE_KEY;
 const ru = String(process.env.REDIS_URL || "").trim();
 const hasRedis = ru.startsWith("redis://") || ru.startsWith("rediss://");
@@ -100,19 +101,52 @@ async function getDyWithFallback(i, dx) {
   for (const entry of rpcEntries) {
     try {
       await throttleGetDy();
-      const pool = poolsByUrl.get(entry.url);
-      const out = await pool.get_dy(i, USDC_INDEX, dx);
+      const out = await entry.pool.get_dy(i, USDC_INDEX, dx);
       getDyCache.set(cacheKey, out);
       return out;
     } catch (e) {
       lastErr = e;
+      console.warn(`[RPC] ${entry.label} get_dy failed:`, e?.message || e);
+    }
+  }
+  throw lastErr || new Error("All RPC providers failed get_dy");
+}
+
+async function querySwappedEvents(fromBlock, toBlock) {
+  let lastErr = null;
+  for (const entry of rpcEntries) {
+    try {
+      return await entry.pool.queryFilter("Swapped", fromBlock, toBlock);
+    } catch (e) {
+      lastErr = e;
       console.warn(
-        `[RPC] ${entry.label} get_dy failed:`,
+        `[RPC] ${entry.label} queryFilter failed:`,
         e?.message || e
       );
     }
   }
-  throw lastErr || new Error("All RPC providers failed get_dy");
+  throw lastErr || new Error("All RPC providers failed queryFilter");
+}
+
+async function usdVolumeForSwap(i, j, dx, dy) {
+  const symbolIn = SWAP_POOL_INDEX_TO_SYMBOL[Number(i)];
+  const symbolOut = SWAP_POOL_INDEX_TO_SYMBOL[Number(j)];
+
+  if (symbolIn === "USDC") {
+    return Number(ethers.formatUnits(dx, SWAP_POOL_TOKEN_DECIMALS.USDC));
+  }
+  if (symbolOut === "USDC") {
+    return Number(ethers.formatUnits(dy, SWAP_POOL_TOKEN_DECIMALS.USDC));
+  }
+  if (symbolIn) {
+    try {
+      const quote = await getDyWithFallback(i, dx);
+      return Number(ethers.formatUnits(quote, 6));
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
 }
 
 async function getStartingBlock() {
@@ -127,7 +161,9 @@ async function getStartingBlock() {
   }
 
   if (SWAP_POOL_V2_FROM_BLOCK > 0) {
-    console.log(`No stored state. Starting V2 from SWAP_POOL_V2_FROM_BLOCK=${SWAP_POOL_V2_FROM_BLOCK}`);
+    console.log(
+      `No stored state. Starting V2 from SWAP_POOL_V2_FROM_BLOCK=${SWAP_POOL_V2_FROM_BLOCK}`
+    );
     await kv.set(INDEXER_STATE_KEY, SWAP_POOL_V2_FROM_BLOCK);
     return SWAP_POOL_V2_FROM_BLOCK;
   }
@@ -143,92 +179,24 @@ async function getStartingBlock() {
   }
 }
 
-async function fetchNewTransactions(fromBlock) {
-  let startBlock = fromBlock;
-  let lastProcessedBlock = fromBlock;
-  const walletDeltas = new Map(); // wallet -> { count: number, volume: number }
-  getDyCache.clear();
-
-  while (true) {
-    const url =
-      `${ARCSCAN_API}?module=account&action=txlist` +
-      `&address=${SWAP_POOL_ADDRESS}` +
-      `&startblock=${startBlock}&endblock=999999999&sort=asc`;
-
-    const resp = await fetch(url);
-    const data = await resp.json();
-
-    if (data.status !== "1" || !data.result || data.result.length === 0) {
-      break;
-    }
-
-    console.log(
-      `Arcscan returned ${data.result.length} txs from block ${startBlock} (latest block in batch: ${data.result[data.result.length - 1].blockNumber})`
-    );
-
-    for (const tx of data.result) {
-      try {
-        if (!tx.input || tx.input === "0x") continue;
-
-        let decoded;
-        try {
-          decoded = iface.parseTransaction({ data: tx.input });
-        } catch {
-          continue;
-        }
-
-        const wallet = tx.from.toLowerCase();
-        const i = Number(decoded.args[0]);
-        const dx = decoded.args[2];
-
-        let usd = 0;
-        const symIn = SWAP_POOL_INDEX_TO_SYMBOL[i];
-
-        if (i === USDC_INDEX) {
-          usd = Number(ethers.formatUnits(dx, SWAP_POOL_TOKEN_DECIMALS.USDC));
-        } else if (symIn) {
-          const dec = SWAP_POOL_TOKEN_DECIMALS[symIn] || 18;
-          try {
-            const usdcValue = await getDyWithFallback(i, dx);
-            usd = Number(ethers.formatUnits(usdcValue, 6));
-          } catch {
-            usd = 0;
-          }
-          if (!usd) {
-            console.warn(`get_dy failed for ${symIn}, volume counted as 0`);
-          }
-        }
-
-        if (isNaN(usd) || !isFinite(usd)) continue;
-
-        const current = walletDeltas.get(wallet) || { count: 0, volume: 0 };
-        current.count += 1;
-        current.volume += usd;
-        walletDeltas.set(wallet, current);
-      } catch (err) {
-        console.error(`Error processing tx ${tx.hash}: ${err.message}`);
-      }
-    }
-
-    const lastTx = data.result[data.result.length - 1];
-    lastProcessedBlock = Number(lastTx.blockNumber);
-    startBlock = lastProcessedBlock + 1;
-  }
-
-  // Flush aggregated deltas to KV in one go per wallet
+async function flushWalletDeltas(walletDeltas) {
   for (const [wallet, { count, volume }] of walletDeltas.entries()) {
     try {
       const profileKey = `profile:${wallet}`;
       const newCount = await kv.hincrby(profileKey, "swapCount", count);
       const newVolume = await kv.hincrbyfloat(profileKey, "swapVolume", volume);
 
+      await kv.zadd("leaderboard:swapCount", {
+        score: Number(newCount),
+        member: wallet,
+      });
       await kv.zadd("leaderboard:swapVolume", {
         score: Number(newVolume),
         member: wallet,
       });
 
       console.log(
-        `[Arcscan] Wallet ${wallet}: +${count} swaps, +${volume.toFixed(
+        `[RPC] Wallet ${wallet}: +${count} swaps, +$${volume.toFixed(
           2
         )} (count=${newCount}, volume=${newVolume})`
       );
@@ -239,12 +207,45 @@ async function fetchNewTransactions(fromBlock) {
       );
     }
   }
+}
 
-  return lastProcessedBlock;
+async function processSwappedEvents(events) {
+  getDyCache.clear();
+  const walletDeltas = new Map();
+
+  for (const ev of events) {
+    try {
+      const txHash = ev.transactionHash || ev.log?.transactionHash;
+      if (txHash && !(await claimSwapTxForIndexing(txHash))) {
+        continue;
+      }
+
+      const wallet = String(ev.args?.user || ev.args?.[0] || "").toLowerCase();
+      if (!wallet.startsWith("0x")) continue;
+
+      const i = Number(ev.args?.i ?? ev.args?.[1]);
+      const j = Number(ev.args?.j ?? ev.args?.[2]);
+      const dx = ev.args?.dx ?? ev.args?.[3];
+      const dy = ev.args?.dy ?? ev.args?.[4];
+
+      const usd = await usdVolumeForSwap(i, j, dx, dy);
+      if (!Number.isFinite(usd)) continue;
+
+      const current = walletDeltas.get(wallet) || { count: 0, volume: 0 };
+      current.count += 1;
+      current.volume += usd;
+      walletDeltas.set(wallet, current);
+    } catch (err) {
+      console.error(`Error processing swap event: ${err?.message || err}`);
+    }
+  }
+
+  await flushWalletDeltas(walletDeltas);
+  return walletDeltas.size;
 }
 
 async function startLiveIndexer() {
-  console.log("Starting Live Swap Indexer (Arcscan tail mode)...");
+  console.log("Starting Live Swap Indexer (RPC Swapped events)...");
 
   if (!hasRedis && !hasUpstash) {
     console.error(
@@ -257,28 +258,53 @@ async function startLiveIndexer() {
   console.log(
     `Connected RPCs: ${rpcEntries.map((r) => `${r.label}:${r.url}`).join(" | ")}`
   );
-  console.log(`Tracking V2 swaps on ${SWAP_POOL_ADDRESS} via Arcscan (legacy pool frozen)...`);
+  console.log(`Tracking V2 swaps on ${SWAP_POOL_ADDRESS} via RPC logs`);
 
-  let lastBlock = await getStartingBlock();
-  console.log(`Live indexer starting from block ${lastBlock}`);
+  let scanFrom = await getStartingBlock();
+  console.log(`Live indexer starting from block ${scanFrom}`);
+
+  let heartbeat = 0;
 
   while (true) {
     try {
-      const latestProcessed = await fetchNewTransactions(lastBlock);
+      const head = await getBlockNumberWithFallback();
 
-      if (latestProcessed > lastBlock) {
-        lastBlock = latestProcessed + 1;
-        try {
-          await kv.set(INDEXER_STATE_KEY, lastBlock);
-        } catch (e) {
-          console.warn("Failed to persist indexer state to KV", e?.message || e);
+      if (head >= scanFrom) {
+        let totalEvents = 0;
+        let walletsUpdated = 0;
+        let cursor = scanFrom;
+
+        while (cursor <= head) {
+          const chunkEnd = Math.min(cursor + LOG_CHUNK_BLOCKS - 1, head);
+          const events = await querySwappedEvents(cursor, chunkEnd);
+          totalEvents += events.length;
+          if (events.length > 0) {
+            walletsUpdated += await processSwappedEvents(events);
+          }
+          cursor = chunkEnd + 1;
+        }
+
+        scanFrom = head + 1;
+        await kv.set(INDEXER_STATE_KEY, scanFrom);
+
+        if (totalEvents > 0) {
+          console.log(
+            `[RPC] Indexed ${totalEvents} swap event(s); cursor now ${scanFrom} (head was ${head})`
+          );
+        } else {
+          heartbeat += 1;
+          if (heartbeat % HEARTBEAT_EVERY === 0) {
+            console.log(
+              `[RPC] Heartbeat: pool ${SWAP_POOL_ADDRESS}, cursor ${scanFrom}, chain head ${head}`
+            );
+          }
         }
       }
     } catch (e) {
-      console.error("Arcscan tail loop error:", e.message || e);
+      console.error("[RPC] Indexer loop error:", e?.message || e);
     }
 
-    await sleep(5000);
+    await sleep(POLL_MS);
   }
 }
 

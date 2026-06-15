@@ -41,7 +41,7 @@ Run the **swaparc** service on Railway with:
 | **ARC_RPC_URL** | `https://rpc.testnet.arc.network` |
 | **SWAP_POOL_ADDRESS** | Optional — defaults to V2 proxy in code |
 
-On **first deploy**, the worker automatically backfills V2 swaps into `profile:*` and merges legacy + V2 Arcscan counts (one-time, stored in Redis). After that it tails new V2 swaps continuously.
+On **first deploy**, the worker automatically backfills V2 swaps into `profile:*` and merges legacy + V2 Arcscan counts (one-time, stored in Redis). After that it tails new V2 **`Swapped` events via RPC** (not Arcscan — Arcscan testnet indexing is too slow for live stats).
 
 Optional env: `RAILWAY_SKIP_BOOTSTRAP=1` to skip the one-time backfill.
 

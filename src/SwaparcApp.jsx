@@ -9888,6 +9888,7 @@ export default function SwaparcApp() {
         body: JSON.stringify({
           userId: walletAddr,
           amount: usdValue,
+          txHash,
         }),
       });
       setTimeout(() => {
@@ -10064,15 +10065,29 @@ export default function SwaparcApp() {
 
       setQuote(`Swap succeeded - tx ${tx.hash}`);
 
-      // Update progression
+      // Update profile immediately (indexer also tails RPC; txHash dedup prevents double-count)
       try {
         const userAddr = await signer.getAddress();
-        // We do NOT call /api/profile/addSwap here for Wallet Connect.
-        // liveSwapIndexer.js handles normal injected wallet swaps on-chain automatically.
-        // Doing it here would cause double-counting!
+        let usdValue = 0;
+        if (swapFrom === "USDC") {
+          usdValue = Number(swapAmount) || 0;
+        } else if (swapTo === "USDC") {
+          usdValue = expectedHuman || Number(estimatedTo) || 0;
+        } else {
+          usdValue = Number(swapAmount) * Number(tokenPrices[swapFrom] || 1);
+        }
+        await fetch("/api/profile/addSwap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: userAddr,
+            amount: usdValue,
+            txHash: tx.hash,
+          }),
+        });
         setTimeout(() => {
           fetchProfile(userAddr);
-        }, 3000);
+        }, 1500);
       } catch (err) {
         console.warn("Profile update failed", err);
       }
