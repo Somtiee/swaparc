@@ -14,10 +14,16 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "indexer": "node scripts/liveSwapIndexer.js",
+    "start:railway": "node scripts/railwayStart.mjs",
+    "stats:count-swappers": "node scripts/countUniqueSwappers.js",
+    "stats:backfill-v2-profiles": "node scripts/backfillSwapPoolV2Profiles.mjs",
     "deploy:stealth": "node scripts/deployStealthPayments.mjs",
     "deploy:pool": "node scripts/deployPrivacyPool.mjs",
     "deploy:recurring-automation": "node scripts/deployRecurringAutomation.mjs",
     "deploy:swap-pool": "node scripts/deploySwapPoolV2.mjs",
+    "upgrade:swap-pool": "node scripts/upgradeSwapPoolV2.mjs",
+    "seed:swap-pool": "node scripts/seedSwapPoolV2.mjs",
+    "verify:swap-pool": "node scripts/verifySwapPoolV2.mjs",
     "privpay:deployer-address": "node scripts/printDeployerAddress.mjs",
     "bootstrap:privpay-env": "node scripts/bootstrapPrivpayEnv.mjs",
     "privpay:zk-artifacts": "node scripts/setupPrivpayZkArtifacts.mjs",
@@ -25,8 +31,7 @@
     "circuit:privpay:compile": "node scripts/compilePrivpayCircuit.mjs",
     "circuit:privpay:prove": "node scripts/privpayProveCli.mjs",
     "stats:sum-profile-volume": "node scripts/sumProfileSwapVolume.js",
-    "stats:publish-landing": "node scripts/publishLandingStats.mjs",
-    "drain:legacy-pool": "node scripts/drainLegacySwapPool.mjs"
+    "stats:publish-landing": "node scripts/publishLandingStats.mjs"
   },
   "dependencies": {
     "@circle-fin/developer-controlled-wallets": "^10.1.0",

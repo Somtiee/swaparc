@@ -26,7 +26,7 @@ Before you begin, confirm this checklist:
   - Standard browser wallet / WalletConnect-compatible path, or **Connect via Gmail / Email** (Circle).
   - Wallet setup details: [Connect a wallet](connect-a-wallet.md).
 - **Test tokens (optional)**
-  - Needed for swap and pools (for example USDC / EURC / SWPRC on testnet).
+  - Needed for swap and pools (for example USDC / EURC / SWPRC / CircBTC on testnet).
   - Source them from faucet or another testnet holder.
 
 For normal usage, you do not need to run your own node. If you host your own instance, read [Prerequisites & environment](prerequisites-and-environment.md).

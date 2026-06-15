@@ -6,6 +6,7 @@ import logo from "./assets/swaparc-logo.png";
 import usdcLogo from "./assets/usdc.jpg";
 import eurcLogo from "./assets/eurc.jpg";
 import swprcLogo from "./assets/swprc.jpg";
+import circbtcLogo from "./assets/circbtc.png";
 import "./App.css";
 import { getPrices } from "./priceFetcher";
 import { CircleSigner } from "./utils/CircleSigner";
@@ -63,9 +64,8 @@ console.log("Circle setup:", { CIRCLE_APP_ID });
 
 import { W3SSdk } from "@circle-fin/w3s-pw-web-sdk";
 
-const SWAP_POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
-/** Swap tab maintenance gate — set false after legacy drain + V2 cutover. */
-const SWAP_UPGRADE_IN_PROGRESS = true;
+const SWAP_POOL_ADDRESS =
+  import.meta.env.VITE_SWAP_POOL_ADDRESS || "0xDC3FaDc97013eee5Da21e19c1108B1fa1E608560";
 const STEALTH_PAYMENTS_ADDRESS =
   import.meta.env.VITE_STEALTH_PAYMENTS_ADDRESS || "";
 /** ZKPrivacyPool addresses by token symbol (one pool per token). */
@@ -120,6 +120,7 @@ const TOKEN_INDICES = {
   USDC: 0,
   EURC: 1,
   SWPRC: 2,
+  CircBTC: 3,
 };
 
 const POOLS = [
@@ -230,6 +231,7 @@ const TOKEN_LOGOS = {
   USDC: usdcLogo,
   EURC: eurcLogo,
   SWPRC: swprcLogo,
+  CircBTC: circbtcLogo,
 };
 
 const INITIAL_TOKENS = [
@@ -247,6 +249,12 @@ const INITIAL_TOKENS = [
     symbol: "SWPRC",
     name: "SwapARC Token",
     address: "0xBE7477BF91526FC9988C8f33e91B6db687119D45",
+  },
+  {
+    symbol: "CircBTC",
+    name: "Circle Bitcoin",
+    address: "0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF",
+    decimals: 8,
   },
 ];
 
@@ -819,6 +827,7 @@ function formatPriceMock(sym) {
       USDC: 1,
       EURC: 1.063,
       SWPRC: 0.71,
+      CircBTC: 94000,
       USDG: 1,
       ARCX: 0.42,
       wETH: 3475.12,
@@ -1190,7 +1199,7 @@ export default function SwaparcApp() {
   const [slippageTolerance, setSlippageTolerance] = useState(1); // percent, default 1%
   const [expectedOutputNum, setExpectedOutputNum] = useState(null); // raw number for calculations
   const [expectedOutputRaw, setExpectedOutputRaw] = useState(null); // bigint wei for min_dy
-  const [swapPoolTokenBalances, setSwapPoolTokenBalances] = useState({}); // { USDC, EURC, SWPRC } for swap pool
+  const [swapPoolTokenBalances, setSwapPoolTokenBalances] = useState({}); // { USDC, EURC, SWPRC, CircBTC }
   const [highImpactConfirmed, setHighImpactConfirmed] = useState(false);
   const [showSlippagePanel, setShowSlippagePanel] = useState(false);
 
@@ -3227,7 +3236,7 @@ export default function SwaparcApp() {
 
     let total = 0;
     // Wallet Balances
-    ["USDC", "EURC", "SWPRC"].forEach((sym) => {
+    ["USDC", "EURC", "SWPRC", "CircBTC"].forEach((sym) => {
       const bal = Number(balances[sym] || 0);
       const price = Number(tokenPrices[sym] || 0);
       total += bal * price;
@@ -4957,12 +4966,13 @@ export default function SwaparcApp() {
           // 3. Fetch swap pool balances (Consolidated to one call)
           try {
             const rawBalances = await pool.getBalances();
-            const symbols = ["USDC", "EURC", "SWPRC"];
+            const symbols = ["USDC", "EURC", "SWPRC", "CircBTC"];
             const nextBalances = {};
             for (let idx = 0; idx < symbols.length && idx < rawBalances.length; idx++) {
               const sym = symbols[idx];
               const tok = tokens.find((t) => t.symbol === sym);
-              const dec = tok ? await getDecimals(tok) : 6;
+              const dec =
+                sym === "CircBTC" ? 8 : tok ? await getDecimals(tok) : 6;
               nextBalances[sym] = Number(ethers.formatUnits(rawBalances[idx], dec));
             }
             if (mounted) setSwapPoolTokenBalances(nextBalances);
@@ -9723,10 +9733,6 @@ export default function SwaparcApp() {
   // Use executeCircleContractAction directly.
 
   async function performSwapEmail() {
-    if (SWAP_UPGRADE_IN_PROGRESS) {
-      alert("Swaps are temporarily unavailable while we upgrade the pool. Please check back later.");
-      return;
-    }
     console.log("[CircleTx] Starting Swap...");
     if (!isCircleMode()) throw new Error("Circle wallet not ready");
 
@@ -9896,10 +9902,6 @@ export default function SwaparcApp() {
   }
 
   async function performSwap() {
-    if (SWAP_UPGRADE_IN_PROGRESS) {
-      alert("Swaps are temporarily unavailable while we upgrade the pool. Please check back later.");
-      return;
-    }
     if (!swapAmount || Number(swapAmount) <= 0) {
       alert("Enter a valid amount to swap.");
       return;
@@ -10734,9 +10736,7 @@ export default function SwaparcApp() {
               ["swap", "Swap"],
               ["pools", "Pools"],
               ["privpay", "PrivPay"],
-            ]
-              .filter(([value]) => !SWAP_UPGRADE_IN_PROGRESS || value !== "swap")
-              .map(([value, label]) => (
+            ].map(([value, label]) => (
               <button
                 key={value}
                 className={`navBtn ${activeTab === value ? "active" : ""}`}
@@ -12079,14 +12079,6 @@ export default function SwaparcApp() {
               )}
               {activeTab === "swap" && (
                 <div className="swapTabRoot">
-                  {SWAP_UPGRADE_IN_PROGRESS ? (
-                    <div className="swapUpgradeOverlay swapUpgradeOverlayStandalone" role="status" aria-live="polite">
-                      <p className="swapUpgradeNeon">UPGRADE in Progress</p>
-                      <p className="swapUpgradeSub">
-                        Legacy swap pool is offline while we migrate liquidity. Please check back later.
-                      </p>
-                    </div>
-                  ) : (
                   <div className="swapTabContent">
                   <div className="swapCardHeader">
                     <h2 className="swapTitle">Swap</h2>
@@ -12317,7 +12309,6 @@ export default function SwaparcApp() {
                   )}
 
                   </div>
-                  )}
                 </div>
               )}
               {activeTab === "history" && (
@@ -12335,7 +12326,7 @@ export default function SwaparcApp() {
                       fontSize: 14,
                       padding: 0,
                     }}
-                    onClick={() => setActiveTab(SWAP_UPGRADE_IN_PROGRESS ? "landing" : "swap")}
+                    onClick={() => setActiveTab("swap")}
                   >
                     {"<-"} Back
                   </button>
@@ -14913,18 +14904,16 @@ export default function SwaparcApp() {
               >
                 Profile
               </button>
-              {!SWAP_UPGRADE_IN_PROGRESS ? (
-                <button
-                  type="button"
-                  className={`mobileMenuNavBtn${activeTab === "swap" ? " mobileMenuNavBtnActive" : ""}`}
-                  onClick={() => {
-                    setActiveTab("swap");
-                    setMobileMenuOpen(false);
-                  }}
-                >
-                  Swap
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className={`mobileMenuNavBtn${activeTab === "swap" ? " mobileMenuNavBtnActive" : ""}`}
+                onClick={() => {
+                  setActiveTab("swap");
+                  setMobileMenuOpen(false);
+                }}
+              >
+                Swap
+              </button>
               <button
                 type="button"
                 className={`mobileMenuNavBtn${activeTab === "pools" ? " mobileMenuNavBtnActive" : ""}`}

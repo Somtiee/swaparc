@@ -1,6 +1,8 @@
 # Swap
 
-The **Swap** tab exchanges one supported token for another using quotes from the on-chain **swap pool**. This pool is separate from LP pair contracts in the **Pools** tab; see [Networks and glossary](../introduction/networks-and-glossary.md) for the model.
+The **Swap** tab exchanges one supported token for another using quotes from the on-chain **swap pool** (V2). Supported swap assets: **USDC**, **EURC**, **SWPRC**, and **CircBTC** (Circle Wrapped Bitcoin on Arc testnet). This pool is separate from LP pair contracts in the **Pools** tab; see [Networks and glossary](../introduction/networks-and-glossary.md) for the model.
+
+> **CircBTC LP** — CircBTC is listed on the swap pool today. Dedicated CircBTC LP pools are planned later; use **Swap** for CircBTC spot trades until then.
 
 Before swapping, complete [Connect a wallet](../getting-started/connect-a-wallet.md). Swap works with a standard wallet path (including WalletConnect-compatible flows) and the Circle email wallet path.
 

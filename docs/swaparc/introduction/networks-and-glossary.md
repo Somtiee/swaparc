@@ -14,7 +14,7 @@ Confirm your wallet is on the **same network** as the app and any **relayer** yo
 
 ## Token and pool model
 
-Each supported asset (for example **USDC**, **EURC**, **SWPRC**) maps to three distinct on-chain contexts:
+Each supported asset (**USDC**, **EURC**, **SWPRC**, **CircBTC**) maps to three distinct on-chain contexts:
 
 1. **Swap pool** — One **AMM** contract backing the **Swap** tab for quotes and spot trades.
 2. **LP pools (preset pools)** — Per-pair contracts under **Pools** for add/remove liquidity and position tracking. They are **not** the same contracts as the swap pool.

@@ -7,8 +7,8 @@ const SYMBOL_TO_COINGECKO_ID = {
   USDC: "usd-coin",
   EURC: "eurc",             // CoinGecko has 'eurc'
   USDG: "global-dollar",    // CoinGecko 'global-dollar' (USDG)
-  // ARCX likely custom/not listed -> leave unmapped so fetcher returns null
-  ARCX: null,
+  SWPRC: "swaparc-token",
+  CircBTC: "bitcoin",
   wETH: "weth",             // wrapped ether
   wBTC: "wrapped-bitcoin",  // wrapped bitcoin
   SOL: "solana",

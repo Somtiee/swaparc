@@ -22,11 +22,28 @@ SwapArc uses scheduled payment processing routes, including recurring and payrol
 
 - **Homepage** loads network totals from **`VITE_LANDING_STATS_URL`** (public Vercel Blob JSON) — **no Railway Redis** on page load.
 - **TVL** on the landing tab refreshes from on-chain RPC about every 60 seconds.
+- **Swap pool cutover:** legacy pool stats are frozen; **V2 swaps add** to existing `profile:*` totals and weekly highwater (no reset). Run `node scripts/countUniqueSwappers.js` after cutover to merge legacy + V2 Arcscan counts into `stats:countUniqueSwappers:last`.
+- **Real-time profile stats:** run `npm run indexer` (`liveSwapIndexer.js`) on Railway with `REDIS_URL` — tails V2 pool only.
 - **Blob store must be Public** at creation (private stores cannot host the browser-facing JSON).
-- Env: `BLOB_READ_WRITE_TOKEN` (server), `VITE_LANDING_STATS_URL` (build-time). Manual publish: `npm run stats:publish-landing`.
+- Env: `BLOB_READ_WRITE_TOKEN` (server), `VITE_LANDING_STATS_URL` (build-time), optional `SWAP_POOL_ADDRESS` (defaults to V2 in code). Manual publish: `npm run stats:publish-landing`.
 - Legacy APIs `GET /api/profile/landing-stats` and `GET /api/profile/leaderboard` remain scan-free fallbacks with long cache TTL.
 
 If **`REDIS_URL`** is Railway-hosted, avoid polling those APIs from the landing page; the weekly cron is the only full profile scan.
+
+### Railway swap indexer (V2 stats)
+
+Run the **swaparc** service on Railway with:
+
+| Setting | Value |
+|---------|--------|
+| **Start command** | `npm run start:railway` (or use repo `railway.toml` / `Procfile`) |
+| **REDIS_URL** | From your Railway Redis service |
+| **ARC_RPC_URL** | `https://rpc.testnet.arc.network` |
+| **SWAP_POOL_ADDRESS** | Optional — defaults to V2 proxy in code |
+
+On **first deploy**, the worker automatically backfills V2 swaps into `profile:*` and merges legacy + V2 Arcscan counts (one-time, stored in Redis). After that it tails new V2 swaps continuously.
+
+Optional env: `RAILWAY_SKIP_BOOTSTRAP=1` to skip the one-time backfill.
 
 ### Cron behavior
 

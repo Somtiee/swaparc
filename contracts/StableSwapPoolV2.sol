@@ -116,14 +116,14 @@ contract StableSwapPoolV2 is
         if (dx == 0) return 0;
         if (i >= tokens.length || j >= tokens.length || i == j) revert("bad idx");
         uint256[] memory xp = _xp();
-        uint256 dxNorm = (dx * rates[i]) / PRECISION;
+        uint256 dxNorm = dx * rates[i];
         uint256 x = xp[i] + dxNorm;
         uint256 y = _getY(i, j, x, xp);
         if (y >= xp[j]) return 0;
         uint256 dyNorm = xp[j] - y;
         uint256 feeAmount = (dyNorm * fee) / 10_000;
         dyNorm -= feeAmount;
-        return (dyNorm * PRECISION) / rates[j];
+        return dyNorm / rates[j];
     }
 
     function swap(uint256 i, uint256 j, uint256 dx)
@@ -137,14 +137,14 @@ contract StableSwapPoolV2 is
         IERC20(tokens[i]).safeTransferFrom(msg.sender, address(this), dx);
 
         uint256[] memory xp = _xp();
-        uint256 dxNorm = (dx * rates[i]) / PRECISION;
+        uint256 dxNorm = dx * rates[i];
         uint256 x = xp[i] + dxNorm;
         uint256 y = _getY(i, j, x, xp);
         if (y >= xp[j]) revert("insufficient liquidity");
         uint256 dyNorm = xp[j] - y;
         uint256 feeAmount = (dyNorm * fee) / 10_000;
         dyNorm -= feeAmount;
-        dy = (dyNorm * PRECISION) / rates[j];
+        dy = dyNorm / rates[j];
         if (dy == 0) revert("dy=0");
         if (balances[j] < dy) revert("pool balance");
 
@@ -175,7 +175,9 @@ contract StableSwapPoolV2 is
         uint256 n = tokens.length;
         xp = new uint256[](n);
         for (uint256 k = 0; k < n; k++) {
-            xp[k] = (balances[k] * rates[k]) / PRECISION;
+            // Keep full precision (balance * rate) so 8-decimal tokens with small
+            // balances do not round to zero before stable-swap math runs.
+            xp[k] = balances[k] * rates[k];
         }
     }
 

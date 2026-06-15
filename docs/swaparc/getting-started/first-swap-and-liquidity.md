@@ -6,6 +6,8 @@ This guide covers one successful first swap and one basic liquidity action.
 
 ## Execute your first swap
 
+Supported tokens on the **Swap** tab: **USDC**, **EURC**, **SWPRC**, and **CircBTC**.
+
 1. Open the **Swap** tab.
 2. Select a token in **Sell** and a different token in the receive field.
 3. Enter a positive amount.

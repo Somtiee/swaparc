@@ -8,7 +8,7 @@ Yes. On Arc testnet, swaps, liquidity changes, privacy-pool actions, and claims 
 
 ## Which assets does SwapArc support in the UI?
 
-The app is wired to a **fixed set of tokens** (for example USDC, EURC, SWPRC on Arc testnet) and separate addresses for **swap pool**, **LP pools** and **privacy pools** per asset where configured. See [Networks and glossary](../introduction/networks-and-glossary.md).
+The app is wired to a **fixed set of tokens** (**USDC**, **EURC**, **SWPRC**, **CircBTC** on Arc testnet) and separate addresses for **swap pool**, **LP pools** and **privacy pools** per asset where configured. See [Networks and glossary](../introduction/networks-and-glossary.md).
 
 ## What wallet options are supported?
 

@@ -136,7 +136,6 @@ const deployment = {
   treasury: EXPECTED_OWNER,
   proxy: proxyAddress,
   implementation: implAddress,
-  legacyPool: "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC",
   supersededProxies: ["0xA2E7a570adB1195260Da3D9761D0E87edA966C2d"],
   parameters: {
     A: onChainA.toString(),
@@ -170,4 +169,4 @@ console.log("\nSet in .env (after migration cutover):");
 console.log(`VITE_SWAP_POOL_ADDRESS=${proxyAddress}`);
 console.log(`SWAP_POOL_ADDRESS=${proxyAddress}`);
 console.log(`SWAP_POOL_IMPLEMENTATION=${implAddress}`);
-console.log("\nVerify on Arcscan, then follow docs/swaparc/operate/swap-pool-migration.md");
+console.log("\nVerify on Arcscan. Ops: npm run verify:swap-pool");

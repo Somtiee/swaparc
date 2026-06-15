@@ -77,7 +77,7 @@ Source files under `docs/swaparc/`:
 - **Operate**
   - [Relayer operations](operate/relayer-operations.md) — `operate/relayer-operations.md`
   - [Jobs & health checks](operate/jobs-and-healthchecks.md) — `operate/jobs-and-healthchecks.md`
-  - [Swap pool migration (V2)](operate/swap-pool-migration.md) — legacy → upgradeable pool cutover
+  - [Jobs & health checks](operate/jobs-and-healthchecks.md) — cron, landing stats, Railway indexer
 - **Support**
   - [FAQ](support/faq.md) — `support/faq.md`
   - [Troubleshooting](support/troubleshooting.md) — `support/troubleshooting.md`

@@ -1,104 +1,74 @@
+/**
+ * Scan legacy + V2 swap pools; merge counts and unique wallets (additive, no reset).
+ * Writes stats:countUniqueSwappers:last for weekly landing publish.
+ *
+ * Legacy pool is frozen (no new txs); V2 grows. Union of wallets avoids double-counting
+ * the same address across pools.
+ */
 import "dotenv/config";
-import { ethers } from "ethers";
 import { createClient } from "../lib/server/kv.js";
 import { mkdir, writeFile } from "node:fs/promises";
+import {
+  SWAP_POOLS_FOR_STATS,
+  SWAP_POOL_V2_FROM_BLOCK,
+} from "../lib/swapPoolStatsConfig.js";
+import {
+  mergeSwapPoolScanResults,
+  scanSwapPoolTxs,
+} from "../lib/server/scanSwapPoolTxs.js";
 
-const SWAP_POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
-const ARCSCAN_API = "https://testnet.arcscan.app/api";
-const START_BLOCK = Number(process.env.COUNT_SWAPPERS_START_BLOCK || 0);
-const END_BLOCK = Number(process.env.COUNT_SWAPPERS_END_BLOCK || 999999999);
-const INCLUDE_FAILED_TXS =
+const INCLUDE_FAILED =
   String(process.env.COUNT_SWAPPERS_INCLUDE_FAILED || "false").toLowerCase() ===
   "true";
-const SCRIPT_STATS_DIR_URL = new URL("../data/stats/", import.meta.url);
 const SCRIPT_STATS_FILE_URL = new URL(
   "../data/stats/countUniqueSwappers.latest.json",
   import.meta.url
 );
 
-// Decode pool method calls from tx input (works even when contract emits no swap events)
-const iface = new ethers.Interface([
-  "function swap(uint256 i,uint256 j,uint256 dx)"
-]);
 const kv = createClient();
 
 async function main() {
-  let startBlock = START_BLOCK;
-  const uniqueWallets = new Set();
-  let totalTxs = 0;
-  let totalSwapCalls = 0;
+  const parts = [];
 
-  while (true) {
-    const url =
-      `${ARCSCAN_API}?module=account&action=txlist` +
-      `&address=${SWAP_POOL_ADDRESS}` +
-      `&startblock=${startBlock}&endblock=${END_BLOCK}&sort=asc`;
-
-    console.log("Fetching txs:", url);
-
-    const resp = await fetch(url);
-    const data = await resp.json();
-
-    if (data.status !== "1" || !data.result || data.result.length === 0) {
-      console.log("No more transactions from Arcscan.");
-      break;
-    }
-
-    for (const tx of data.result) {
-      try {
-        totalTxs += 1;
-
-        if (!INCLUDE_FAILED_TXS && tx.isError === "1") continue;
-        if (!tx.input || tx.input === "0x") continue;
-
-        let decoded = null;
-        try {
-          decoded = iface.parseTransaction({ data: tx.input });
-        } catch {
-          // Not a pool.swap call
-        }
-
-        if (decoded?.name === "swap" && tx.from) {
-          totalSwapCalls += 1;
-          uniqueWallets.add(String(tx.from).toLowerCase());
-        }
-      } catch (err) {
-        console.error(`Error processing tx ${tx.hash}:`, err.message || err);
-      }
-    }
-
-    const lastTx = data.result[data.result.length - 1];
-    const lastBlock = Number(lastTx.blockNumber);
-
+  for (const pool of SWAP_POOLS_FOR_STATS) {
+    const startBlock = pool.id === "v2" ? SWAP_POOL_V2_FROM_BLOCK : 0;
+    console.log(`Scanning ${pool.id} pool ${pool.address} from block ${startBlock}...`);
+    const result = await scanSwapPoolTxs(pool.address, {
+      startBlock,
+      includeFailed: INCLUDE_FAILED,
+    });
     console.log(
-      `Processed up to block ${lastBlock}. txs=${totalTxs}, swapCalls=${totalSwapCalls}, uniqueSwapWallets=${uniqueWallets.size}`
+      `  ${pool.id}: swapCalls=${result.totalSwapCalls}, unique=${result.uniqueWallets.size}`
     );
-
-    // Move startBlock forward
-    startBlock = lastBlock + 1;
+    parts.push(result);
   }
 
+  const merged = mergeSwapPoolScanResults(parts);
+
   console.log("========================================");
-  console.log("Total transactions scanned:", totalTxs);
-  console.log("Total swap() calls:", totalSwapCalls);
-  console.log("Total unique wallets that called swap():", uniqueWallets.size);
+  console.log("Merged total swap() calls:", merged.totalSwapCalls);
+  console.log("Merged unique wallets:", merged.uniqueSwapWallets);
   console.log("========================================");
+
   const payload = {
-    totalTxs,
-    totalSwapCalls,
-    uniqueSwapWallets: uniqueWallets.size,
+    ...merged,
+    totalSwapCalls: merged.totalSwapCalls,
+    pools: SWAP_POOLS_FOR_STATS.map((p) => ({
+      id: p.id,
+      address: p.address,
+      active: p.active,
+    })),
     updatedAt: new Date().toISOString(),
-    startBlock: START_BLOCK,
-    endBlock: END_BLOCK,
-    includeFailed: INCLUDE_FAILED_TXS,
+    includeFailed: INCLUDE_FAILED,
+    source: "dual-pool-arcscan-scan",
   };
 
   try {
-    await mkdir(SCRIPT_STATS_DIR_URL, { recursive: true });
+    await mkdir(new URL("../data/stats/", import.meta.url), { recursive: true });
     await writeFile(SCRIPT_STATS_FILE_URL, JSON.stringify(payload, null, 2), "utf8");
     console.log("Saved local stats file:", SCRIPT_STATS_FILE_URL.pathname);
   } catch (e) {
-    console.error("Failed to write local countUniqueSwappers stats file:", e?.message || e);
+    console.error("Failed to write local stats file:", e?.message || e);
   }
 
   try {

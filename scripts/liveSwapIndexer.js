@@ -1,6 +1,13 @@
 import "dotenv/config";
 import { ethers } from "ethers";
 import { kv } from "../lib/server/kv.js";
+import {
+  SWAP_INDEXER_V2_STATE_KEY,
+  SWAP_POOL_INDEX_TO_SYMBOL,
+  SWAP_POOL_TOKEN_DECIMALS,
+  SWAP_POOL_V2_FROM_BLOCK,
+  V2_SWAP_POOL_ADDRESS,
+} from "../lib/swapPoolStatsConfig.js";
 
 const PRIMARY_RPC_URL =
   process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network";
@@ -9,7 +16,7 @@ const TERTIARY_RPC_URL = process.env.ARC_RPC_URL_TERTIARY || null;
 const GET_DY_MIN_INTERVAL_MS = Number(
   process.env.INDEXER_GET_DY_MIN_INTERVAL_MS || 120
 );
-const SWAP_POOL_ADDRESS = "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC";
+const SWAP_POOL_ADDRESS = V2_SWAP_POOL_ADDRESS;
 const POOL_ABI = [
   "function get_dy(uint256 i, uint256 j, uint256 dx) view returns (uint256)"
 ];
@@ -47,7 +54,7 @@ const iface = new ethers.Interface([
 
 const USDC_INDEX = 0;
 const ARCSCAN_API = "https://testnet.arcscan.app/api";
-const INDEXER_STATE_KEY = "swapIndexer:lastBlock";
+const INDEXER_STATE_KEY = SWAP_INDEXER_V2_STATE_KEY;
 const ru = String(process.env.REDIS_URL || "").trim();
 const hasRedis = ru.startsWith("redis://") || ru.startsWith("rediss://");
 const hasUpstash =
@@ -112,16 +119,22 @@ async function getStartingBlock() {
   try {
     const stored = await kv.get(INDEXER_STATE_KEY);
     if (stored && Number(stored) > 0) {
-      console.log(`Resuming from stored last block: ${stored}`);
+      console.log(`Resuming V2 indexer from stored block: ${stored}`);
       return Number(stored);
     }
   } catch (e) {
     console.warn("Failed to read indexer state from KV", e?.message || e);
   }
 
+  if (SWAP_POOL_V2_FROM_BLOCK > 0) {
+    console.log(`No stored state. Starting V2 from SWAP_POOL_V2_FROM_BLOCK=${SWAP_POOL_V2_FROM_BLOCK}`);
+    await kv.set(INDEXER_STATE_KEY, SWAP_POOL_V2_FROM_BLOCK);
+    return SWAP_POOL_V2_FROM_BLOCK;
+  }
+
   try {
     const latest = await getBlockNumberWithFallback();
-    console.log(`No stored state. Starting from latest block ${latest}`);
+    console.log(`No stored state. Starting V2 from latest block ${latest}`);
     await kv.set(INDEXER_STATE_KEY, latest);
     return latest;
   } catch (e) {
@@ -169,13 +182,21 @@ async function fetchNewTransactions(fromBlock) {
         const dx = decoded.args[2];
 
         let usd = 0;
+        const symIn = SWAP_POOL_INDEX_TO_SYMBOL[i];
 
-        // If tokenIn is USDC, the USD value is just the input amount
         if (i === USDC_INDEX) {
-          usd = Number(ethers.formatUnits(dx, 6));
-        } else {
-          const usdcValue = await getDyWithFallback(i, dx);
-          usd = Number(ethers.formatUnits(usdcValue, 6));
+          usd = Number(ethers.formatUnits(dx, SWAP_POOL_TOKEN_DECIMALS.USDC));
+        } else if (symIn) {
+          const dec = SWAP_POOL_TOKEN_DECIMALS[symIn] || 18;
+          try {
+            const usdcValue = await getDyWithFallback(i, dx);
+            usd = Number(ethers.formatUnits(usdcValue, 6));
+          } catch {
+            usd = 0;
+          }
+          if (!usd) {
+            console.warn(`get_dy failed for ${symIn}, volume counted as 0`);
+          }
         }
 
         if (isNaN(usd) || !isFinite(usd)) continue;
@@ -200,6 +221,11 @@ async function fetchNewTransactions(fromBlock) {
       const profileKey = `profile:${wallet}`;
       const newCount = await kv.hincrby(profileKey, "swapCount", count);
       const newVolume = await kv.hincrbyfloat(profileKey, "swapVolume", volume);
+
+      await kv.zadd("leaderboard:swapVolume", {
+        score: Number(newVolume),
+        member: wallet,
+      });
 
       console.log(
         `[Arcscan] Wallet ${wallet}: +${count} swaps, +${volume.toFixed(
@@ -231,7 +257,7 @@ async function startLiveIndexer() {
   console.log(
     `Connected RPCs: ${rpcEntries.map((r) => `${r.label}:${r.url}`).join(" | ")}`
   );
-  console.log(`Tracking swaps on ${SWAP_POOL_ADDRESS} via Arcscan...`);
+  console.log(`Tracking V2 swaps on ${SWAP_POOL_ADDRESS} via Arcscan (legacy pool frozen)...`);
 
   let lastBlock = await getStartingBlock();
   console.log(`Live indexer starting from block ${lastBlock}`);

@@ -42,6 +42,10 @@ When the app posts deposits or withdrawals through the relay instead of only use
 
 Optional controls fine-tune how the relay authenticates and rate-limits in hosted setups. **`PRIVPAY_RELAY_SERVER_SECRET`** is the shared secret clients must present when your deployment requires it on relay routes. **`PRIVPAY_RELAY_RL_PEPPER`** seeds relay rate-limiting so distinct deployments do not share predictable bucket keys. **`PRIVPAY_RELAY_REQUIRE_KV`** (for example set to **`1`** on Vercel when you rely on KV for relay limits) forces the stricter path where in-memory fallback is unacceptable when KV errors; consult [Relayer operations](../operate/relayer-operations.md) alongside the API reference when enabling this.
 
+### Swap pool (V2)
+
+The **Swap** tab uses the UUPS proxy at **`VITE_SWAP_POOL_ADDRESS`** (browser) and **`SWAP_POOL_ADDRESS`** (server/indexer). Both default to the canonical V2 proxy in code if unset. Tokens: **USDC**, **EURC**, **SWPRC**, **CircBTC**. See [Jobs & health checks](../operate/jobs-and-healthchecks.md) for the Railway swap indexer.
+
 ### Circle settings (for email wallet mode)
 
 Email wallet mode splits credentials the way Vite intends: **`VITE_CIRCLE_APP_ID`** is the **client-visible** Circle application identifier bundled into the frontend. **`CIRCLE_API_KEY`** stays **server-side** for routes that call Circle’s APIs without exposing keys to the browser. **`CIRCLE_BASE_URL`** is **optional** and **defaults to Circle’s API base URL** when unset; override only when you are pointed at a documented Circle host or a proxy you fully control.

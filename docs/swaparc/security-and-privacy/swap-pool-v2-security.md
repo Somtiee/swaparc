@@ -74,6 +74,6 @@ Users / Swaparc app
 
 ## Related
 
-- [Swap pool migration](../operate/swap-pool-migration.md)
+- [Jobs & health checks](../operate/jobs-and-healthchecks.md)
 - [Threat model](threat-model.md)
 - [Security overview](security.md)

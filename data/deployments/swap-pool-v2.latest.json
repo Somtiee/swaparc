@@ -6,8 +6,7 @@
   "owner": "0xD4d3E342902766344075D06c94391e61A9bB7e60",
   "treasury": "0xD4d3E342902766344075D06c94391e61A9bB7e60",
   "proxy": "0xDC3FaDc97013eee5Da21e19c1108B1fa1E608560",
-  "implementation": "0x7C45940BeFf109505737153b6534f63d801D25A3",
-  "legacyPool": "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC",
+  "implementation": "0x50A2f1cD5d80F154CE57Ed4b0602De7eb9FAe2dE",
   "supersededProxies": [
     "0xA2E7a570adB1195260Da3D9761D0E87edA966C2d"
   ],
@@ -46,7 +45,7 @@
       "index": 2,
       "symbol": "SWPRC",
       "address": "0xBE7477BF91526FC9988C8f33e91B6db687119D45",
-      "decimals": 18,
+      "decimals": 6,
       "rate": "1000000000000"
     },
     {
@@ -57,5 +56,7 @@
       "rate": "10000000000"
     }
   ],
-  "tokenCount": 4
+  "tokenCount": 4,
+  "upgradedAt": "2026-06-14T16:52:01.326Z",
+  "upgradeNote": "Fix _xp precision — avoid divide-by-zero for 8-decimal tokens"
 }
