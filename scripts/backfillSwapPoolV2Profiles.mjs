@@ -13,6 +13,7 @@ import {
   V2_SWAP_POOL_ADDRESS,
 } from "../lib/swapPoolStatsConfig.js";
 import { scanSwapPoolTxs } from "../lib/server/scanSwapPoolTxs.js";
+import { claimSwapTxForIndexing } from "../lib/server/swapIndexDedup.js";
 
 const RPC = process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network";
 const DRY_RUN = process.argv.includes("--dry-run");
@@ -86,6 +87,8 @@ async function main() {
 
   const walletDeltas = new Map();
   for (const row of rows) {
+    if (row.hash && !(await claimSwapTxForIndexing(row.hash))) continue;
+
     const usd = await usdForSwap(pool, row.i, row.dx);
     const cur = walletDeltas.get(row.wallet) || { count: 0, volume: 0 };
     cur.count += 1;

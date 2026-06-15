@@ -170,9 +170,12 @@ async function getStartingBlock() {
 
   try {
     const latest = await getBlockNumberWithFallback();
-    console.log(`No stored state. Starting V2 from latest block ${latest}`);
-    await kv.set(INDEXER_STATE_KEY, latest);
-    return latest;
+    const tailStart = latest + 1;
+    console.log(
+      `No stored state. Live tail from chain head — cursor ${tailStart} (backfill handles history)`
+    );
+    await kv.set(INDEXER_STATE_KEY, tailStart);
+    return tailStart;
   } catch (e) {
     console.warn("Failed to get latest block from RPC, defaulting to 0", e?.message || e);
     return 0;

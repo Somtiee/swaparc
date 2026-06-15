@@ -1,5 +1,5 @@
 /**
- * Railway entrypoint: one-time V2 stats bootstrap, then live swap indexer.
+ * Railway entrypoint: start live swap indexer immediately; bootstrap in background.
  *
  * Set in Railway service → Settings → Deploy → Start command:
  *   npm run start:railway
@@ -30,7 +30,7 @@ function runScript(relPath) {
   });
 }
 
-async function bootstrapOnce() {
+async function bootstrapInBackground() {
   if (process.env.RAILWAY_SKIP_BOOTSTRAP === "1") {
     console.log("RAILWAY_SKIP_BOOTSTRAP=1 — skipping bootstrap");
     return;
@@ -56,21 +56,24 @@ async function bootstrapOnce() {
     return;
   }
 
-  console.log("=== Railway first boot: V2 swap stats bootstrap ===");
+  console.log("=== Railway background bootstrap: V2 profile backfill ===");
   try {
     await runScript("scripts/backfillSwapPoolV2Profiles.mjs");
-    await runScript("scripts/countUniqueSwappers.js");
+    // Do NOT run countUniqueSwappers here — it scans the entire legacy pool (hours)
+    // and was blocking the live indexer from ever starting. Landing stats cron handles it.
     await kv.set(BOOTSTRAP_KEY, new Date().toISOString());
-    console.log("Bootstrap complete.");
+    console.log("Bootstrap complete (live indexer was already running).");
   } catch (e) {
-    console.error("Bootstrap failed (indexer will still start):", e?.message || e);
+    console.error("Background bootstrap failed:", e?.message || e);
   }
 }
 
 async function main() {
   console.log("Swaparc Railway worker starting...");
-  await bootstrapOnce();
-  console.log("Starting live V2 swap indexer...");
+  bootstrapInBackground().catch((e) => {
+    console.error("Bootstrap task error:", e?.message || e);
+  });
+  console.log("Starting live V2 swap indexer now (not waiting for bootstrap)...");
   await runScript("scripts/liveSwapIndexer.js");
 }
 
