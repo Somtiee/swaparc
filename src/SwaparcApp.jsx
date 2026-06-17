@@ -11374,20 +11374,20 @@ export default function SwaparcApp() {
                   </section>
 
                   <section className="landingActionTileGrid">
-                    <div
-                      className="landingActionTile landingActionTileSwap landingReveal landingActionTileDisabled"
-                      aria-disabled="true"
-                      role="status"
+                    <button
+                      className="landingActionTile landingActionTileSwap landingReveal"
+                      type="button"
+                      onClick={() => setActiveTab("swap")}
                     >
                       <span className="landingActionIcon">↔</span>
                       <span className="landingActionTag">SWAP</span>
-                      <strong>Upgrade in progress</strong>
+                      <strong>Fast non-custodial stablecoin FX execution</strong>
                       <p>
-                        Legacy swap pool is offline while we migrate liquidity. Swaps will return
-                        after the upgrade completes.
+                        Convert between core stablecoin rails with transparent on-chain pricing
+                        and execution built for day-to-day treasury operations.
                       </p>
-                      <span className="landingActionCta">Temporarily unavailable</span>
-                    </div>
+                      <span className="landingActionCta">Start Swapping</span>
+                    </button>
                     <button
                       className="landingActionTile landingReveal"
                       type="button"
