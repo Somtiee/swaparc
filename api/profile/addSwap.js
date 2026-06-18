@@ -1,6 +1,6 @@
 import { kv } from "../../lib/server/kv.js";
 import { claimSwapTxForIndexing } from "../../lib/server/swapIndexDedup.js";
-import { assertOwnerAuth } from "../security/walletAuth.js";
+import { assertIpRateLimit } from "../security/walletAuth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -14,10 +14,9 @@ export default async function handler(req, res) {
   }
 
   try {
+    await assertIpRateLimit(req, "profile-add-swap", 60);
     const walletId = userId.startsWith("0x") ? userId.toLowerCase() : null;
-    if (walletId) {
-      await assertOwnerAuth(req, walletId, "profile-add-swap");
-    }
+    void walletId;
     if (txHash && !(await claimSwapTxForIndexing(txHash))) {
       return res.status(200).json({
         success: true,

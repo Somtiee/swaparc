@@ -1,6 +1,6 @@
 import { kv } from "../../lib/server/kv.js";
 import { isFrozenEarlySwaparcer } from "../../lib/server/earlySwaparcerFrozen.js";
-import { assertOwnerAuth } from "../security/walletAuth.js";
+import { assertIpRateLimit } from "../security/walletAuth.js";
 
 function parseBadges(raw) {
   if (!raw) return {};
@@ -36,10 +36,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const walletId = String(userId || "").startsWith("0x") ? userId.toLowerCase() : null;
-    if (walletId) {
-      await assertOwnerAuth(req, walletId, "profile-update-lp");
-    }
+    await assertIpRateLimit(req, "profile-update-lp", 30);
 
     const profileKey = `profile:${userId}`;
     const profile = (await kv.hgetall(profileKey)) || {};
@@ -83,6 +80,6 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error("Error updating LP stats:", error);
-    return res.status(500).json({ error: "Internal Server Error" });
+    return res.status(error?.status || 500).json({ error: "Internal Server Error" });
   }
 }

@@ -9,6 +9,21 @@ import {
 } from "../../lib/swapPoolConfig.js";
 
 const AUTH_DOMAIN = "Swaparc Auth";
+const WALLET_SESSION_ACTION = "wallet-session";
+const WALLET_SESSION_MAX_AGE_MS = 30 * 60 * 1000;
+
+/** Endpoints that accept a cached wallet-session signature (background sync / reads). */
+export const WALLET_SESSION_ALLOWED_ACTIONS = new Set([
+  "payments-bills-get",
+  "payments-bills-save",
+  "payments-payroll-get",
+  "payments-payroll-save",
+  "payments-recurring-list",
+  "privpay-history-get",
+  "privpay-history-save",
+  "profile-save",
+  "profile-add-swap",
+]);
 const MEMORY_RL =
   globalThis.__swaparcRateBuckets || (globalThis.__swaparcRateBuckets = new Map());
 
@@ -71,6 +86,28 @@ async function circleTokenOwnsAddress(userToken, ownerLower) {
   );
 }
 
+function verifyWalletAuthMessage(fields, owner, signedAction, maxAgeMs) {
+  assertNotExpired({ requestTimestampMs: fields.timestampMs, maxAgeMs });
+  if (!fields.nonce) throw unauthorized("Missing auth nonce");
+  const claimed = fields.walletAddress
+    ? ethers.getAddress(fields.walletAddress).toLowerCase()
+    : owner;
+  if (claimed !== owner) throw unauthorized("Wallet address mismatch");
+  const message = buildSwaparcAuthMessage(
+    signedAction,
+    owner,
+    fields.timestampMs,
+    fields.nonce
+  );
+  let recovered;
+  try {
+    recovered = ethers.verifyMessage(message, fields.walletSignature).toLowerCase();
+  } catch {
+    throw unauthorized("Invalid wallet signature");
+  }
+  if (recovered !== owner) throw unauthorized("Wallet signature mismatch");
+}
+
 export async function assertOwnerAuth(req, ownerAddress, action) {
   const owner = ethers.getAddress(String(ownerAddress || "")).toLowerCase();
   const fields = readAuthFields(req);
@@ -87,21 +124,28 @@ export async function assertOwnerAuth(req, ownerAddress, action) {
   }
 
   if (fields.walletSignature) {
-    assertNotExpired({ requestTimestampMs: fields.timestampMs, maxAgeMs: 120_000 });
-    if (!fields.nonce) throw unauthorized("Missing auth nonce");
-    const claimed = fields.walletAddress
-      ? ethers.getAddress(fields.walletAddress).toLowerCase()
-      : owner;
-    if (claimed !== owner) throw unauthorized("Wallet address mismatch");
-    const message = buildSwaparcAuthMessage(action, owner, fields.timestampMs, fields.nonce);
-    let recovered;
     try {
-      recovered = ethers.verifyMessage(message, fields.walletSignature).toLowerCase();
-    } catch {
-      throw unauthorized("Invalid wallet signature");
+      verifyWalletAuthMessage(fields, owner, action, 120_000);
+      return { mode: "wallet", owner };
+    } catch (exactErr) {
+      if (
+        WALLET_SESSION_ALLOWED_ACTIONS.has(action) &&
+        exactErr?.message !== "Request expired"
+      ) {
+        try {
+          verifyWalletAuthMessage(
+            fields,
+            owner,
+            WALLET_SESSION_ACTION,
+            WALLET_SESSION_MAX_AGE_MS
+          );
+          return { mode: "wallet-session", owner };
+        } catch {
+          throw exactErr;
+        }
+      }
+      throw exactErr;
     }
-    if (recovered !== owner) throw unauthorized("Wallet signature mismatch");
-    return { mode: "wallet", owner };
   }
 
   if (requireOwnerAuth()) {

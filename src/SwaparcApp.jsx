@@ -10,7 +10,7 @@ import circbtcLogo from "./assets/circbtc.png";
 import "./App.css";
 import { getPrices } from "./priceFetcher";
 import { CircleSigner } from "./utils/CircleSigner";
-import { ownerApiFetch } from "./utils/ownerApi.js";
+import { ownerApiFetch, clearWalletSession } from "./utils/ownerApi.js";
 import {
   deriveStealthPayment,
   deriveStealthPrivateKey,
@@ -983,6 +983,7 @@ export default function SwaparcApp() {
   const [lpLoading, setLpLoading] = useState(false);
   const [lpCacheHydrated, setLpCacheHydrated] = useState(false);
   const lastLpCacheWalletRef = useRef(null);
+  const lpPersistedValueRef = useRef(null);
   const [liquiditySuccess, setLiquiditySuccess] = useState(null);
   const [lpDecimals, setLpDecimals] = useState(18);
   const [poolBalances, setPoolBalances] = useState({});
@@ -3317,34 +3318,28 @@ export default function SwaparcApp() {
   const displayPortfolioValue =
     calculatedPortfolioValue + calculatedLpTotalValue;
 
-  // Persist LP Value
+  // Persist LP Value (no wallet signature — value is derived from on-chain reads)
   useEffect(() => {
-    if (calculatedLpTotalValue > 0 && userId) {
-      // Only update if significantly different
-      if (
-        profileStats &&
-        Math.abs(
-          Number(profileStats.lpProvided || 0) - calculatedLpTotalValue
-        ) > 0.01
-      ) {
-        // Update local state immediately for UI responsiveness
-        setProfileStats((prev) => ({
-          ...prev,
-          lpProvided: calculatedLpTotalValue,
-        }));
+    if (calculatedLpTotalValue <= 0 || !userId) return;
+    const prev = Number(profileStats?.lpProvided || 0);
+    if (Math.abs(prev - calculatedLpTotalValue) <= 0.01) return;
+    if (lpPersistedValueRef.current === calculatedLpTotalValue) return;
+    lpPersistedValueRef.current = calculatedLpTotalValue;
 
-        // Persist to backend
-        ownerFetch("/api/profile/updateLp", {
-          action: "profile-update-lp",
-          owner: userId,
-          body: {
-            userId: userId,
-            lpTotalValue: calculatedLpTotalValue,
-          },
-        }).catch(console.error);
-      }
-    }
-  }, [calculatedLpTotalValue, userId, profileStats]);
+    setProfileStats((prevStats) => ({
+      ...prevStats,
+      lpProvided: calculatedLpTotalValue,
+    }));
+
+    fetch("/api/profile/updateLp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId,
+        lpTotalValue: calculatedLpTotalValue,
+      }),
+    }).catch(console.error);
+  }, [calculatedLpTotalValue, userId, profileStats?.lpProvided]);
 
   // Badge Logic (Memoized)
   // STRICT LOCK: frontend must never recompute badge eligibility from
@@ -4230,18 +4225,7 @@ export default function SwaparcApp() {
   async function fetchLPTokenAmounts(user, provider) {
     const { amounts, totalLpUsd } = await getLpTokenAmountsData(user, provider);
     setLpTokenAmounts(amounts);
-
-    // Persist LP stat to backend
-    try {
-      await ownerFetch("/api/profile/updateLp", {
-        action: "profile-update-lp",
-        owner: user,
-        body: { userId: user, lpTotalValue: totalLpUsd },
-      });
-      if (activeTab === "profile") fetchProfile(user);
-    } catch (err) {
-      console.warn("Failed to update LP stats", err);
-    }
+    if (activeTab === "profile") fetchProfile(user);
   }
   async function getOnchainPriceInUSDC(provider, fromSymbol) {
     if (fromSymbol === "USDC") return 1;
@@ -9171,6 +9155,7 @@ export default function SwaparcApp() {
   }
 
   async function disconnectWallet() {
+    if (address) clearWalletSession(address);
     setAddress(null);
     setNetwork(null);
     setStatus("Not connected");
@@ -9934,14 +9919,14 @@ export default function SwaparcApp() {
     try {
       const price = tokenPrices[swapFrom] || 1;
       const usdValue = Number(swapAmount) * Number(price);
-      await ownerFetch("/api/profile/addSwap", {
-        action: "profile-add-swap",
-        owner: walletAddr,
-        body: {
+      await fetch("/api/profile/addSwap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           userId: walletAddr,
           amount: usdValue,
           txHash,
-        },
+        }),
       });
       setTimeout(() => {
         fetchProfile(walletAddr);
@@ -10128,14 +10113,14 @@ export default function SwaparcApp() {
         } else {
           usdValue = Number(swapAmount) * Number(tokenPrices[swapFrom] || 1);
         }
-        await ownerFetch("/api/profile/addSwap", {
-          action: "profile-add-swap",
-          owner: userAddr,
-          body: {
+        await fetch("/api/profile/addSwap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
             userId: userAddr,
             amount: usdValue,
             txHash: tx.hash,
-          },
+          }),
         });
         setTimeout(() => {
           fetchProfile(userAddr);
