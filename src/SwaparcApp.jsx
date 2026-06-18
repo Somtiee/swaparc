@@ -11154,6 +11154,14 @@ export default function SwaparcApp() {
                           return;
                         }
 
+                        if (!data?.otpToken || !data?.deviceToken || !data?.deviceEncryptionKey) {
+                          setEmailError(
+                            "Circle accepted the request but did not start OTP delivery. Try again."
+                          );
+                          setEmailStatus("");
+                          return;
+                        }
+
                         if (typeof window !== "undefined") {
                           window.localStorage.setItem(
                             "circle_user_email",
