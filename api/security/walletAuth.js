@@ -3,6 +3,10 @@ import { ethers } from "ethers";
 import { kv } from "../../lib/server/kv.js";
 import { assertNotExpired } from "./hardening.js";
 import { circleUserRequest } from "../circle/_circleUserApi.js";
+import {
+  CANONICAL_SWAP_POOL_ADDRESS,
+  SWAP_POOL_TOKENS,
+} from "../../lib/swapPoolConfig.js";
 
 const AUTH_DOMAIN = "Swaparc Auth";
 const MEMORY_RL =
@@ -180,21 +184,29 @@ export function sanitizeAvatar(value) {
 export function buildContractAllowlist() {
   const keys = [
     "VITE_SWAP_POOL_ADDRESS",
+    "SWAP_POOL_ADDRESS",
     "VITE_STEALTH_PAYMENTS_ADDRESS",
+    "STEALTH_PAYMENTS_ADDRESS",
     "VITE_PRIVACY_POOL_ADDRESS",
     "VITE_PRIVACY_POOL_ADDRESS_USDC",
     "VITE_PRIVACY_POOL_ADDRESS_EURC",
     "VITE_PRIVACY_POOL_ADDRESS_SWPRC",
+    "PRIVACY_POOL_ADDRESS_USDC",
+    "PRIVACY_POOL_ADDRESS_EURC",
+    "PRIVACY_POOL_ADDRESS_SWPRC",
     "VITE_RECURRING_AUTOMATION_CONTRACT_ADDRESS",
+    "RECURRING_AUTOMATION_CONTRACT_ADDRESS",
     "VITE_PRIVPAY_USDC_ADDRESS",
     "VITE_PRIVPAY_TREASURY_ADDRESS",
     "VITE_ARCPAY_USDC_ADDRESS",
     "VITE_ARCPAY_TREASURY_ADDRESS",
     "PRIVPAY_USDC_ADDRESS",
     "ARCPAY_USDC_ADDRESS",
-    "VITE_STEALTH_PAYMENTS_ADDRESS",
+    "ARCPAY_TREASURY_ADDRESS",
+    "PRIVACY_POOL_VERIFIER_ADDRESS",
+    "POSEIDON_T3_LIBRARY_ADDRESS",
   ];
-  const extraPrefixes = ["VITE_", "PRIVPAY_", "ARCPAY_", "PRIVACY_POOL_"];
+  const extraPrefixes = ["VITE_", "PRIVPAY_", "ARCPAY_", "PRIVACY_POOL_", "SWAP_POOL_"];
   const extraSuffixes = ["_ADDRESS", "_CONTRACT_ADDRESS"];
   for (const key of Object.keys(process.env)) {
     if (!extraPrefixes.some((p) => key.startsWith(p))) continue;
@@ -202,6 +214,19 @@ export function buildContractAllowlist() {
     keys.push(key);
   }
   const out = new Set();
+  // Canonical Arc testnet swap pool + ERC20 tokens (approve + swap targets).
+  try {
+    out.add(ethers.getAddress(CANONICAL_SWAP_POOL_ADDRESS).toLowerCase());
+  } catch {
+    // ignore
+  }
+  for (const t of SWAP_POOL_TOKENS) {
+    try {
+      out.add(ethers.getAddress(t.address).toLowerCase());
+    } catch {
+      // ignore
+    }
+  }
   for (const k of keys) {
     const v = String(process.env[k] || "").trim();
     if (v.startsWith("0x") && v.length === 42) {
@@ -229,6 +254,7 @@ export function assertContractAllowed(contractAddress, allowlist) {
   if (!list.has(normalized)) {
     const err = new Error("Contract address is not allowlisted");
     err.status = 403;
+    err.code = "CONTRACT_NOT_ALLOWLISTED";
     throw err;
   }
 }

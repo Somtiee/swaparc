@@ -9459,9 +9459,21 @@ export default function SwaparcApp() {
 
       const data = await res.json().catch(() => ({}));
       
-      // Handle session / token expiry (Circle returns 403 + "userToken had expired" or 401)
+      // Allowlist / config errors must not trigger logout.
+      if (data.code === "CONTRACT_NOT_ALLOWLISTED") {
+        throw new Error(
+          data.error ||
+            "This contract is not permitted by server policy. Contact support if this persists."
+        );
+      }
+
+      // Handle Circle session / userToken expiry only.
       const errStr = String(data.error || "").toLowerCase();
-      if (res.status === 401 || res.status === 403 || errStr.includes("expired") || errStr.includes("session") || data.code === 155104) {
+      const isCircleSessionExpired =
+        data.code === 155104 ||
+        errStr.includes("usertoken") && errStr.includes("expired") ||
+        errStr.includes("user token") && errStr.includes("expired");
+      if (res.status === 401 || isCircleSessionExpired) {
         console.warn("[CircleTx] Token/session expired, prompting re-login...", { status: res.status, error: data.error, code: data.code });
         disconnectEmail();
         alert("Your Circle session has expired. Please log in again.");

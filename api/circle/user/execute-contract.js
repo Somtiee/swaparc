@@ -121,7 +121,7 @@ export default async function handler(req, res) {
     console.error("[CircleTx] Internal Error:", err?.message || err);
     return res.status(err?.status || 500).json({
       error: err?.message || "Internal server error",
-      code: err?.status || 500,
+      code: err?.code || err?.status || 500,
     });
   }
 }
