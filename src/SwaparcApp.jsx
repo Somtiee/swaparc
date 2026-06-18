@@ -10,6 +10,8 @@ import circbtcLogo from "./assets/circbtc.png";
 import "./App.css";
 import { getPrices } from "./priceFetcher";
 import { CircleSigner } from "./utils/CircleSigner";
+import { ownerApiFetch } from "./utils/ownerApi.js";
+import { ownerApiFetch } from "./utils/ownerApi.js";
 import {
   deriveStealthPayment,
   deriveStealthPrivateKey,
@@ -233,6 +235,14 @@ const TOKEN_LOGOS = {
   SWPRC: swprcLogo,
   CircBTC: circbtcLogo,
 };
+
+function safeAvatarCssUrl(value) {
+  const s = String(value || "").trim();
+  if (!s) return null;
+  if (/^data:image\/(png|jpeg|jpg|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(s)) return s;
+  if (/^https?:\/\/[^\s"'()<>]+$/i.test(s) && s.length <= 2048) return s;
+  return null;
+}
 
 const INITIAL_TOKENS = [
   {
@@ -2269,15 +2279,15 @@ export default function SwaparcApp() {
     savePrivateReceiveKeyring(normalized, keyring);
     if (!activeKey) throw new Error("No active private receive key available");
 
-    const res = await fetch("/api/privpay/register-receiver", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const res = await ownerFetch("/api/privpay/register-receiver", {
+      action: "privpay-register-receiver",
+      owner: normalized,
+      body: {
         address: normalized,
         spendPublicKey: activeKey.spendPublicKey,
         viewPublicKey: activeKey.viewPublicKey,
         source: isCircleMode() ? "circle-connect" : "wallet-connect",
-      }),
+      },
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -2296,8 +2306,9 @@ export default function SwaparcApp() {
     const active = getActiveWalletAddress();
     if (!active) return [];
     const normalized = normalizeAddress(active);
-    const res = await fetch(
-      `/api/privpay/list-backups?address=${encodeURIComponent(normalized)}`
+    const res = await ownerFetch(
+      `/api/privpay/list-backups?address=${encodeURIComponent(normalized)}`,
+      { method: "GET", action: "privpay-list-backups", owner: normalized }
     );
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.error || "Failed to load key backups");
@@ -2322,10 +2333,10 @@ export default function SwaparcApp() {
     }
     const keyId = keyring.activeKeyId || keyring.keys[0]?.keyId || crypto.randomUUID();
     const backup = await encryptWithPassphrase(keyring, privateReceivePassphrase);
-    const res = await fetch("/api/privpay/backup-keys", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const res = await ownerFetch("/api/privpay/backup-keys", {
+      action: "privpay-backup-keys",
+      owner: normalized,
+      body: {
         address: normalized,
         keyId,
         label: "private-receive-keyring",
@@ -2333,7 +2344,7 @@ export default function SwaparcApp() {
         requestTimestampMs: Date.now(),
         requestNonce: crypto.randomUUID(),
         idempotencyKey: crypto.randomUUID(),
-      }),
+      },
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.error || "Failed to back up keys");
@@ -2354,13 +2365,13 @@ export default function SwaparcApp() {
       throw new Error("Enter recovery passphrase");
     }
     const normalized = normalizeAddress(active);
-    const res = await fetch("/api/privpay/recover-keys", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const res = await ownerFetch("/api/privpay/recover-keys", {
+      action: "privpay-recover-keys",
+      owner: normalized,
+      body: {
         address: normalized,
         keyId,
-      }),
+      },
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.error || "Failed to fetch key backup");
@@ -2583,15 +2594,15 @@ export default function SwaparcApp() {
     if (last && now - last < 12000) return;
     recurringServerRunLastAtRef.current = now;
     try {
-      await fetch("/api/payments/recurring/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ owner }),
+      await ownerFetch("/api/payments/recurring/run", {
+        action: "payments-recurring-run",
+        owner,
+        body: { owner },
       });
-      const payrollRes = await fetch("/api/payments/payroll/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ owner }),
+      const payrollRes = await ownerFetch("/api/payments/payroll/run", {
+        action: "payments-payroll-run",
+        owner,
+        body: { owner },
       });
       const payrollJson = await payrollRes.json().catch(() => ({}));
       const note = String(payrollJson?.note || "").trim();
@@ -2610,7 +2621,10 @@ export default function SwaparcApp() {
     const owner = getActiveWalletAddress();
     if (!owner) return;
     try {
-      const r = await fetch(`/api/payments/payroll/get?owner=${encodeURIComponent(owner)}`);
+      const r = await ownerFetch(
+        `/api/payments/payroll/get?owner=${encodeURIComponent(owner)}`,
+        { method: "GET", action: "payments-payroll-get", owner }
+      );
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j?.ok || !j?.state) return;
       const serverHist = Array.isArray(j.state.history) ? j.state.history : [];
@@ -2649,8 +2663,9 @@ export default function SwaparcApp() {
     if (!owner) return;
     const ownerLower = String(owner).toLowerCase();
     try {
-      const r = await fetch(
-        `/api/privpay/history/get?owner=${encodeURIComponent(ownerLower)}`
+      const r = await ownerFetch(
+        `/api/privpay/history/get?owner=${encodeURIComponent(ownerLower)}`,
+        { method: "GET", action: "privpay-history-get", owner: ownerLower }
       );
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j?.ok || !j?.state) return;
@@ -2757,7 +2772,10 @@ export default function SwaparcApp() {
     if (!owner) return;
     const ownerLower = String(owner).toLowerCase();
     try {
-      const r = await fetch(`/api/payments/bills/get?owner=${encodeURIComponent(ownerLower)}`);
+      const r = await ownerFetch(
+        `/api/payments/bills/get?owner=${encodeURIComponent(ownerLower)}`,
+        { method: "GET", action: "payments-bills-get", owner: ownerLower }
+      );
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j?.ok || !j?.state) return;
       const serverBills = Array.isArray(j.state.bills) ? j.state.bills : [];
@@ -2785,13 +2803,13 @@ export default function SwaparcApp() {
     if (!owner) return;
     const ownerLower = String(owner).toLowerCase();
     if (billsHydratedOwnerRef.current !== ownerLower) return;
-    await fetch("/api/payments/bills/save", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    await ownerFetch("/api/payments/bills/save", {
+      action: "payments-bills-save",
+      owner: ownerLower,
+      body: {
         owner: ownerLower,
         state: { bills: Array.isArray(nextBills) ? nextBills.slice(0, 500) : [] },
-      }),
+      },
     }).catch(() => {
       // keep local fallback when offline
     });
@@ -2805,10 +2823,10 @@ export default function SwaparcApp() {
     const owner = getActiveWalletAddress();
     if (!owner) return;
     const ownerLower = String(owner).toLowerCase();
-    await fetch("/api/payments/payroll/save", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    await ownerFetch("/api/payments/payroll/save", {
+      action: "payments-payroll-save",
+      owner: ownerLower,
+      body: {
         owner: ownerLower,
         state: {
           companies: (companiesSnapshot || []).map((c) => ({
@@ -2819,7 +2837,7 @@ export default function SwaparcApp() {
           employees: Array.isArray(employeesSnapshot) ? employeesSnapshot : [],
           history: Array.isArray(historySnapshot) ? historySnapshot.slice(0, 500) : [],
         },
-      }),
+      },
     })
       .then(async (r) => {
         const j = await r.json().catch(() => ({}));
@@ -2844,10 +2862,15 @@ export default function SwaparcApp() {
     try {
       const owner = getActiveWalletAddress();
       if (!owner) return;
-      const res = await fetch(
+      const res = await ownerFetch(
         `/api/payments/recurring/list?owner=${encodeURIComponent(
           String(owner).toLowerCase()
-        )}`
+        )}`,
+        {
+          method: "GET",
+          action: "payments-recurring-list",
+          owner: String(owner).toLowerCase(),
+        }
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) return;
@@ -2929,6 +2952,19 @@ export default function SwaparcApp() {
 
   function isCircleMode() {
     return authMode === "email" && !!circleWallet;
+  }
+
+  async function ownerFetch(url, { method = "POST", body, action, owner } = {}) {
+    const ownerAddress = owner || getActiveWalletAddress();
+    if (!ownerAddress) throw new Error("Connect wallet first");
+    return ownerApiFetch(url, {
+      method,
+      body,
+      action,
+      ownerAddress,
+      isCircleMode,
+      getSigner,
+    });
   }
 
   function requireCircleAuth() {
@@ -3299,13 +3335,13 @@ export default function SwaparcApp() {
         }));
 
         // Persist to backend
-        fetch("/api/profile/updateLp", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        ownerFetch("/api/profile/updateLp", {
+          action: "profile-update-lp",
+          owner: userId,
+          body: {
             userId: userId,
             lpTotalValue: calculatedLpTotalValue,
-          }),
+          },
         }).catch(console.error);
       }
     }
@@ -3487,10 +3523,10 @@ export default function SwaparcApp() {
         username: "Anonymous",
         walletId: addr,
       };
-      const res = await fetch("/api/profile/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+      const res = await ownerFetch("/api/profile/save", {
+        action: "profile-save",
+        owner: addr,
+        body: payload,
       });
 
       if (res.ok) {
@@ -3571,14 +3607,14 @@ export default function SwaparcApp() {
     if (!targetId) return;
 
     try {
-      const res = await fetch("/api/profile/updateIdentity", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const res = await ownerFetch("/api/profile/updateIdentity", {
+        action: "profile-update-identity",
+        owner: targetId,
+        body: {
           userId: targetId,
           username: editForm.username,
           avatar: editForm.avatar,
-        }),
+        },
       });
       const data = await res.json();
       if (data.success) {
@@ -4198,10 +4234,10 @@ export default function SwaparcApp() {
 
     // Persist LP stat to backend
     try {
-      await fetch("/api/profile/updateLp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user, lpTotalValue: totalLpUsd }),
+      await ownerFetch("/api/profile/updateLp", {
+        action: "profile-update-lp",
+        owner: user,
+        body: { userId: user, lpTotalValue: totalLpUsd },
       });
       if (activeTab === "profile") fetchProfile(user);
     } catch (err) {
@@ -5095,13 +5131,13 @@ export default function SwaparcApp() {
     const ownerLower = String(owner).toLowerCase();
     if (billsHydratedOwnerRef.current !== ownerLower) return;
     const t = setTimeout(() => {
-      fetch("/api/payments/bills/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      ownerFetch("/api/payments/bills/save", {
+        action: "payments-bills-save",
+        owner: ownerLower,
+        body: {
           owner: ownerLower,
           state: { bills: bills.slice(0, 500) },
-        }),
+        },
       }).catch(() => {
         // keep local state fallback
       });
@@ -5491,8 +5527,13 @@ export default function SwaparcApp() {
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch(
-          `/api/payments/payroll/get?owner=${encodeURIComponent(String(owner).toLowerCase())}`
+        const r = await ownerFetch(
+          `/api/payments/payroll/get?owner=${encodeURIComponent(String(owner).toLowerCase())}`,
+          {
+            method: "GET",
+            action: "payments-payroll-get",
+            owner: String(owner).toLowerCase(),
+          }
         );
         const j = await r.json();
         if (!r.ok || !j?.ok || cancelled || !j?.state) return;
@@ -5617,10 +5658,10 @@ export default function SwaparcApp() {
     if (!owner) return;
     const t = setTimeout(() => {
       const ownerLower = String(owner).toLowerCase();
-      fetch("/api/payments/payroll/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      ownerFetch("/api/payments/payroll/save", {
+        action: "payments-payroll-save",
+        owner: ownerLower,
+        body: {
           owner: ownerLower,
           state: {
             companies: payrollCompanies.map((c) => ({
@@ -5633,7 +5674,7 @@ export default function SwaparcApp() {
             employees: payrollEmployees,
             history: payrollHistory.slice(0, 500),
           },
-        }),
+        },
       })
         .then(async (r) => {
           const j = await r.json().catch(() => ({}));
@@ -5658,10 +5699,10 @@ export default function SwaparcApp() {
     const ownerLower = String(owner).toLowerCase();
     if (privpayHistoryHydratedOwnerRef.current !== ownerLower) return;
     const t = setTimeout(() => {
-      fetch("/api/privpay/history/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      ownerFetch("/api/privpay/history/save", {
+        action: "privpay-history-save",
+        owner: ownerLower,
+        body: {
           owner: ownerLower,
           state: {
             billHistory: billHistory.slice(0, 500),
@@ -5669,7 +5710,7 @@ export default function SwaparcApp() {
             resolvedBillIds: Array.from(resolvedBillHistoryIds),
             resolvedPayrollIds: Array.from(resolvedPayrollHistoryIds),
           },
-        }),
+        },
       }).catch(() => {
         // keep local state fallback
       });
@@ -7900,10 +7941,10 @@ export default function SwaparcApp() {
         );
         const onchainAuthorizationId = await ensureRecurringOnchainAuthorization(bill);
         setBillCreateStatus("Registering recurring schedule...");
-        const recurringRes = await fetch("/api/payments/recurring/create", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const recurringRes = await ownerFetch("/api/payments/recurring/create", {
+          action: "payments-recurring-create",
+          owner: getActiveWalletAddress(),
+          body: {
             id: bill.id,
             payerAddress: getActiveWalletAddress(),
             receiverSpendPublicKey: bill.receiverSpendPublicKey,
@@ -7924,7 +7965,7 @@ export default function SwaparcApp() {
               customRepeatCadence: bill.customRepeatCadence || null,
               onchainAuthorizationId: onchainAuthorizationId || recurringAuthorizationIdForBill(bill.id),
             },
-          }),
+          },
         });
         const recurringData = await recurringRes.json().catch(() => ({}));
         if (!recurringRes.ok) {
@@ -7973,13 +8014,13 @@ export default function SwaparcApp() {
     if (!recurringDeleteEndpointAvailableRef.current) return;
     const owner = getActiveWalletAddress();
     if (!owner || !billId) return;
-    const res = await fetch("/api/payments/recurring/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const res = await ownerFetch("/api/payments/recurring/delete", {
+      action: "payments-recurring-delete",
+      owner,
+      body: {
         id: billId,
         payerAddress: String(owner).toLowerCase(),
-      }),
+      },
     }).catch(() => null);
     if (!res) return;
     const data = await res.json().catch(() => ({}));
@@ -8021,10 +8062,10 @@ export default function SwaparcApp() {
       ...bill,
       recurring: true,
     });
-    const res = await fetch("/api/payments/recurring/create", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const res = await ownerFetch("/api/payments/recurring/create", {
+      action: "payments-recurring-create",
+      owner,
+      body: {
         id: bill.id,
         payerAddress: String(owner).toLowerCase(),
         receiverSpendPublicKey: bill.receiverSpendPublicKey,
@@ -8041,7 +8082,7 @@ export default function SwaparcApp() {
         ...(bill.frequency === "custom" && bill.nextExecutionAt
           ? { startAt: bill.nextExecutionAt }
           : {}),
-      }),
+      },
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -8630,10 +8671,10 @@ export default function SwaparcApp() {
     setPayrollError("");
     setPayrollStatus("");
     try {
-      const res = await fetch("/api/payments/payroll/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ owner: String(owner).toLowerCase() }),
+      const res = await ownerFetch("/api/payments/payroll/run", {
+        action: "payments-payroll-run",
+        owner: String(owner).toLowerCase(),
+        body: { owner: String(owner).toLowerCase() },
       });
       const data = await res.json().catch(() => ({}));
       await mergePayrollSnapshotFromServer().catch(() => {});
@@ -9882,14 +9923,14 @@ export default function SwaparcApp() {
     try {
       const price = tokenPrices[swapFrom] || 1;
       const usdValue = Number(swapAmount) * Number(price);
-      await fetch("/api/profile/addSwap", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      await ownerFetch("/api/profile/addSwap", {
+        action: "profile-add-swap",
+        owner: walletAddr,
+        body: {
           userId: walletAddr,
           amount: usdValue,
           txHash,
-        }),
+        },
       });
       setTimeout(() => {
         fetchProfile(walletAddr);
@@ -10076,14 +10117,14 @@ export default function SwaparcApp() {
         } else {
           usdValue = Number(swapAmount) * Number(tokenPrices[swapFrom] || 1);
         }
-        await fetch("/api/profile/addSwap", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        await ownerFetch("/api/profile/addSwap", {
+          action: "profile-add-swap",
+          owner: userAddr,
+          body: {
             userId: userAddr,
             amount: usdValue,
             txHash: tx.hash,
-          }),
+          },
         });
         setTimeout(() => {
           fetchProfile(userAddr);
@@ -11589,12 +11630,14 @@ export default function SwaparcApp() {
                                     width: 64,
                                     height: 64,
                                     borderRadius: "50%",
-                                    background:
-                                      isEditingProfile && editForm.avatar
-                                        ? `url(${editForm.avatar}) center/cover`
-                                        : profileStats.avatar
-                                        ? `url(${profileStats.avatar}) center/cover`
-                                        : "linear-gradient(135deg, #0096ff, #00ffff)",
+                                    background: (() => {
+                                      const avatarUrl = isEditingProfile
+                                        ? safeAvatarCssUrl(editForm.avatar)
+                                        : safeAvatarCssUrl(profileStats.avatar);
+                                      return avatarUrl
+                                        ? `url(${avatarUrl}) center/cover`
+                                        : "linear-gradient(135deg, #0096ff, #00ffff)";
+                                    })(),
                                     display: "flex",
                                     alignItems: "center",
                                     justifyContent: "center",

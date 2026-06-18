@@ -46,3 +46,7 @@ build/privpay/pot*_*.ptau
 build/privpay/**/*_final.ptau
 *.ptau
 tools/circom.exe
+
+# Local key recovery artifacts (never commit)
+recovery/
+recovery/**

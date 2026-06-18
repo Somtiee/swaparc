@@ -1,4 +1,5 @@
 import { createRecurringPaymentEngine } from "../recurring-engine.js";
+import { assertOwnerAuth } from "../../security/walletAuth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -13,6 +14,7 @@ export default async function handler(req, res) {
         error: "owner query param is required",
       });
     }
+    await assertOwnerAuth(req, owner, "payments-recurring-list");
     const engine = createRecurringPaymentEngine();
     const [schedules, paymentLogs] = await Promise.all([
       engine.listSchedules(),

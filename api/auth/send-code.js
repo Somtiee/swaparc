@@ -1,5 +1,6 @@
+import { assertIpRateLimit } from "../security/walletAuth.js";
+
 export default async function handler(req, res) {
-  console.log(">>> [api/auth/send-code] RECEIVED REQUEST");
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -13,6 +14,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    await assertIpRateLimit(req, "auth-send-code", 8);
     const { email, deviceId } = req.body || {};
     if (!email || !deviceId || typeof deviceId !== "string") {
       console.warn("Missing email or deviceId in request body");
@@ -23,10 +25,7 @@ export default async function handler(req, res) {
 
     console.log("[Circle API] send-code request:", { email, deviceId });
 
-    const idempotencyKey =
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random()}`;
+    const idempotencyKey = crypto.randomUUID();
 
     const headers = {
       "Content-Type": "application/json",
@@ -78,8 +77,9 @@ export default async function handler(req, res) {
       deviceEncryptionKey,
     });
   } catch (err) {
+    const status = err?.status || 500;
     const message = err && err.message ? err.message : "Unknown error";
-    console.error("Circle send-code handler error:", message);
-    return res.status(500).json({ error: "Internal server error" });
+    if (status >= 500) console.error("Circle send-code handler error:", message);
+    return res.status(status).json({ error: status >= 500 ? "Internal server error" : message });
   }
 }

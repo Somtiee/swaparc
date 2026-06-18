@@ -1,4 +1,5 @@
 import { createRecurringPaymentEngine } from "../recurring-engine.js";
+import { assertOwnerAuth } from "../../security/walletAuth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -16,6 +17,7 @@ export default async function handler(req, res) {
     if (!payerAddress || !payerAddress.startsWith("0x")) {
       return res.status(400).json({ ok: false, error: "Valid payerAddress is required" });
     }
+    await assertOwnerAuth(req, payerAddress, "payments-recurring-delete");
 
     const engine = createRecurringPaymentEngine();
     const current = await engine.getScheduleById(scheduleId);

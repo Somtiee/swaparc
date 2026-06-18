@@ -4,6 +4,10 @@ import {
   requestDigestHex,
   secureRandomHex,
 } from "../../security/hardening.js";
+import {
+  buildContractAllowlist,
+  assertContractAllowed,
+} from "../../security/walletAuth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -17,8 +21,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    const receivedKeys = Object.keys(req.body || {});
-
     const {
       userToken,
       walletId,
@@ -30,36 +32,18 @@ export default async function handler(req, res) {
       requestNonce,
     } = req.body || {};
 
-    // ---- FORENSIC LOG: Incoming payload ----
-    console.log("[CircleTx] FORENSIC INCOMING:", {
-      walletIdPresent: !!walletId,
-      contractAddress,
-      abiFunctionSignature,
-      abiParameters: JSON.stringify(abiParameters),
-      hasCallData: typeof callData === "string" && callData.startsWith("0x"),
-      isNestedArray: Array.isArray(abiParameters) && abiParameters.some(Array.isArray),
-      receivedKeys,
-    });
-
     const hasAbi = !!abiFunctionSignature && Array.isArray(abiParameters);
     const hasCallData = typeof callData === "string" && /^0x[0-9a-fA-F]*$/.test(callData);
     if (!userToken || !walletId || !contractAddress || (!hasAbi && !hasCallData) || (hasAbi && hasCallData)) {
-      console.error("[CircleTx] Validation failed:", {
-        hasUserToken: !!userToken,
-        hasWalletId: !!walletId,
-        hasContractAddress: !!contractAddress,
-        hasAbiFunctionSignature: !!abiFunctionSignature,
-        abiParametersIsArray: Array.isArray(abiParameters),
-        hasCallData,
-      });
       return res.status(400).json({
         error: "Missing required parameters",
         code: 400,
         details:
           "userToken, walletId, contractAddress, and either (abiFunctionSignature + abiParameters[]) or callData are required",
-        payloadKeys: receivedKeys,
       });
     }
+
+    assertContractAllowed(contractAddress, buildContractAllowlist());
 
     const baseUrl = process.env.CIRCLE_BASE_URL || "https://api.circle.com";
     const requestId =
@@ -104,9 +88,6 @@ export default async function handler(req, res) {
       body.callData = callData;
     }
 
-    // ---- FORENSIC LOG: Outbound body ----
-    console.log("[CircleTx] FORENSIC OUTBOUND BODY:", JSON.stringify(body, null, 2));
-
     const executeRes = await fetch(
       `${baseUrl}/v1/w3s/user/transactions/contractExecution`,
       {
@@ -124,14 +105,9 @@ export default async function handler(req, res) {
     const executeJson = await executeRes.json().catch(() => ({}));
 
     if (!executeRes.ok) {
-      // ---- FORENSIC LOG: Full Circle error body ----
-      console.error("[CircleTx] FORENSIC CIRCLE ERROR BODY:", JSON.stringify(executeJson, null, 2));
-
       return res.status(executeRes.status).json({
         error: executeJson.message || "Failed to execute contract",
         code: executeJson.code || executeRes.status,
-        details: executeJson,
-        payloadKeys: receivedKeys,
       });
     }
 
@@ -142,12 +118,10 @@ export default async function handler(req, res) {
       transactionId: d.id || d.transactionId || null,
     });
   } catch (err) {
-    console.error("[CircleTx] Internal Error:", err);
-    return res.status(500).json({
-      error: "Internal server error",
-      code: 500,
-      details: err.message,
-      payloadKeys: Object.keys(req.body || {}),
+    console.error("[CircleTx] Internal Error:", err?.message || err);
+    return res.status(err?.status || 500).json({
+      error: err?.message || "Internal server error",
+      code: err?.status || 500,
     });
   }
 }

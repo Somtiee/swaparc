@@ -1,4 +1,9 @@
 import { kv } from "../../lib/server/kv.js";
+import {
+  assertOwnerAuth,
+  sanitizeUsername,
+  sanitizeAvatar,
+} from "../security/walletAuth.js";
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -20,10 +25,17 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Profile not found' });
     }
 
+    const authAddress = String(
+      existingProfile.walletAddress || (normalizedId.startsWith("0x") ? normalizedId : "")
+    ).toLowerCase();
+    if (authAddress.startsWith("0x")) {
+      await assertOwnerAuth(req, authAddress, "profile-update-identity");
+    }
+
     const updatedProfile = {
       ...existingProfile,
-      username: username !== undefined ? username : existingProfile.username,
-      avatar: avatar !== undefined ? avatar : existingProfile.avatar
+      username: username !== undefined ? sanitizeUsername(username) : existingProfile.username,
+      avatar: avatar !== undefined ? sanitizeAvatar(avatar) : existingProfile.avatar
     };
 
     await kv.hset(profileKey, updatedProfile);

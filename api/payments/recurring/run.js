@@ -1,6 +1,7 @@
 import { createRecurringPaymentEngine } from "../recurring-engine.js";
 import { getArcpayAccessByAddress } from "../subscription-eligibility.js";
 import { recurringScheduleExecutionHandler } from "../../../lib/server/recurringPrivpayExecution.js";
+import { assertCronAuthStrict, assertOwnerAuth } from "../../security/walletAuth.js";
 
 function hasAutomationAccess(access) {
   return !!(access?.payrollAutomation || access?.recurringPayments);
@@ -11,18 +12,6 @@ function serverExecutionEnabled() {
     String(process.env.RECURRING_SERVER_EXECUTION_ENABLED || "").toLowerCase() ===
     "true"
   );
-}
-
-function assertCronAuth(req) {
-  const cronSecret = String(process.env.CRON_SECRET || "");
-  if (!cronSecret) return;
-  const authHeader = String(req.headers.authorization || "");
-  const expected = `Bearer ${cronSecret}`;
-  if (authHeader !== expected) {
-    const err = new Error("Unauthorized");
-    err.status = 401;
-    throw err;
-  }
 }
 
 /**
@@ -64,6 +53,9 @@ export default async function handler(req, res) {
     let summary;
 
     if (owner) {
+      if (executionEnabled) {
+        await assertOwnerAuth(req, owner, "payments-recurring-run");
+      }
       const access = await getArcpayAccessByAddress(owner);
       if (!hasAutomationAccess(access)) {
         return res.status(402).json({
@@ -137,7 +129,7 @@ export default async function handler(req, res) {
         return out;
       });
     } else {
-      assertCronAuth(req);
+      assertCronAuthStrict(req);
       const now = new Date();
       const schedules = await engine.listSchedules();
       const due = schedules.filter(

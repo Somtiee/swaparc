@@ -1,6 +1,7 @@
 import { kv } from "../../lib/server/kv.js";
 import { ethers } from "ethers";
 import { utils as secpUtils } from "@noble/secp256k1";
+import { assertOwnerAuth, assertIpRateLimit } from "../security/walletAuth.js";
 
 function normalizeAddress(a) {
   const s = String(a || "").trim();
@@ -33,6 +34,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    await assertIpRateLimit(req, "privpay-register-receiver", 20);
     const {
       address,
       spendPublicKey,
@@ -43,6 +45,7 @@ export default async function handler(req, res) {
     } = req.body || {};
 
     const owner = normalizeAddress(address);
+    await assertOwnerAuth(req, owner, "privpay-register-receiver");
     if (!spendPublicKey || !viewPublicKey) {
       return res.status(400).json({
         ok: false,
@@ -72,7 +75,7 @@ export default async function handler(req, res) {
       },
     });
   } catch (e) {
-    return res.status(400).json({
+    return res.status(e?.status || 400).json({
       ok: false,
       error: e?.message || String(e),
     });

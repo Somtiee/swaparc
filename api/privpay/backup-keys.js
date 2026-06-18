@@ -5,6 +5,7 @@ import {
   assertReplayProtected,
   requestDigestHex,
 } from "../security/hardening.js";
+import { assertOwnerAuth, assertIpRateLimit } from "../security/walletAuth.js";
 
 function normalizeAddress(a) {
   const s = String(a || "").trim();
@@ -18,6 +19,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    await assertIpRateLimit(req, "privpay-backup-keys", 15);
     const {
       address,
       keyId,
@@ -29,6 +31,7 @@ export default async function handler(req, res) {
     } = req.body || {};
 
     const owner = normalizeAddress(address);
+    await assertOwnerAuth(req, owner, "privpay-backup-keys");
     if (!keyId || !backup || typeof backup !== "object") {
       return res.status(400).json({
         ok: false,

@@ -1,4 +1,5 @@
 import { kv } from "../../../lib/server/kv.js";
+import { assertOwnerAuth } from "../../security/walletAuth.js";
 
 const MEMORY = globalThis.__privpayPayrollMemory || (globalThis.__privpayPayrollMemory = {});
 
@@ -12,6 +13,7 @@ export default async function handler(req, res) {
     if (!ownerRaw) {
       return res.status(400).json({ ok: false, error: "Missing owner query param" });
     }
+    await assertOwnerAuth(req, ownerRaw, "payments-payroll-get");
 
     const key = `privpay:payroll:state:${ownerRaw}`;
     let state = null;

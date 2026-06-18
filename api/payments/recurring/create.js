@@ -1,5 +1,6 @@
 import { createRecurringPaymentEngine } from "../recurring-engine.js";
 import { getArcpayAccessByAddress } from "../subscription-eligibility.js";
+import { assertOwnerAuth } from "../../security/walletAuth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -8,6 +9,10 @@ export default async function handler(req, res) {
 
   try {
     const payerAddress = String(req.body?.payerAddress || "").trim().toLowerCase();
+    if (!payerAddress || !payerAddress.startsWith("0x")) {
+      return res.status(400).json({ ok: false, error: "Valid payerAddress is required" });
+    }
+    await assertOwnerAuth(req, payerAddress, "payments-recurring-create");
     const access = await getArcpayAccessByAddress(payerAddress);
     if (!access?.recurringPayments) {
       return res.status(402).json({

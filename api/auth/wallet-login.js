@@ -1,5 +1,6 @@
 import { kv } from "../../lib/server/kv.js";
 import { isFrozenEarlySwaparcer } from "../../lib/server/earlySwaparcerFrozen.js";
+import { assertOwnerAuth, assertIpRateLimit } from "../security/walletAuth.js";
 
 function sanitizeBadges(raw) {
   if (!raw) return {};
@@ -31,6 +32,8 @@ export default async function handler(req, res) {
   }
 
   try {
+    await assertIpRateLimit(req, "auth-wallet-login", 20);
+    await assertOwnerAuth(req, walletAddress, "auth-wallet-login");
     // 1. Check if we have a userId for this wallet
     const walletKey = `wallet:${walletAddress.toLowerCase()}`;
     let userId = await kv.get(walletKey);

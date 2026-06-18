@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import { kv } from "../../lib/server/kv.js";
 import { PrivacyPoolPoseidonMerkleMirror } from "../../scripts/privacyPoolPoseidonMerkle.mjs";
+import { assertIpRateLimit } from "../security/walletAuth.js";
 
 const DEPOSITED_IFACE = new ethers.Interface([
   "event Deposited(bytes32 indexed commitment, uint256 amount)",
@@ -184,6 +185,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    await assertIpRateLimit(req, "privpay-claim-context", 12);
     const poolAddress = ethers.getAddress(String(req.query?.poolAddress || ""));
     const commitment = ethers.zeroPadValue(String(req.query?.commitment || ""), 32);
     const merkleHeight = Math.max(16, Math.min(32, Number(req.query?.merkleHeight || 16)));

@@ -1,5 +1,6 @@
 import { kv } from "../../../lib/server/kv.js";
 import { getArcpayAccessByAddress } from "../subscription-eligibility.js";
+import { assertOwnerAuth } from "../../security/walletAuth.js";
 
 const MEMORY = globalThis.__privpayPayrollMemory || (globalThis.__privpayPayrollMemory = {});
 const OWNER_SET = "privpay:payroll:owners";
@@ -16,6 +17,7 @@ export default async function handler(req, res) {
     if (!ownerRaw) {
       return res.status(400).json({ ok: false, error: "Missing owner in body" });
     }
+    await assertOwnerAuth(req, ownerRaw, "payments-payroll-save");
 
     const access = await getArcpayAccessByAddress(ownerRaw);
     if (!access?.payrollAutomation) {

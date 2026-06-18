@@ -3,6 +3,7 @@ import { kv } from "../../../lib/server/kv.js";
 import { computeNextExecutionDate } from "../recurring-engine.js";
 import { getArcpayAccessByAddress } from "../subscription-eligibility.js";
 import { executeRecurringPrivpayDeposit } from "../../../lib/server/recurringPrivpayExecution.js";
+import { assertCronAuthStrict, assertOwnerAuth } from "../../security/walletAuth.js";
 
 const OWNER_SET = "privpay:payroll:owners";
 const MEMORY = globalThis.__privpayPayrollMemory || (globalThis.__privpayPayrollMemory = {});
@@ -36,17 +37,6 @@ function serverExecutionEnabled() {
     String(process.env.RECURRING_SERVER_EXECUTION_ENABLED || "").toLowerCase() ===
     "true"
   );
-}
-
-function assertCronAuth(req) {
-  const cronSecret = String(process.env.CRON_SECRET || "");
-  if (!cronSecret) return;
-  const authHeader = String(req.headers.authorization || "");
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    const err = new Error("Unauthorized");
-    err.status = 401;
-    throw err;
-  }
 }
 
 function tokenAddressForCompany(company) {
@@ -263,11 +253,14 @@ export default async function handler(req, res) {
     }
 
     if (owner) {
+      if (serverExecutionEnabled()) {
+        await assertOwnerAuth(req, owner, "payments-payroll-run");
+      }
       const summary = await runOwnerSerialized(owner);
       return res.status(200).json({ ok: true, summary });
     }
 
-    assertCronAuth(req);
+    assertCronAuthStrict(req);
     const owners = await getOwners();
     const results = [];
     for (const o of owners) {

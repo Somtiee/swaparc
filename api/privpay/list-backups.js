@@ -1,5 +1,6 @@
 import { kv } from "../../lib/server/kv.js";
 import { ethers } from "ethers";
+import { assertOwnerAuth, assertIpRateLimit } from "../security/walletAuth.js";
 
 function normalizeAddress(a) {
   const s = String(a || "").trim();
@@ -13,7 +14,9 @@ export default async function handler(req, res) {
   }
 
   try {
+    await assertIpRateLimit(req, "privpay-list-backups", 30);
     const owner = normalizeAddress(req.query?.address);
+    await assertOwnerAuth(req, owner, "privpay-list-backups");
     const rows = (await kv.get(`privpay:receiver:backups:${owner}`)) || [];
     const backups = Array.isArray(rows)
       ? rows.map((x) => ({

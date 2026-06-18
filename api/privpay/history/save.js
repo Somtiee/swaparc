@@ -1,4 +1,5 @@
 import { kv } from "../../../lib/server/kv.js";
+import { assertOwnerAuth } from "../../security/walletAuth.js";
 
 const MEMORY =
   globalThis.__privpayHistoryMemory || (globalThis.__privpayHistoryMemory = {});
@@ -63,6 +64,7 @@ export default async function handler(req, res) {
     if (!ownerRaw || !ownerRaw.startsWith("0x")) {
       return res.status(400).json({ ok: false, error: "Missing owner in body" });
     }
+    await assertOwnerAuth(req, ownerRaw, "privpay-history-save");
 
     const rawState = req.body?.state || {};
 

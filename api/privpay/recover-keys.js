@@ -1,5 +1,6 @@
 import { kv } from "../../lib/server/kv.js";
 import { ethers } from "ethers";
+import { assertOwnerAuth, assertIpRateLimit } from "../security/walletAuth.js";
 
 function normalizeAddress(a) {
   const s = String(a || "").trim();
@@ -13,7 +14,9 @@ export default async function handler(req, res) {
   }
 
   try {
+    await assertIpRateLimit(req, "privpay-recover-keys", 10);
     const owner = normalizeAddress(req.body?.address);
+    await assertOwnerAuth(req, owner, "privpay-recover-keys");
     const keyId = String(req.body?.keyId || "").trim();
     if (!keyId) {
       return res.status(400).json({ ok: false, error: "keyId is required" });

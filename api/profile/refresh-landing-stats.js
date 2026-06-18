@@ -3,6 +3,7 @@ import {
   buildLandingPublicPayload,
   publishLandingPublicStats,
 } from "../../lib/server/landingPublicStats.js";
+import { assertCronAuthStrict } from "../security/walletAuth.js";
 
 const COUNT_SWAPPERS_KEY = "stats:countUniqueSwappers:last";
 const TOTAL_SWAP_VOLUME_KEY = "stats:totalSwapVolume:last";
@@ -12,17 +13,6 @@ const SCAN_COUNT = Math.max(100, Number(process.env.STATS_REFRESH_SCAN_COUNT || 
 /** When true, cron skips profile SCAN (emergency brake on Railway Redis egress). */
 const DISABLE_PROFILE_SCAN =
   String(process.env.STATS_CRON_DISABLE_PROFILE_SCAN || "").toLowerCase() === "true";
-
-function assertCronAuth(req) {
-  const cronSecret = String(process.env.CRON_SECRET || "");
-  if (!cronSecret) return;
-  const authHeader = String(req.headers.authorization || "");
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    const err = new Error("Unauthorized");
-    err.status = 401;
-    throw err;
-  }
-}
 
 function toNumber(value) {
   const n = Number(value);
@@ -79,7 +69,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    assertCronAuth(req);
+    assertCronAuthStrict(req);
     const startedAt = Date.now();
     if (DISABLE_PROFILE_SCAN) {
       const updatedAt = new Date().toISOString();

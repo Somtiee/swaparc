@@ -1,5 +1,10 @@
 import { kv } from "../../lib/server/kv.js";
 import { isFrozenEarlySwaparcer } from "../../lib/server/earlySwaparcerFrozen.js";
+import {
+  assertOwnerAuth,
+  sanitizeUsername,
+  sanitizeAvatar,
+} from "../security/walletAuth.js";
 
 function parseBadges(raw) {
   if (!raw) return {};
@@ -36,6 +41,11 @@ export default async function handler(req, res) {
     }
 
     const normalizedId = userId.startsWith("0x") ? userId.toLowerCase() : userId;
+    const authAddress = String(walletAddress || (normalizedId.startsWith("0x") ? normalizedId : "")).toLowerCase();
+    if (authAddress.startsWith("0x")) {
+      await assertOwnerAuth(req, authAddress, "profile-save");
+    }
+
     const profileKey = `profile:${normalizedId}`;
     const existingProfile = (await kv.hgetall(profileKey)) || {};
 
@@ -59,9 +69,9 @@ export default async function handler(req, res) {
 
     const profile = {
       ...existingProfile,
-      username: username || existingProfile.username,
+      username: sanitizeUsername(username || existingProfile.username),
       walletId: walletId || existingProfile.walletId,
-      avatar: avatar || existingProfile.avatar || "",
+      avatar: sanitizeAvatar(avatar || existingProfile.avatar || ""),
       walletAddress: walletAddress || existingProfile.walletAddress || "",
 
       swapVolume: finalSwapVolume,
