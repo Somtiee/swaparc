@@ -4,8 +4,6 @@ export default async function handler(req, res) {
   }
 
   const apiKey = process.env.CIRCLE_API_KEY;
-  const appId = process.env.VITE_CIRCLE_APP_ID;
-
   if (!apiKey) {
     console.error("Missing CIRCLE_API_KEY in environment");
     return res.status(500).json({ error: "Server configuration error: Missing API Key" });
@@ -14,51 +12,31 @@ export default async function handler(req, res) {
   try {
     const { email, deviceId } = req.body || {};
     if (!email || !deviceId || typeof deviceId !== "string") {
-      console.warn("Missing email or deviceId in request body");
-      return res
-        .status(400)
-        .json({ error: "Missing email or deviceId" });
+      return res.status(400).json({ error: "Missing email or deviceId" });
     }
 
-    console.log("[Circle API] send-code request:", { email, deviceId });
-
     const idempotencyKey = crypto.randomUUID();
+    const baseUrl = process.env.CIRCLE_BASE_URL || "https://api.circle.com";
 
-    const headers = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    };
-
-    const response = await fetch(
-      "https://api.circle.com/v1/w3s/users/email/token",
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          idempotencyKey,
-          email,
-          deviceId,
-        }),
-      }
-    );
+    const response = await fetch(`${baseUrl}/v1/w3s/users/email/token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        idempotencyKey,
+        email,
+        deviceId,
+      }),
+    });
 
     const json = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const circleStatus = response.status;
       const circleMessage =
-        json?.error ||
-        json?.message ||
-        "Circle email token request failed";
-
-      console.log(
-        "Circle email token error (auth/send-code):",
-        "status",
-        circleStatus,
-        "message",
-        circleMessage
-      );
-
-      return res.status(circleStatus).json({
+        json?.message || json?.error || "Circle email token request failed";
+      console.error("[auth/send-code] Circle error:", response.status, circleMessage);
+      return res.status(response.status).json({
         error: circleMessage,
         details: json,
       });
@@ -67,6 +45,14 @@ export default async function handler(req, res) {
     const data = json?.data || json || {};
     const { otpToken, deviceToken, deviceEncryptionKey } = data;
 
+    if (!otpToken || !deviceToken || !deviceEncryptionKey) {
+      console.error("[auth/send-code] Circle OK but missing tokens:", data);
+      return res.status(502).json({
+        error: "Circle did not return OTP session tokens. Try again in a minute.",
+        details: data,
+      });
+    }
+
     return res.status(200).json({
       success: true,
       otpToken,
@@ -74,9 +60,7 @@ export default async function handler(req, res) {
       deviceEncryptionKey,
     });
   } catch (err) {
-    const status = err?.status || 500;
-    const message = err && err.message ? err.message : "Unknown error";
-    if (status >= 500) console.error("Circle send-code handler error:", message);
-    return res.status(status).json({ error: status >= 500 ? "Internal server error" : message });
+    console.error("Circle send-code handler error:", err?.message || err);
+    return res.status(500).json({ error: "Internal server error" });
   }
 }

@@ -11146,6 +11146,14 @@ export default function SwaparcApp() {
                           return;
                         }
 
+                        if (!data?.otpToken || !data?.deviceToken || !data?.deviceEncryptionKey) {
+                          setEmailError(
+                            "Circle accepted the request but did not start OTP delivery. Try again."
+                          );
+                          setEmailStatus("");
+                          return;
+                        }
+
                         if (typeof window !== "undefined") {
                           window.localStorage.setItem(
                             "circle_user_email",
@@ -11174,7 +11182,7 @@ export default function SwaparcApp() {
 
                         setEmailErrorDetails("");
                         setEmailStatus(
-                          "OTP sent. After receiving OTP, click Verify to open Circle's verification window."
+                          "OTP sent — check Gmail inbox and Spam/Promotions, then click Verify."
                         );
                         setEmailStep(2);
                       } catch (err) {
