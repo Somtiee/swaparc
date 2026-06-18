@@ -11,7 +11,6 @@ import "./App.css";
 import { getPrices } from "./priceFetcher";
 import { CircleSigner } from "./utils/CircleSigner";
 import { ownerApiFetch } from "./utils/ownerApi.js";
-import { ownerApiFetch } from "./utils/ownerApi.js";
 import {
   deriveStealthPayment,
   deriveStealthPrivateKey,
