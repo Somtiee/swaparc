@@ -2996,22 +2996,33 @@ export default function SwaparcApp() {
     return Array.isArray(legacyData.wallets) ? legacyData.wallets : [];
   }
 
-  async function ensureCircleDeviceId() {
+  async function ensureCircleDeviceId({ forceRefresh = false } = {}) {
     if (typeof window === "undefined") return null;
     if (!circleSdkRef.current) {
       console.warn("[Circle] ensureCircleDeviceId: SDK not ready");
       return null;
     }
 
-    // Reuse cached deviceId if present (prevents repeated SDK calls / improves UX)
-    try {
-      const cached = window.localStorage.getItem("circle_device_id") || window.localStorage.getItem("deviceId");
-      if (cached && typeof cached === "string" && cached.length > 8) {
-        setCircleDeviceId(cached);
-        return cached;
+    if (forceRefresh) {
+      try {
+        window.localStorage.removeItem("circle_device_id");
+        window.localStorage.removeItem("deviceId");
+      } catch {
+        // ignore storage failures
       }
-    } catch {
-      // ignore storage failures
+    } else {
+      // Reuse cached deviceId if present (prevents repeated SDK calls / improves UX)
+      try {
+        const cached =
+          window.localStorage.getItem("circle_device_id") ||
+          window.localStorage.getItem("deviceId");
+        if (cached && typeof cached === "string" && cached.length > 8) {
+          setCircleDeviceId(cached);
+          return cached;
+        }
+      } catch {
+        // ignore storage failures
+      }
     }
 
     const getWithRetry = async (retries = 5, delayMs = 900) => {
@@ -11089,7 +11100,7 @@ export default function SwaparcApp() {
                         setEmailStatus("Requesting OTP...");
                         setUserEmail(emailInput);
 
-                        const deviceIdToUse = await ensureCircleDeviceId();
+                        const deviceIdToUse = await ensureCircleDeviceId({ forceRefresh: true });
                         
                         if (!deviceIdToUse) {
                           console.warn("[Circle] Failed to get deviceId. Bypassing check for local debugging...");
@@ -11143,14 +11154,6 @@ export default function SwaparcApp() {
                             status: res.status,
                             data,
                           });
-                          return;
-                        }
-
-                        if (!data?.otpToken || !data?.deviceToken || !data?.deviceEncryptionKey) {
-                          setEmailError(
-                            "Circle accepted the request but did not start OTP delivery. Try again."
-                          );
-                          setEmailStatus("");
                           return;
                         }
 
@@ -11227,7 +11230,7 @@ export default function SwaparcApp() {
                       color: "#e4f5ff",
                     }}
                   >
-                    After receiving OTP, click Verify to open Circle's verification window.
+                    Check your inbox, Spam, and Promotions. Then click Verify, or Resend if nothing arrived.
                   </p>
                   <button
                     disabled={
@@ -11314,6 +11317,72 @@ export default function SwaparcApp() {
                     }}
                   >
                     {emailLoading ? "Please wait..." : "Verify in Circle Window"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={emailLoading || !circleOtpToken || !emailInput}
+                    onClick={async () => {
+                      const deviceIdToUse = circleDeviceId || (await ensureCircleDeviceId({ forceRefresh: true }));
+                      if (!deviceIdToUse || !circleOtpToken || !emailInput) {
+                        setEmailError("Missing session data — go back and send OTP again.");
+                        return;
+                      }
+                      try {
+                        setEmailLoading(true);
+                        setEmailError("");
+                        setEmailStatus("Resending OTP...");
+                        const res = await fetch("/api/auth/resend-code", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            email: emailInput,
+                            deviceId: deviceIdToUse,
+                            otpToken: circleOtpToken,
+                          }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                          setEmailError(data.error || "Failed to resend OTP");
+                          setEmailStatus("");
+                          return;
+                        }
+                        if (data?.otpToken) {
+                          setCircleOtpToken(data.otpToken);
+                          if (circleSdkRef.current) {
+                            circleSdkRef.current.updateConfigs({
+                              appSettings: { appId: CIRCLE_APP_ID },
+                              loginConfigs: {
+                                deviceToken: circleDeviceToken,
+                                deviceEncryptionKey: circleDeviceEncryptionKey,
+                                otpToken: data.otpToken,
+                                email: { email: emailInput },
+                              },
+                            });
+                          }
+                        }
+                        setEmailStatus("OTP resent — check inbox, Spam, and Promotions.");
+                      } catch (err) {
+                        console.error("Resend OTP failed", err);
+                        setEmailError("Failed to resend OTP");
+                        setEmailStatus("");
+                      } finally {
+                        setEmailLoading(false);
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      marginTop: 10,
+                      padding: "10px 12px",
+                      borderRadius: 999,
+                      border: "1px solid rgba(0,255,255,0.4)",
+                      background: "transparent",
+                      color: "#00f0ff",
+                      fontWeight: 600,
+                      cursor: emailLoading ? "not-allowed" : "pointer",
+                      opacity: emailLoading ? 0.6 : 1,
+                    }}
+                  >
+                    {emailLoading ? "Please wait..." : "Resend OTP"}
                   </button>
                 </div>
               )}
