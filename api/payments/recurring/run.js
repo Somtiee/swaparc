@@ -1,7 +1,7 @@
 import { createRecurringPaymentEngine } from "../recurring-engine.js";
 import { getArcpayAccessByAddress } from "../subscription-eligibility.js";
 import { recurringScheduleExecutionHandler } from "../../../lib/server/recurringPrivpayExecution.js";
-import { assertCronAuthStrict, assertOwnerAuth } from "../../security/walletAuth.js";
+import { assertCronAuthStrict } from "../../security/walletAuth.js";
 
 function hasAutomationAccess(access) {
   return !!(access?.payrollAutomation || access?.recurringPayments);
@@ -53,9 +53,6 @@ export default async function handler(req, res) {
     let summary;
 
     if (owner) {
-      if (executionEnabled) {
-        await assertOwnerAuth(req, owner, "payments-recurring-run");
-      }
       const access = await getArcpayAccessByAddress(owner);
       if (!hasAutomationAccess(access)) {
         return res.status(402).json({

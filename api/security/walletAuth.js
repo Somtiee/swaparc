@@ -35,9 +35,8 @@ export function isProductionEnv() {
 }
 
 export function requireOwnerAuth() {
-  if (String(process.env.SWAPARC_REQUIRE_OWNER_AUTH || "").trim() === "0") return false;
-  if (String(process.env.SWAPARC_REQUIRE_OWNER_AUTH || "").trim() === "1") return true;
-  return isProductionEnv();
+  // Off by default — set SWAPARC_REQUIRE_OWNER_AUTH=1 when ready for strict mode.
+  return String(process.env.SWAPARC_REQUIRE_OWNER_AUTH || "").trim() === "1";
 }
 
 export function buildSwaparcAuthMessage(action, address, timestampMs, nonce) {
