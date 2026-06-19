@@ -214,6 +214,7 @@ const PRIVACY_POOL_ABI = [
 ];
 const RECURRING_AUTOMATION_ABI = [
   "function configureAuthorization(bytes32 authId,address executor,address token,address pool,uint128 maxAmountPerExecution,uint128 maxAmountPerPeriod,uint64 periodSeconds)",
+  "function authorizations(bytes32) view returns (address payer, address executor, address token, address pool, uint128 maxAmountPerExecution, uint128 maxAmountPerPeriod, uint128 spentInPeriod, uint64 periodSeconds, uint64 periodWindowStart, bool active)",
 ];
 
 /** @param {unknown} err */
@@ -1614,26 +1615,14 @@ export default function SwaparcApp() {
   // userEmailRef, circleExecResolverRef moved up
 
   // --- HELPER FUNCTIONS (Safe to use state now) ---
-  function getReadProvider() {
-    // Use public ARC RPC by default so the app stays up without paid third-party plans.
-    // Optional: set VITE_ARC_RPC_URL (single provider) or add VITE_ALCHEMY_ARC_RPC_URL for fallbacks.
-    const url =
-      import.meta.env.VITE_ARC_RPC_URL || ARC_PUBLIC_RPC;
-    return new ethers.JsonRpcProvider(
-      url,
-      { chainId: ARC_CHAIN_ID_DEC, name: "arc-testnet" },
-      { batchMaxCount: 1 }
-    );
-  }
-
   const READ_RPC_URLS = useMemo(() => {
     const urls = [];
-    const primary = import.meta.env.VITE_ARC_RPC_URL?.trim();
-    if (primary) urls.push(primary);
-    urls.push(ARC_PUBLIC_RPC);
     const alchemy = import.meta.env.VITE_ALCHEMY_ARC_RPC_URL?.trim();
     if (alchemy) urls.push(alchemy);
     urls.push("https://arc-testnet.drpc.org");
+    const primary = import.meta.env.VITE_ARC_RPC_URL?.trim();
+    if (primary) urls.push(primary);
+    urls.push(ARC_PUBLIC_RPC);
     return [...new Set(urls)];
   }, []);
 
@@ -1648,6 +1637,21 @@ export default function SwaparcApp() {
     urls.push(ARC_PUBLIC_RPC);
     return [...new Set(urls)];
   }, []);
+
+  const readProviderRef = useRef({ url: "", provider: null });
+
+  function getReadProvider() {
+    const url = READ_RPC_URLS[0] || ARC_PUBLIC_RPC;
+    const cached = readProviderRef.current;
+    if (cached.provider && cached.url === url) return cached.provider;
+    const provider = new ethers.JsonRpcProvider(
+      url,
+      { chainId: ARC_CHAIN_ID_DEC, name: "arc-testnet" },
+      { batchMaxCount: 1 }
+    );
+    readProviderRef.current = { url, provider };
+    return provider;
+  }
 
   function getReadProviderForUrl(url) {
     return new ethers.JsonRpcProvider(url, undefined, { batchMaxCount: 1 });
@@ -1860,21 +1864,46 @@ export default function SwaparcApp() {
     );
   }
 
+  async function ethCallWithRpcFallback(fn, label = "read") {
+    let lastErr = null;
+    for (const url of READ_RPC_URLS) {
+      try {
+        return await fn(getReadProviderForUrl(url), url);
+      } catch (e) {
+        lastErr = e;
+        const msg = String(e?.message || e || "");
+        if (!/429|rate limit|too many requests/i.test(msg)) break;
+        console.warn(`[RPC] ${label} rate-limited on ${url}, trying fallback`);
+      }
+    }
+    throw lastErr || new Error(`${label} failed`);
+  }
+
   async function assertNoWalletNonceGap(signer, signerProvider = null) {
     const addr = await signer.getAddress();
     const provider = signerProvider ?? signer.provider ?? getReadProvider();
-    const [latestN, pendingN] = await Promise.all([
-      getReadProvider().getTransactionCount(addr, "latest").catch(() => null),
-      provider.getTransactionCount(addr, "pending").catch(() => null),
-    ]);
-    if (
-      Number.isFinite(latestN) &&
-      Number.isFinite(pendingN) &&
-      pendingN - latestN > 1
-    ) {
-      throw new Error(
-        `Wallet pending queue is stuck (nonce gap ${pendingN - latestN}). Clear/speed-up pending txs in wallet activity, then retry.`
-      );
+    try {
+      const [latestN, pendingN] = await Promise.all([
+        provider.getTransactionCount(addr, "latest").catch(() => null),
+        provider.getTransactionCount(addr, "pending").catch(() => null),
+      ]);
+      if (
+        Number.isFinite(latestN) &&
+        Number.isFinite(pendingN) &&
+        pendingN - latestN > 1
+      ) {
+        throw new Error(
+          `Wallet pending queue is stuck (nonce gap ${pendingN - latestN}). Clear/speed-up pending txs in wallet activity, then retry.`
+        );
+      }
+    } catch (e) {
+      const msg = String(e?.message || e || "");
+      if (/nonce gap|pending queue is stuck/i.test(msg)) throw e;
+      if (/429|rate limit|too many requests/i.test(msg)) {
+        console.warn("[Wallet] Skipping nonce-gap check — RPC rate limited");
+        return;
+      }
+      console.warn("[Wallet] Nonce-gap check skipped:", msg);
     }
   }
 
@@ -5892,7 +5921,10 @@ export default function SwaparcApp() {
       targetWei = ethers.parseEther("0.05");
     }
     const provider = getReadProvider();
-    const current = await provider.getBalance(executor);
+    const current = await ethCallWithRpcFallback(
+      (prov) => prov.getBalance(executor),
+      "relayer-balance"
+    );
     const minExecutionWei = ethers.parseEther("0.04");
     if (current >= minExecutionWei) return;
 
@@ -5938,7 +5970,10 @@ export default function SwaparcApp() {
       });
     }
 
-    const after = await provider.getBalance(executor);
+    const after = await ethCallWithRpcFallback(
+      (prov) => prov.getBalance(executor),
+      "relayer-balance"
+    );
     if (after < minExecutionWei) {
       throw new Error(
         "Relayer gas prefund did not confirm on-chain. Wait a moment and toggle Recurring off/on to retry."
@@ -5968,7 +6003,8 @@ export default function SwaparcApp() {
       RECURRING_AUTOMATION_CONTRACT_ADDRESS
     );
     const executorAddress = ethers.getAddress(RECURRING_AUTOMATION_EXECUTOR_ADDRESS);
-    const tokenReader = new ethers.Contract(token.address, ERC20_ABI, getReadProvider());
+    const readProvider = getReadProvider();
+    const tokenReader = new ethers.Contract(token.address, ERC20_ABI, readProvider);
     const decimals = Number(await tokenReader.decimals().catch(() => 6));
     const maxPerExecution = ethers.parseUnits(String(bill.amount), decimals);
     if (maxPerExecution <= 0n) {
@@ -5992,8 +6028,11 @@ export default function SwaparcApp() {
       minimumAllowance,
       approvalLabel,
     }) {
-      const readToken = new ethers.Contract(tokenAddr, ERC20_ABI, getReadProvider());
-      const current = await readToken.allowance(owner, spender).catch(() => 0n);
+      const current = await ethCallWithRpcFallback(
+        (prov) =>
+          new ethers.Contract(tokenAddr, ERC20_ABI, prov).allowance(owner, spender),
+        "allowance"
+      ).catch(() => 0n);
       if (current >= minimumAllowance) return;
       if (isCircleMode()) {
         setBillRuntimeStatus(`${approvalLabel} — confirm in Circle…`);
@@ -6006,8 +6045,12 @@ export default function SwaparcApp() {
         });
         const deadline = Date.now() + 45000;
         while (Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 2500));
-          const next = await readToken.allowance(owner, spender).catch(() => 0n);
+          await new Promise((r) => setTimeout(r, 5000));
+          const next = await ethCallWithRpcFallback(
+            (prov) =>
+              new ethers.Contract(tokenAddr, ERC20_ABI, prov).allowance(owner, spender),
+            "allowance"
+          ).catch(() => 0n);
           if (next >= minimumAllowance) return;
         }
         throw new Error(
@@ -6026,49 +6069,76 @@ export default function SwaparcApp() {
       });
     }
 
-    if (isCircleMode()) {
-      setBillRuntimeStatus(
-        `Step 1/4: Enable recurring authorization for ${bill.name || "bill"} — confirm in Circle…`
+    let needsConfigureAuthorization = true;
+    try {
+      const auth = await ethCallWithRpcFallback(
+        (prov) =>
+          new ethers.Contract(
+            recurringAutomationAddress,
+            RECURRING_AUTOMATION_ABI,
+            prov
+          ).authorizations(authId),
+        "recurring-auth"
       );
-      await executeCircleContractAction({
-        contractAddress: recurringAutomationAddress,
-        abiFunctionSignature:
-          "configureAuthorization(bytes32,address,address,address,uint128,uint128,uint64)",
-        abiParameters: [
-          authId,
-          executorAddress,
-          tokenAddress,
-          ethers.getAddress(poolAddress),
-          maxPerExecution.toString(),
-          maxPerExecution.toString(),
-          String(periodSeconds),
-        ],
-        title: `Enable recurring authorization for ${bill.name || "bill"}`,
-        stageLabel: `Enable recurring autopay for ${bill.name || "bill"}`,
-      });
-    } else {
-      const signer = await getSigner();
-      const contract = new ethers.Contract(
-        recurringAutomationAddress,
-        RECURRING_AUTOMATION_ABI,
-        signer
-      );
-      await sendWalletTxHardened({
-        signer,
-        contract,
-        method: "configureAuthorization",
-        args: [
-          authId,
-          executorAddress,
-          tokenAddress,
-          ethers.getAddress(poolAddress),
-          maxPerExecution,
-          maxPerExecution,
-          periodSeconds,
-        ],
-        timeoutMs: 120000,
-        txLabel: "Recurring authorization transaction",
-      });
+      if (
+        auth?.active &&
+        String(auth.payer || "").toLowerCase() === String(owner).toLowerCase() &&
+        ethers.getAddress(auth.executor) === executorAddress &&
+        ethers.getAddress(auth.token) === tokenAddress &&
+        ethers.getAddress(auth.pool) === ethers.getAddress(poolAddress) &&
+        BigInt(auth.maxAmountPerExecution) >= maxPerExecution
+      ) {
+        needsConfigureAuthorization = false;
+      }
+    } catch {
+      // If read fails (RPC), fall through to configure.
+    }
+
+    if (needsConfigureAuthorization) {
+      if (isCircleMode()) {
+        setBillRuntimeStatus(
+          `Step 1/4: Enable recurring authorization for ${bill.name || "bill"} — confirm in Circle…`
+        );
+        await executeCircleContractAction({
+          contractAddress: recurringAutomationAddress,
+          abiFunctionSignature:
+            "configureAuthorization(bytes32,address,address,address,uint128,uint128,uint64)",
+          abiParameters: [
+            authId,
+            executorAddress,
+            tokenAddress,
+            ethers.getAddress(poolAddress),
+            maxPerExecution.toString(),
+            maxPerExecution.toString(),
+            String(periodSeconds),
+          ],
+          title: `Enable recurring authorization for ${bill.name || "bill"}`,
+          stageLabel: `Enable recurring autopay for ${bill.name || "bill"}`,
+        });
+      } else {
+        const signer = await getSigner();
+        const contract = new ethers.Contract(
+          recurringAutomationAddress,
+          RECURRING_AUTOMATION_ABI,
+          signer
+        );
+        await sendWalletTxHardened({
+          signer,
+          contract,
+          method: "configureAuthorization",
+          args: [
+            authId,
+            executorAddress,
+            tokenAddress,
+            ethers.getAddress(poolAddress),
+            maxPerExecution,
+            maxPerExecution,
+            periodSeconds,
+          ],
+          timeoutMs: 120000,
+          txLabel: "Recurring authorization transaction",
+        });
+      }
     }
 
     await ensureAllowanceForSpender({
@@ -6128,7 +6198,7 @@ export default function SwaparcApp() {
     // Avoid piling up more pending txs when the wallet already has a nonce gap.
     try {
       const [latestN, pendingN] = await Promise.all([
-        getReadProvider().getTransactionCount(signerAddr, "latest").catch(() => null),
+        signerProvider.getTransactionCount(signerAddr, "latest").catch(() => null),
         signerProvider.getTransactionCount(signerAddr, "pending").catch(() => null),
       ]);
       if (
