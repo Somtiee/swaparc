@@ -4,9 +4,9 @@ import { kv } from "../../lib/server/kv.js";
 import { assertNotExpired } from "./hardening.js";
 import { circleUserRequest } from "../circle/_circleUserApi.js";
 import {
-  CANONICAL_SWAP_POOL_ADDRESS,
-  SWAP_POOL_TOKENS,
+  swapPoolAllowlistAddresses,
 } from "../../lib/swapPoolConfig.js";
+import { getRelayAllowedPoolSet } from "../../lib/server/privpayRelayCore.js";
 
 const AUTH_DOMAIN = "Swaparc Auth";
 const WALLET_SESSION_ACTION = "wallet-session";
@@ -246,6 +246,7 @@ export function buildContractAllowlist() {
     "PRIVPAY_USDC_ADDRESS",
     "ARCPAY_USDC_ADDRESS",
     "ARCPAY_TREASURY_ADDRESS",
+    "PRIVPAY_ALLOWED_POOL_ADDRESSES",
     "PRIVACY_POOL_VERIFIER_ADDRESS",
     "POSEIDON_T3_LIBRARY_ADDRESS",
   ];
@@ -257,21 +258,28 @@ export function buildContractAllowlist() {
     keys.push(key);
   }
   const out = new Set();
-  // Canonical Arc testnet swap pool + ERC20 tokens (approve + swap targets).
-  try {
-    out.add(ethers.getAddress(CANONICAL_SWAP_POOL_ADDRESS).toLowerCase());
-  } catch {
-    // ignore
+  for (const addr of swapPoolAllowlistAddresses()) {
+    out.add(addr);
   }
-  for (const t of SWAP_POOL_TOKENS) {
-    try {
-      out.add(ethers.getAddress(t.address).toLowerCase());
-    } catch {
-      // ignore
-    }
+  for (const addr of getRelayAllowedPoolSet()) {
+    out.add(addr);
   }
   for (const k of keys) {
     const v = String(process.env[k] || "").trim();
+    if (!v) continue;
+    if (k === "PRIVPAY_ALLOWED_POOL_ADDRESSES") {
+      for (const part of v.split(/[,\s]+/)) {
+        const p = part.trim();
+        if (p.startsWith("0x") && p.length === 42) {
+          try {
+            out.add(ethers.getAddress(p).toLowerCase());
+          } catch {
+            // skip invalid
+          }
+        }
+      }
+      continue;
+    }
     if (v.startsWith("0x") && v.length === 42) {
       try {
         out.add(ethers.getAddress(v).toLowerCase());
