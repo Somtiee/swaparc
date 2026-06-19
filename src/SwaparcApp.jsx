@@ -5794,7 +5794,7 @@ export default function SwaparcApp() {
 
   function recurringAutopaySummaryText(billName) {
     const name = billName || "bill";
-    return `Autopay enabled for "${name}". Setup authorization and approvals are complete; future charges run on the recurring server while you are offline.`;
+    return `Autopay enabled for "${name}". If you already approved USDC/token before, you may only see one Circle prompt; server autopay runs while you are offline.`;
   }
 
   function recurringStatusCopy(bill) {
@@ -5880,6 +5880,7 @@ export default function SwaparcApp() {
       const current = await readToken.allowance(owner, spender).catch(() => 0n);
       if (current >= minimumAllowance) return;
       if (isCircleMode()) {
+        setBillRuntimeStatus(`${approvalLabel} — confirm in Circle…`);
         await executeCircleContractAction({
           contractAddress: tokenAddr,
           abiFunctionSignature: "approve(address,uint256)",
@@ -5887,7 +5888,15 @@ export default function SwaparcApp() {
           title: approvalLabel,
           stageLabel: approvalLabel,
         });
-        return;
+        const deadline = Date.now() + 45000;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 2500));
+          const next = await readToken.allowance(owner, spender).catch(() => 0n);
+          if (next >= minimumAllowance) return;
+        }
+        throw new Error(
+          `${approvalLabel} did not confirm on-chain. Wait a moment and toggle Recurring off/on to retry.`
+        );
       }
       const signer = await getSigner();
       const writeToken = new ethers.Contract(tokenAddr, ERC20_ABI, signer);
@@ -5902,6 +5911,9 @@ export default function SwaparcApp() {
     }
 
     if (isCircleMode()) {
+      setBillRuntimeStatus(
+        `Step 1/3: Enable recurring authorization for ${bill.name || "bill"} — confirm in Circle…`
+      );
       await executeCircleContractAction({
         contractAddress: recurringAutomationAddress,
         abiFunctionSignature:
@@ -5947,13 +5959,13 @@ export default function SwaparcApp() {
       tokenAddr: tokenAddress,
       spender: recurringAutomationAddress,
       minimumAllowance: maxPerExecution,
-      approvalLabel: `Approve ${token.symbol} for recurring autopay`,
+      approvalLabel: `Step 2/3: Approve ${token.symbol} for recurring autopay`,
     });
     await ensureAllowanceForSpender({
       tokenAddr: ethers.getAddress(PRIVPAY_USDC_ADDRESS),
       spender: executorAddress,
       minimumAllowance: feeAllowanceTarget,
-      approvalLabel: "Approve USDC for recurring automation fees",
+      approvalLabel: "Step 3/3: Approve USDC for recurring automation fees",
     });
 
     return authId;
