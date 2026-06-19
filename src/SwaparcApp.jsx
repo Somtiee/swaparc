@@ -112,6 +112,10 @@ const RECURRING_AUTOMATION_EXECUTOR_ADDRESS =
 const RECURRING_FEE_ALLOWANCE_BUFFER_USDC = String(
   import.meta.env.VITE_RECURRING_FEE_ALLOWANCE_BUFFER_USDC || "2"
 );
+/** Native ARC sent to the relayer executor when enabling recurring autopay. */
+const RECURRING_RELAYER_PREFUND_ARC = String(
+  import.meta.env.VITE_RECURRING_RELAYER_PREFUND_ARC || "0.05"
+);
 
 /** Same intent as Bills Pay Now guard - shown inline in Payroll Upcoming runs. */
 const PAYROLL_MANUAL_PAY_RECURRING_MSG =
@@ -5794,7 +5798,7 @@ export default function SwaparcApp() {
 
   function recurringAutopaySummaryText(billName) {
     const name = billName || "bill";
-    return `Autopay enabled for "${name}". If you already approved USDC/token before, you may only see one Circle prompt; server autopay runs while you are offline.`;
+    return `Autopay enabled for "${name}". You authorized recurring pulls, approved USDC treasury fees, and funded relayer gas — future charges run on the server while you are offline.`;
   }
 
   function recurringStatusCopy(bill) {
@@ -5828,6 +5832,69 @@ export default function SwaparcApp() {
       name: employee.name || "Employee",
       nextExecutionAt: employee.nextRunAt,
     };
+  }
+
+  async function ensureRecurringRelayerPrefundedFromPayer(executorAddress) {
+    const executor = ethers.getAddress(String(executorAddress || "").trim());
+    let targetWei;
+    try {
+      targetWei = ethers.parseEther(RECURRING_RELAYER_PREFUND_ARC);
+    } catch {
+      targetWei = ethers.parseEther("0.05");
+    }
+    const provider = getReadProvider();
+    const current = await provider.getBalance(executor);
+    if (current >= targetWei) return;
+
+    let sendWei = targetWei - current;
+    const minSendWei = ethers.parseEther("0.01");
+    if (sendWei < minSendWei) sendWei = minSendWei;
+
+    const sendHuman = ethers.formatEther(sendWei);
+    const statusLabel = `Step 4/4: Fund autopay relayer gas (${sendHuman} ARC)`;
+    setBillRuntimeStatus(`${statusLabel} — confirm in your wallet…`);
+
+    if (isCircleMode()) {
+      const { userToken, walletId } = requireCircleAuth();
+      const initRes = await fetch("/api/circle/enterprise/execute-native-transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userToken,
+          walletId,
+          to: executor,
+          amountNative: sendHuman,
+          feeLevel: "MEDIUM",
+          requestTimestampMs: Date.now(),
+          requestNonce: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
+        }),
+      });
+      const initData = await initRes.json().catch(() => ({}));
+      if (!initRes.ok || !initData?.challengeId) {
+        throw new Error(initData?.error || "Failed to fund recurring relayer gas from Circle wallet.");
+      }
+      await executeCircleChallengeViaPrompt(
+        initData.challengeId,
+        "Confirm recurring relayer gas prefund"
+      );
+    } else {
+      const signer = await getSigner();
+      await sendNativeTxHardened({
+        signer,
+        txRequest: { to: executor, value: sendWei },
+        timeoutMs: 120000,
+        txLabel: "Recurring relayer gas prefund",
+      });
+    }
+
+    const after = await provider.getBalance(executor);
+    const minExecutionWei = ethers.parseEther("0.035");
+    if (after < minExecutionWei) {
+      throw new Error(
+        "Relayer gas prefund did not confirm on-chain. Wait a moment and toggle Recurring off/on to retry."
+      );
+    }
   }
 
   async function ensureRecurringOnchainAuthorization(bill) {
@@ -5912,7 +5979,7 @@ export default function SwaparcApp() {
 
     if (isCircleMode()) {
       setBillRuntimeStatus(
-        `Step 1/3: Enable recurring authorization for ${bill.name || "bill"} — confirm in Circle…`
+        `Step 1/4: Enable recurring authorization for ${bill.name || "bill"} — confirm in Circle…`
       );
       await executeCircleContractAction({
         contractAddress: recurringAutomationAddress,
@@ -5959,14 +6026,16 @@ export default function SwaparcApp() {
       tokenAddr: tokenAddress,
       spender: recurringAutomationAddress,
       minimumAllowance: maxPerExecution,
-      approvalLabel: `Step 2/3: Approve ${token.symbol} for recurring autopay`,
+      approvalLabel: `Step 2/4: Approve ${token.symbol} for recurring autopay`,
     });
     await ensureAllowanceForSpender({
       tokenAddr: ethers.getAddress(PRIVPAY_USDC_ADDRESS),
       spender: executorAddress,
       minimumAllowance: feeAllowanceTarget,
-      approvalLabel: "Step 3/3: Approve USDC for recurring automation fees",
+      approvalLabel: "Step 3/4: Approve USDC for recurring treasury fees",
     });
+
+    await ensureRecurringRelayerPrefundedFromPayer(executorAddress);
 
     return authId;
   }
@@ -7934,8 +8003,8 @@ export default function SwaparcApp() {
       if (bill.recurring && getActiveWalletAddress()) {
         setBillCreateStatus(
           isCircleMode()
-            ? "Requesting one-time automation approval in your Circle wallet..."
-            : "Requesting one-time automation approval in your wallet..."
+            ? "Setting up recurring autopay (up to 4 Circle confirmations: auth, approvals, relayer gas)..."
+            : "Setting up recurring autopay (up to 4 wallet confirmations: auth, approvals, relayer gas)..."
         );
         const onchainAuthorizationId = await ensureRecurringOnchainAuthorization(bill);
         setBillCreateStatus("Registering recurring schedule...");
