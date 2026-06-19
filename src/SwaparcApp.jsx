@@ -5816,6 +5816,47 @@ export default function SwaparcApp() {
     return "Autopay active: runs on the server while you are offline.";
   }
 
+  function isRecurringGasError(reason) {
+    const msg = String(reason || "").toLowerCase();
+    return (
+      /gas sponsor|intrinsic transaction cost|insufficient funds|arc gas|fund autopay|relayer.*gas|out of arc/i.test(
+        msg
+      )
+    );
+  }
+
+  async function fundRecurringAutopayGasForBill(bill) {
+    if (!RECURRING_AUTOMATION_EXECUTOR_ADDRESS) {
+      throw new Error("Recurring automation is not configured on this deployment.");
+    }
+    setBillRuntimeError("");
+    setBillRuntimeStatus("Funding autopay relayer gas from your wallet…");
+    try {
+      await ensureRecurringRelayerPrefundedFromPayer(
+        RECURRING_AUTOMATION_EXECUTOR_ADDRESS
+      );
+      setBills((prev) =>
+        prev.map((b) =>
+          b.id === bill.id ? { ...b, schedulerFailureReason: null } : b
+        )
+      );
+      setBillRuntimeStatus("Relayer gas funded. Autopay will retry on the next tick.");
+      const owner = getActiveWalletAddress();
+      if (owner) {
+        await fetch("/api/payments/recurring/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ owner: String(owner).toLowerCase() }),
+        });
+        await refreshRecurringStateFromBackend();
+      }
+    } catch (e) {
+      const msg = e?.message || "Failed to fund autopay gas";
+      setBillRuntimeError(msg);
+      throw e;
+    }
+  }
+
   /** Bill-shaped schedule used by `ensureRecurringOnchainAuthorization` for payroll employees (same auth id as server: ethers.id(employeeId)). */
   function payrollEmployeeAuthBillShape(employee, company) {
     const token = company?.token || "USDC";
@@ -5844,9 +5885,10 @@ export default function SwaparcApp() {
     }
     const provider = getReadProvider();
     const current = await provider.getBalance(executor);
-    if (current >= targetWei) return;
+    const minExecutionWei = ethers.parseEther("0.04");
+    if (current >= minExecutionWei) return;
 
-    let sendWei = targetWei - current;
+    let sendWei = targetWei > current ? targetWei - current : minExecutionWei - current;
     const minSendWei = ethers.parseEther("0.01");
     if (sendWei < minSendWei) sendWei = minSendWei;
 
@@ -5889,7 +5931,6 @@ export default function SwaparcApp() {
     }
 
     const after = await provider.getBalance(executor);
-    const minExecutionWei = ethers.parseEther("0.035");
     if (after < minExecutionWei) {
       throw new Error(
         "Relayer gas prefund did not confirm on-chain. Wait a moment and toggle Recurring off/on to retry."
@@ -13322,6 +13363,24 @@ export default function SwaparcApp() {
                                       >
                                         {billBusyId === bill.id ? "Processing..." : "Pay Now"}
                                       </button>
+                                      {isRecurringGasError(bill.schedulerFailureReason) && (
+                                        <button
+                                          className="secondaryBtn billsPayBtn"
+                                          disabled={billBusyId === bill.id}
+                                          onClick={async () => {
+                                            setBillBusyId(bill.id);
+                                            try {
+                                              await fundRecurringAutopayGasForBill(bill);
+                                            } catch {
+                                              // error surfaced via billRuntimeError
+                                            } finally {
+                                              setBillBusyId(null);
+                                            }
+                                          }}
+                                        >
+                                          Fund autopay gas
+                                        </button>
+                                      )}
                                       {isLikelyStealthConfigError({
                                         message: bill.schedulerFailureReason,
                                       }) && (
