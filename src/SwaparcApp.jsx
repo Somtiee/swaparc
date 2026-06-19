@@ -112,10 +112,18 @@ const RECURRING_AUTOMATION_EXECUTOR_ADDRESS =
 const RECURRING_FEE_ALLOWANCE_BUFFER_USDC = String(
   import.meta.env.VITE_RECURRING_FEE_ALLOWANCE_BUFFER_USDC || "2"
 );
-/** Native ARC sent to the relayer executor when enabling recurring autopay. */
+/** Native USDC (Arc gas) sent to the relayer executor when enabling recurring autopay. */
 const RECURRING_RELAYER_PREFUND_ARC = String(
   import.meta.env.VITE_RECURRING_RELAYER_PREFUND_ARC || "0.05"
 );
+
+/** Arc testnet uses USDC as native gas; format balance wei for user-facing copy. */
+function formatNativeGasUsdc(wei) {
+  const raw = typeof wei === "bigint" ? wei : BigInt(String(wei || 0));
+  const n = Number(ethers.formatEther(raw));
+  const rounded = n >= 0.01 ? n.toFixed(4) : n.toFixed(6);
+  return `${rounded} USDC`;
+}
 
 /** Same intent as Bills Pay Now guard - shown inline in Payroll Upcoming runs. */
 const PAYROLL_MANUAL_PAY_RECURRING_MSG =
@@ -226,7 +234,7 @@ function privacyPoolDepositErrorMessage(err) {
   const msg = err instanceof Error ? err.message : String(err);
   if (/missing revert data|CALL_EXCEPTION|estimateGas/i.test(msg)) {
     return (
-      `${msg} - Often: wrong network (switch wallet to ARC testnet), insufficient ARC gas token, ` +
+      `${msg} - Often: wrong network (switch wallet to Arc testnet), insufficient native USDC for gas, ` +
       `insufficient pool token balance, or the selected VITE_PRIVACY_POOL_ADDRESS_<TOKEN> points to a contract that is not this ZK pool.`
     );
   }
@@ -5798,7 +5806,7 @@ export default function SwaparcApp() {
 
   function recurringAutopaySummaryText(billName) {
     const name = billName || "bill";
-    return `Autopay enabled for "${name}". You authorized recurring pulls, approved USDC treasury fees, and funded relayer gas — future charges run on the server while you are offline.`;
+    return `Autopay enabled for "${name}". You authorized recurring pulls, approved USDC treasury fees, and funded relayer gas (native USDC) — future charges run on the server while you are offline.`;
   }
 
   function recurringStatusCopy(bill) {
@@ -5819,7 +5827,7 @@ export default function SwaparcApp() {
   function isRecurringGasError(reason) {
     const msg = String(reason || "").toLowerCase();
     return (
-      /gas sponsor|intrinsic transaction cost|insufficient funds|arc gas|fund autopay|relayer.*gas|out of arc/i.test(
+      /gas sponsor|intrinsic transaction cost|insufficient funds|native usdc|usdc.*gas|fund autopay|relayer.*gas|out of arc/i.test(
         msg
       )
     );
@@ -5830,7 +5838,7 @@ export default function SwaparcApp() {
       throw new Error("Recurring automation is not configured on this deployment.");
     }
     setBillRuntimeError("");
-    setBillRuntimeStatus("Funding autopay relayer gas from your wallet…");
+    setBillRuntimeStatus("Funding autopay relayer gas (native USDC) from your wallet…");
     try {
       await ensureRecurringRelayerPrefundedFromPayer(
         RECURRING_AUTOMATION_EXECUTOR_ADDRESS
@@ -5892,8 +5900,8 @@ export default function SwaparcApp() {
     const minSendWei = ethers.parseEther("0.01");
     if (sendWei < minSendWei) sendWei = minSendWei;
 
-    const sendHuman = ethers.formatEther(sendWei);
-    const statusLabel = `Step 4/4: Fund autopay relayer gas (${sendHuman} ARC)`;
+    const sendHuman = formatNativeGasUsdc(sendWei);
+    const statusLabel = `Step 4/4: Fund autopay relayer gas (${sendHuman})`;
     setBillRuntimeStatus(`${statusLabel} — confirm in your wallet…`);
 
     if (isCircleMode()) {
@@ -5914,11 +5922,11 @@ export default function SwaparcApp() {
       });
       const initData = await initRes.json().catch(() => ({}));
       if (!initRes.ok || !initData?.challengeId) {
-        throw new Error(initData?.error || "Failed to fund recurring relayer gas from Circle wallet.");
+        throw new Error(initData?.error || "Failed to fund recurring relayer gas (USDC) from Circle wallet.");
       }
       await executeCircleChallengeViaPrompt(
         initData.challengeId,
-        "Confirm recurring relayer gas prefund"
+        "Confirm recurring relayer gas prefund (USDC)"
       );
     } else {
       const signer = await getSigner();
@@ -5926,7 +5934,7 @@ export default function SwaparcApp() {
         signer,
         txRequest: { to: executor, value: sendWei },
         timeoutMs: 120000,
-        txLabel: "Recurring relayer gas prefund",
+        txLabel: "Recurring relayer gas prefund (USDC)",
       });
     }
 
@@ -8044,8 +8052,8 @@ export default function SwaparcApp() {
       if (bill.recurring && getActiveWalletAddress()) {
         setBillCreateStatus(
           isCircleMode()
-            ? "Setting up recurring autopay (up to 4 Circle confirmations: auth, approvals, relayer gas)..."
-            : "Setting up recurring autopay (up to 4 wallet confirmations: auth, approvals, relayer gas)..."
+            ? "Setting up recurring autopay (up to 4 Circle confirmations: auth, approvals, relayer gas in USDC)..."
+            : "Setting up recurring autopay (up to 4 wallet confirmations: auth, approvals, relayer gas in USDC)..."
         );
         const onchainAuthorizationId = await ensureRecurringOnchainAuthorization(bill);
         setBillCreateStatus("Registering recurring schedule...");
