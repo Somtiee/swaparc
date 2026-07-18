@@ -3,11 +3,12 @@ import react from "@vitejs/plugin-react";
 import basicSsl from "@vitejs/plugin-basic-ssl";
 import path from "path";
 
-export default defineConfig({
-  plugins: [react(), basicSsl()],
+export default defineConfig(({ command }) => ({
+  // basicSsl is local-dev only — never load it during `vite build` on Vercel.
+  plugins: [react(), ...(command === "serve" ? [basicSsl()] : [])],
   server: {
     https: true,
-    host: '127.0.0.1',
+    host: "127.0.0.1",
     port: 3000,
     proxy: {
       "/api": {
@@ -17,6 +18,13 @@ export default defineConfig({
         rewrite: (path) => path,
       },
     },
+  },
+  build: {
+    target: "es2020",
+  },
+  esbuild: {
+    target: "es2020",
+    supported: { bigint: true },
   },
   resolve: {
     alias: {
@@ -40,5 +48,9 @@ export default defineConfig({
       "snarkjs",
       "circomlibjs",
     ],
+    esbuildOptions: {
+      target: "es2020",
+      supported: { bigint: true },
+    },
   },
-});
+}));
