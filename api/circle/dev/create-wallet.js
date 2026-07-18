@@ -1,6 +1,6 @@
 // DEV-Controlled wallet (treasury/ARCPAY). Not used for user login.
 import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets";
-import { isProductionEnv } from "../security/walletAuth.js";
+import { isProductionEnv } from "../../security/walletAuth.js";
 
 const API_KEY = process.env.CIRCLE_API_KEY;
 const ENTITY_SECRET = process.env.CIRCLE_ENTITY_SECRET;

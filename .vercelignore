@@ -1,0 +1,20 @@
+# Keep Vercel deploys lean — these are local/Railway/ops only.
+scripts/backfillSwapVolumeFromChain.mjs
+scripts/exportDune*.mjs
+scripts/publishDune.mjs
+scripts/uploadDune*.mjs
+scripts/refreshDune*.mjs
+scripts/requoteDuneV2Swaps.mjs
+scripts/syncDuneWeekly.mjs
+scripts/launchVolumeQuoteShards.ps1
+lib/dune/
+data/dune-export/
+data/stats/volume-shards/
+data/stats/*-swaps.ndjson
+recovery/
+circuits/
+tools/
+*.ptau
+build/privpay/*.r1cs
+build/privpay/*.zkey
+build/privpay/*.ptau
