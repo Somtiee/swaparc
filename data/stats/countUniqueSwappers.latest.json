@@ -1,9 +1,22 @@
 {
-  "totalTxs": 5040786,
-  "totalSwapCalls": 4950579,
-  "uniqueSwapWallets": 104878,
-  "updatedAt": "2026-05-06T11:33:59.281Z",
-  "startBlock": 0,
-  "endBlock": 999999999,
-  "includeFailed": false
+  "totalTxs": 470079,
+  "totalSwapCalls": 451454,
+  "totalSwapCount": 451454,
+  "uniqueSwapWallets": 34955,
+  "uniqueUsers": 34955,
+  "pools": [
+    {
+      "id": "legacy",
+      "address": "0x2F4490e7c6F3DaC23ffEe6e71bFcb5d1CCd7d4eC",
+      "active": false
+    },
+    {
+      "id": "v2",
+      "address": "0xDC3FaDc97013eee5Da21e19c1108B1fa1E608560",
+      "active": true
+    }
+  ],
+  "updatedAt": "2026-06-15T07:06:11.946Z",
+  "includeFailed": false,
+  "source": "dual-pool-arcscan-scan"
 }

@@ -1,6 +1,5 @@
 import { kv } from "../../lib/server/kv.js";
 import { ethers } from "ethers";
-import { getPrices } from "../../src/priceFetcher.js";
 import {
   SWAP_POOL_INDEX_TO_SYMBOL,
   SWAP_POOL_TOKEN_DECIMALS,
@@ -19,37 +18,7 @@ const INDEX_TO_SYMBOL = SWAP_POOL_INDEX_TO_SYMBOL;
 
 const DECIMALS = {
   ...SWAP_POOL_TOKEN_DECIMALS,
-  USDG: 18,
-  wETH: 18,
-  wBTC: 8,
-  SOL: 9,
-  BTC: 8,
-  ETH: 18,
 };
-
-const FALLBACK_PRICES = {
-  USDC: 1,
-  EURC: 1.06,
-  SWPRC: 0.71,
-  CircBTC: 94000,
-  USDG: 1,
-  wETH: 2500,
-  wBTC: 45000,
-  SOL: 100,
-  BTC: 45000,
-  ETH: 2500,
-};
-
-async function getTokenUsdPrice(symbol) {
-  if (!symbol) return 0;
-  try {
-    const prices = await getPrices([symbol]);
-    if (prices[symbol]) return prices[symbol];
-  } catch (err) {
-    console.error("Error fetching price for", symbol, err);
-  }
-  return FALLBACK_PRICES[symbol] || 0;
-}
 
 export function startIndexer() {
   if (globalThis.__swapIndexerRunning) {
@@ -78,10 +47,8 @@ export function startIndexer() {
           const quote = await contract.get_dy(i, 0, dx);
           usdValue = Number(ethers.formatUnits(quote, DECIMALS.USDC));
         } catch (e) {
-          console.error("get_dy failed, fallback to price fetcher", e);
-          const decimals = DECIMALS[symbolIn] || 18;
-          const amount = Number(ethers.formatUnits(dx, decimals));
-          usdValue = amount * (await getTokenUsdPrice(symbolIn));
+          console.error("get_dy failed for swap volume", e);
+          usdValue = 0;
         }
       }
 

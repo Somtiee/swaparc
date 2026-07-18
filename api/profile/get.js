@@ -34,19 +34,51 @@ export default async function handler(req, res) {
     const { userId } = req.query;
 
     let key = `profile:${userId}`;
+    let profile = null;
+
     if (userId && userId.startsWith("0x")) {
       const lower = userId.toLowerCase();
-      // Prefer wallet-based key
-      key = `profile:${lower}`;
-      // Fallback to mapped legacy ID if wallet profile missing
       const mapped = await kv.get(`wallet:${lower}`);
-      const walletProfile = await kv.hgetall(key);
-      if (!walletProfile && mapped) {
-        key = `profile:${mapped}`;
-      }
-    }
+      const walletKey = `profile:${lower}`;
+      const mappedKey = mapped ? `profile:${mapped}` : null;
 
-    const profile = await kv.hgetall(key);
+      const [walletProfile, mappedProfile] = await Promise.all([
+        kv.hgetall(walletKey),
+        mappedKey ? kv.hgetall(mappedKey) : Promise.resolve(null),
+      ]);
+
+      if (mappedProfile && walletProfile) {
+        key = mappedKey;
+        profile = {
+          ...mappedProfile,
+          ...walletProfile,
+          userId: mapped,
+          walletAddress: lower,
+          username: walletProfile.username || mappedProfile.username,
+          avatar: walletProfile.avatar || mappedProfile.avatar,
+          swapCount: Math.max(
+            Number(walletProfile.swapCount) || 0,
+            Number(mappedProfile.swapCount) || 0
+          ),
+          swapVolume: Math.max(
+            Number(walletProfile.swapVolume) || 0,
+            Number(mappedProfile.swapVolume) || 0
+          ),
+          lpProvided: Math.max(
+            Number(walletProfile.lpProvided) || 0,
+            Number(mappedProfile.lpProvided) || 0
+          ),
+        };
+      } else if (mappedProfile) {
+        key = mappedKey;
+        profile = { ...mappedProfile, walletAddress: lower, userId: mapped };
+      } else {
+        key = walletKey;
+        profile = walletProfile;
+      }
+    } else {
+      profile = await kv.hgetall(key);
+    }
 
     if (profile) {
       const badges = sanitizeBadges(profile.badges);

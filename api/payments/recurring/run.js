@@ -1,6 +1,9 @@
 import { createRecurringPaymentEngine } from "../recurring-engine.js";
 import { getArcpayAccessByAddress } from "../subscription-eligibility.js";
-import { recurringScheduleExecutionHandler } from "../../../lib/server/recurringPrivpayExecution.js";
+import {
+  recurringScheduleExecutionHandler,
+  maintainRecurringRelayerGasBestEffort,
+} from "../../../lib/server/recurringPrivpayExecution.js";
 import { assertCronAuthStrict } from "../../security/walletAuth.js";
 
 function hasAutomationAccess(access) {
@@ -47,6 +50,10 @@ export default async function handler(req, res) {
     const executionEnabled = serverExecutionEnabled();
     const body = req.body || {};
     const owner = String(body?.owner || req.query?.owner || "").trim().toLowerCase();
+    if (executionEnabled) {
+      // Operator MY_PK tops up shared relayer gas before any wallet's due bills run.
+      await maintainRecurringRelayerGasBestEffort();
+    }
     const engine = createRecurringPaymentEngine({
       executionHandler: recurringScheduleExecutionHandler,
     });
@@ -64,12 +71,17 @@ export default async function handler(req, res) {
       summary = await runSerializedForPayer(owner, async () => {
         const now = new Date();
         const schedules = await engine.listSchedules();
-        const due = schedules.filter(
-          (s) =>
-            String(s?.payerAddress || "").toLowerCase() === owner &&
-            s?.status === "active" &&
-            new Date(s.nextExecutionAt).getTime() <= now.getTime()
+        const forceIds = new Set(
+          (Array.isArray(body?.forceScheduleIds) ? body.forceScheduleIds : [])
+            .map((id) => String(id || "").trim())
+            .filter(Boolean)
         );
+        const due = schedules.filter((s) => {
+          if (String(s?.payerAddress || "").toLowerCase() !== owner) return false;
+          if (s?.status !== "active") return false;
+          if (forceIds.has(String(s.id))) return true;
+          return new Date(s.nextExecutionAt).getTime() <= now.getTime();
+        });
         if (!executionEnabled) {
           return {
             checked: schedules.length,
@@ -89,41 +101,48 @@ export default async function handler(req, res) {
             })),
           };
         }
-        const results = await Promise.allSettled(
-          due.map((s) => engine.executeSchedule(s.id, now))
-        );
-        const out = {
+        const details = [];
+        let success = 0;
+        let retry = 0;
+        let failed = 0;
+        let skipped = 0;
+        let errors = 0;
+        let executed = 0;
+        // Sequential: same relayer signs every bill; parallel Promise.allSettled
+        // caused nonce-too-low / NONCE_EXPIRED collisions across Water/EURC/USDC.
+        for (const s of due) {
+          try {
+            const v = await engine.executeSchedule(s.id, now, {
+              force: forceIds.has(String(s.id)),
+            });
+            details.push(v);
+            if (v?.skipped) skipped += 1;
+            else if (v?.log?.status === "success") {
+              success += 1;
+              executed += Number(v?.catchupExecutions || 1);
+            } else if (v?.log?.status === "retry") {
+              retry += 1;
+              executed += Number(v?.catchupExecutions || 0);
+            } else if (v?.log?.status === "failed") {
+              failed += 1;
+              executed += Number(v?.catchupExecutions || 0);
+            }
+          } catch (e) {
+            errors += 1;
+            details.push({ status: "error", error: e?.message || String(e) });
+          }
+        }
+        return {
           checked: schedules.length,
           due: due.length,
-          executed: 0,
-          success: 0,
-          retry: 0,
-          failed: 0,
-          skipped: 0,
-          errors: 0,
-          details: [],
+          executed,
+          success,
+          retry,
+          failed,
+          skipped,
+          errors,
+          details,
         };
-        for (const r of results) {
-          if (r.status === "rejected") {
-            out.errors += 1;
-            out.details.push({ status: "error", error: String(r.reason) });
-            continue;
-          }
-          const v = r.value;
-          if (v?.skipped) out.skipped += 1;
-          else if (v?.log?.status === "success") {
-            out.success += 1;
-            out.executed += Number(v?.catchupExecutions || 1);
-          } else if (v?.log?.status === "retry") {
-            out.retry += 1;
-            out.executed += Number(v?.catchupExecutions || 0);
-          } else if (v?.log?.status === "failed") {
-            out.failed += 1;
-            out.executed += Number(v?.catchupExecutions || 0);
-          }
-          out.details.push(v);
-        }
-        return out;
       });
     } else {
       assertCronAuthStrict(req);

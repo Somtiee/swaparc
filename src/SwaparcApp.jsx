@@ -53,6 +53,23 @@ const ARC_CHAIN_ID_HEX = `0x${ARC_CHAIN_ID_DEC.toString(16)}`;
 const CIRCLE_APP_ID = import.meta.env.VITE_CIRCLE_APP_ID || "";
 /** Default read RPC for ARC Testnet (no API key). Override with VITE_ARC_RPC_URL. */
 const ARC_PUBLIC_RPC = "https://rpc.testnet.arc.network";
+/** Free community fallback (no Alchemy credits). */
+const ARC_DRPC_RPC = "https://arc-testnet.drpc.org";
+
+function withTimeout(promise, ms = 4000, label = "rpc") {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`${label} timed out after ${ms}ms`)),
+        ms
+      );
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
 /** Weekly static landing stats (Sunday cron); TVL via RPC once/day on landing. */
 /** localStorage fallback TTL only when CDN fetch fails (offline). */
 const LANDING_STATS_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -98,7 +115,11 @@ const PRIVACY_POOL_USE_RELAY =
 const PRIVPAY_WASM_URL = String(import.meta.env.VITE_PRIVPAY_WASM_URL || "");
 const PRIVPAY_ZKEY_URL = String(import.meta.env.VITE_PRIVPAY_ZKEY_URL || "");
 const PRIVPAY_PLACEHOLDER_MODE = false;
-const PRIVPAY_USAGE_FEE_USDC = "0.02";
+const PRIVPAY_USAGE_FEE_USDC = String(
+  import.meta.env.VITE_PRIVPAY_USAGE_FEE_USDC ||
+    import.meta.env.VITE_ARCPAY_USAGE_FEE_USDC ||
+    "0.05"
+);
 const PRIVPAY_USDC_ADDRESS =
   import.meta.env.VITE_PRIVPAY_USDC_ADDRESS ||
   "0x3600000000000000000000000000000000000000";
@@ -112,9 +133,16 @@ const RECURRING_AUTOMATION_EXECUTOR_ADDRESS =
 const RECURRING_FEE_ALLOWANCE_BUFFER_USDC = String(
   import.meta.env.VITE_RECURRING_FEE_ALLOWANCE_BUFFER_USDC || "2"
 );
-/** Native USDC (Arc gas) sent to the relayer executor when enabling recurring autopay. */
+/**
+ * When true (default), operator MY_PK sponsors relayer gas — payers never send native USDC.
+ * Set VITE_RECURRING_USER_GAS_PREFUND=true only for emergency/manual ops.
+ */
+const RECURRING_USER_GAS_PREFUND =
+  String(import.meta.env.VITE_RECURRING_USER_GAS_PREFUND || "").toLowerCase() ===
+  "true";
+/** Native USDC (Arc gas) sent by the payer only when RECURRING_USER_GAS_PREFUND is enabled. */
 const RECURRING_RELAYER_PREFUND_ARC = String(
-  import.meta.env.VITE_RECURRING_RELAYER_PREFUND_ARC || "0.05"
+  import.meta.env.VITE_RECURRING_RELAYER_PREFUND_ARC || "0.08"
 );
 
 /** Arc testnet uses USDC as native gas; format balance wei for user-facing copy. */
@@ -261,16 +289,19 @@ const INITIAL_TOKENS = [
     symbol: "USDC",
     name: "USD Coin",
     address: "0x3600000000000000000000000000000000000000",
+    decimals: 6,
   },
   {
     symbol: "EURC",
     name: "Euro Coin",
     address: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
+    decimals: 6,
   },
   {
     symbol: "SWPRC",
     name: "SwapARC Token",
     address: "0xBE7477BF91526FC9988C8f33e91B6db687119D45",
+    decimals: 6,
   },
   {
     symbol: "CircBTC",
@@ -1225,6 +1256,7 @@ export default function SwaparcApp() {
   const [swapPoolTokenBalances, setSwapPoolTokenBalances] = useState({}); // { USDC, EURC, SWPRC, CircBTC }
   const [highImpactConfirmed, setHighImpactConfirmed] = useState(false);
   const [showSlippagePanel, setShowSlippagePanel] = useState(false);
+  const [swapBusy, setSwapBusy] = useState(false);
 
   const [prices, setPrices] = useState({});
   // authMode moved up
@@ -1615,54 +1647,87 @@ export default function SwaparcApp() {
   // userEmailRef, circleExecResolverRef moved up
 
   // --- HELPER FUNCTIONS (Safe to use state now) ---
+  // Ordered fallback for Swap / Pools / PrivPay / Profile reads:
+  // 1) public Arc RPC  2) free dRPC  3) Alchemy (last resort — free-tier credits)
   const READ_RPC_URLS = useMemo(() => {
-    const urls = [];
+    const urls = [ARC_PUBLIC_RPC, ARC_DRPC_RPC];
     const alchemy = import.meta.env.VITE_ALCHEMY_ARC_RPC_URL?.trim();
-    if (alchemy) urls.push(alchemy);
-    urls.push("https://arc-testnet.drpc.org");
-    const primary = import.meta.env.VITE_ARC_RPC_URL?.trim();
-    if (primary) urls.push(primary);
-    urls.push(ARC_PUBLIC_RPC);
-    return [...new Set(urls)];
+    if (alchemy && !urls.includes(alchemy)) urls.push(alchemy);
+    return urls;
   }, []);
 
-  // Claim proving is highly sensitive to missing logs; prefer broader indexers first.
-  const CLAIM_READ_RPC_URLS = useMemo(() => {
-    const urls = [];
-    const alchemy = import.meta.env.VITE_ALCHEMY_ARC_RPC_URL?.trim();
-    if (alchemy) urls.push(alchemy);
-    urls.push("https://arc-testnet.drpc.org");
-    const primary = import.meta.env.VITE_ARC_RPC_URL?.trim();
-    if (primary) urls.push(primary);
-    urls.push(ARC_PUBLIC_RPC);
-    return [...new Set(urls)];
-  }, []);
+  const CLAIM_READ_RPC_URLS = READ_RPC_URLS;
 
   const readProviderRef = useRef({ url: "", provider: null });
+  /** Prefer last healthy *free* RPC (public/dRPC). Never prefer Alchemy — always try free first. */
+  const preferredReadRpcRef = useRef("");
+
+  function rememberHealthyRpc(url) {
+    if (!url) return;
+    if (url === ARC_PUBLIC_RPC || url === ARC_DRPC_RPC) {
+      preferredReadRpcRef.current = url;
+    }
+  }
+
+  // Probe once: public → dRPC → Alchemy; stick only to free RPCs when healthy.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      for (const url of READ_RPC_URLS) {
+        try {
+          await withTimeout(
+            getReadProviderForUrl(url).getBlockNumber(),
+            3000,
+            "rpc-probe"
+          );
+          if (!cancelled) {
+            rememberHealthyRpc(url);
+            readProviderRef.current = { url: "", provider: null };
+            console.log("[RPC] using", url);
+          }
+          return;
+        } catch (e) {
+          console.warn("[RPC] probe failed", url, e?.message || e);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [READ_RPC_URLS]);
 
   function getReadProvider() {
-    const url = READ_RPC_URLS[0] || ARC_PUBLIC_RPC;
+    const url =
+      preferredReadRpcRef.current || READ_RPC_URLS[0] || ARC_PUBLIC_RPC;
     const cached = readProviderRef.current;
     if (cached.provider && cached.url === url) return cached.provider;
     const provider = new ethers.JsonRpcProvider(
       url,
       { chainId: ARC_CHAIN_ID_DEC, name: "arc-testnet" },
-      { batchMaxCount: 1 }
+      { batchMaxCount: 1, staticNetwork: true }
     );
     readProviderRef.current = { url, provider };
     return provider;
   }
 
   function getReadProviderForUrl(url) {
-    return new ethers.JsonRpcProvider(url, undefined, { batchMaxCount: 1 });
+    return new ethers.JsonRpcProvider(
+      url,
+      { chainId: ARC_CHAIN_ID_DEC, name: "arc-testnet" },
+      { batchMaxCount: 1, staticNetwork: true }
+    );
   }
 
   async function withReadProviders(fn, label = "read") {
     let lastErr = null;
+    // Always public → dRPC → Alchemy (never prioritize Alchemy).
     for (const url of READ_RPC_URLS) {
       try {
         const provider = getReadProviderForUrl(url);
-        return await fn(provider, url);
+        const result = await withTimeout(fn(provider, url), 4000, label);
+        rememberHealthyRpc(url);
+        readProviderRef.current = { url, provider };
+        return result;
       } catch (e) {
         lastErr = e;
         console.warn(`[RPC] ${label} failed on ${url}`, e?.message || e);
@@ -1864,29 +1929,71 @@ export default function SwaparcApp() {
     );
   }
 
+  function isTransientRpcError(err) {
+    const msg = String(err?.message || err?.shortMessage || err || "");
+    const code = err?.error?.code ?? err?.code ?? err?.info?.error?.code;
+    if (code === -32011 || code === 429) return true;
+    return /request limit reached|rate limit|too many requests|\b429\b|could not coalesce|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|missing revert data|failed to detect network|network error|timeout|timed out/i.test(
+      msg
+    );
+  }
+
+  async function withRpcTimeout(promise, ms = 8000, label = "rpc") {
+    let timer;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`${label} timed out after ${ms}ms`)),
+            ms
+          );
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   async function ethCallWithRpcFallback(fn, label = "read") {
     let lastErr = null;
+    // Always public → dRPC → Alchemy so Alchemy free-tier is last resort only.
     for (const url of READ_RPC_URLS) {
       try {
-        return await fn(getReadProviderForUrl(url), url);
+        const result = await withTimeout(
+          fn(getReadProviderForUrl(url), url),
+          4000,
+          label
+        );
+        rememberHealthyRpc(url);
+        return result;
       } catch (e) {
         lastErr = e;
-        const msg = String(e?.message || e || "");
-        if (!/429|rate limit|too many requests/i.test(msg)) break;
-        console.warn(`[RPC] ${label} rate-limited on ${url}, trying fallback`);
+        if (!isTransientRpcError(e)) {
+          // Still try next URL for call exceptions from flaky public RPC.
+          if (!/CALL_EXCEPTION|missing revert|coalesce|limit|429|timeout/i.test(String(e?.message || e))) {
+            break;
+          }
+        }
+        console.warn(
+          `[RPC] ${label} failed on ${url}, trying fallback:`,
+          String(e?.message || e).slice(0, 120)
+        );
       }
     }
     throw lastErr || new Error(`${label} failed`);
   }
 
   async function assertNoWalletNonceGap(signer, signerProvider = null) {
-    const addr = await signer.getAddress();
-    const provider = signerProvider ?? signer.provider ?? getReadProvider();
     try {
-      const [latestN, pendingN] = await Promise.all([
-        provider.getTransactionCount(addr, "latest").catch(() => null),
-        provider.getTransactionCount(addr, "pending").catch(() => null),
-      ]);
+      const addr = await signer.getAddress();
+      const [latestN, pendingN] = await ethCallWithRpcFallback(async (p) => {
+        const [latest, pending] = await Promise.all([
+          p.getTransactionCount(addr, "latest").catch(() => null),
+          p.getTransactionCount(addr, "pending").catch(() => null),
+        ]);
+        return [latest, pending];
+      }, "nonce-check");
       if (
         Number.isFinite(latestN) &&
         Number.isFinite(pendingN) &&
@@ -1899,10 +2006,6 @@ export default function SwaparcApp() {
     } catch (e) {
       const msg = String(e?.message || e || "");
       if (/nonce gap|pending queue is stuck/i.test(msg)) throw e;
-      if (/429|rate limit|too many requests/i.test(msg)) {
-        console.warn("[Wallet] Skipping nonce-gap check — RPC rate limited");
-        return;
-      }
       console.warn("[Wallet] Nonce-gap check skipped:", msg);
     }
   }
@@ -1923,14 +2026,22 @@ export default function SwaparcApp() {
     const sendOverrides = { ...activeFeeOverrides };
     if (estimateGas) {
       try {
-        const est = await contract[method].estimateGas(...args, activeFeeOverrides);
+        const est = await withTimeout(
+          contract[method].estimateGas(...args, activeFeeOverrides),
+          6000,
+          `${txLabel} estimateGas`
+        );
         if (est) sendOverrides.gasLimit = (est * 12n) / 10n;
       } catch {
         try {
-          const est = await contract[method].estimateGas(...args);
+          const est = await withTimeout(
+            contract[method].estimateGas(...args),
+            5000,
+            `${txLabel} estimateGas-plain`
+          );
           if (est) sendOverrides.gasLimit = (est * 12n) / 10n;
         } catch {
-          // let wallet/provider estimate if both attempts fail
+          // let wallet/provider estimate if both attempts fail / time out
         }
       }
     }
@@ -2575,6 +2686,9 @@ export default function SwaparcApp() {
       const seen = new Set(prev.map((x) => x.id));
       const additions = [];
       for (const log of paymentLogs) {
+        // Soft retries are noisy and look like failed payments — only show successes
+        // (and hard failures) in Bills history.
+        if (String(log?.status || "").toLowerCase() === "retry") continue;
         const syntheticId = `recur_${log.id}`;
         if (seen.has(syntheticId)) continue;
         const bill = (billsRef.current || []).find((b) => b.id === log.scheduleId);
@@ -2586,6 +2700,7 @@ export default function SwaparcApp() {
         const billName = baseName
           ? `${baseName} (Recurring)`
           : `Bill (Recurring)`;
+        const settled = !!log?.result?.alreadySettledThisPeriod;
         additions.push({
           id: syntheticId,
           billId: log.scheduleId,
@@ -2599,7 +2714,12 @@ export default function SwaparcApp() {
             )?.symbol ||
             "TOKEN",
           amount: Number(log.amount || 0),
-          status: log.status === "success" ? "submitted" : log.status || "retry",
+          status:
+            log.status === "success"
+              ? settled
+                ? "settled"
+                : "submitted"
+              : log.status || "failed",
           txHash: log?.result?.txHash || null,
           paymentRail: log?.result?.paymentRail || null,
           poolAddress: log?.result?.poolAddress || null,
@@ -2615,6 +2735,7 @@ export default function SwaparcApp() {
           createdAt: log.executedAt || new Date().toISOString(),
           error: log.error || null,
           schedulerState: schedulesById[log.scheduleId]?.status || null,
+          alreadySettledThisPeriod: settled,
         });
       }
       if (!additions.length) return prev;
@@ -3671,17 +3792,10 @@ export default function SwaparcApp() {
     if (activeTab === "leaderboard") fetchLeaderboard();
 
     (async () => {
-      // Use fallback if window.ethereum is not available
-        const provider = window.ethereum
-          ? new ethers.BrowserProvider(window.ethereum)
-          : getReadProvider();
-
-      // For Circle users, prefer the public provider for stability
-      const activeProvider = isCircleMode() ? getReadProvider() : provider;
       const walletAddr = getActiveWalletAddress();
 
       if (activeTab === "pools") {
-        fetchPoolBalances(activeProvider).catch(console.warn);
+        fetchPoolBalances().catch(console.warn);
       }
 
       if (!walletAddr) return;
@@ -3697,12 +3811,18 @@ export default function SwaparcApp() {
         const cachedRaw = window.localStorage.getItem(key);
         if (cachedRaw) {
           const cached = JSON.parse(cachedRaw);
-          if (cached && cached.lpBalances && cached.lpTokenAmounts) {
+          const amounts = cached?.lpTokenAmounts || {};
+          const hasAmounts = Object.values(amounts).some(
+            (pool) => pool && Object.keys(pool).length > 0
+          );
+          if (cached && cached.lpBalances && hasAmounts) {
             setLpBalances(cached.lpBalances || {});
-            setLpTokenAmounts(cached.lpTokenAmounts || {});
+            setLpTokenAmounts(amounts);
+            setLpCacheHydrated(true);
+          } else if (cached && !hasAmounts) {
+            // Drop stale empty caches from failed RPC reads.
+            window.localStorage.removeItem(key);
           }
-          // Mark as hydrated if we found a cache entry (even if it has empty objects).
-          setLpCacheHydrated(true);
         }
       } catch {
         // ignore cache issues
@@ -3710,7 +3830,7 @@ export default function SwaparcApp() {
 
       try {
         // Always fetch balances when address is connected, regardless of tab
-        const balData = await getBalances(walletAddr, activeProvider);
+        const balData = await getBalances(walletAddr);
         setBalances(balData || {});
 
         if (activeTab === "profile") {
@@ -3718,8 +3838,8 @@ export default function SwaparcApp() {
           const [profData, lpBalData, lpAmountsResult] =
             await Promise.all([
               getProfileData(walletAddr),
-              getAllLPBalancesData(walletAddr, activeProvider),
-              getLpTokenAmountsData(walletAddr, activeProvider),
+              getAllLPBalancesData(walletAddr),
+              getLpTokenAmountsData(walletAddr),
             ]);
 
           // Patch profile with latest LP if available and valid
@@ -3733,10 +3853,10 @@ export default function SwaparcApp() {
           setLpBalances(lpBalData || {});
           setLpTokenAmounts(lpAmountsResult?.amounts || {});
         } else if (activeTab === "pools") {
-          // Also fetch LP data for pools tab
+          // Also fetch LP data for pools tab (always via public→Alchemy fallback)
           const [lpBalData, lpAmountsResult] = await Promise.all([
-            getAllLPBalancesData(walletAddr, activeProvider),
-            getLpTokenAmountsData(walletAddr, activeProvider),
+            getAllLPBalancesData(walletAddr),
+            getLpTokenAmountsData(walletAddr),
           ]);
           setLpBalances(lpBalData || {});
           setLpTokenAmounts(lpAmountsResult?.amounts || {});
@@ -3832,6 +3952,13 @@ export default function SwaparcApp() {
   useEffect(() => {
     const walletAddr = getActiveWalletAddress();
     if (!walletAddr || typeof window === "undefined") return;
+    // Don't persist empty LP breakdowns — that freezes MY LIQUIDITY on "-" after a failed RPC.
+    const hasAmounts =
+      lpTokenAmounts &&
+      Object.values(lpTokenAmounts).some(
+        (pool) => pool && Object.keys(pool).length > 0
+      );
+    if (!hasAmounts) return;
     try {
       const key = `swaparc_lp_cache_${String(walletAddr).toLowerCase()}`;
       window.localStorage.setItem(
@@ -4144,13 +4271,12 @@ export default function SwaparcApp() {
 
   async function refreshUserLiquidityData(userAddr) {
     if (!userAddr) return;
-    const provider = getReadProvider();
     setLpLoading(true);
     try {
-      await fetchBalances(userAddr, provider);
-      await fetchAllLPBalances(userAddr, provider);
-      await fetchLPTokenAmounts(userAddr, provider);
-      await fetchPoolBalances(provider);
+      await fetchBalances(userAddr);
+      await fetchAllLPBalances(userAddr);
+      await fetchLPTokenAmounts(userAddr);
+      await fetchPoolBalances();
     } finally {
       setLpLoading(false);
     }
@@ -4169,6 +4295,21 @@ export default function SwaparcApp() {
       console.warn("Liquidity refresh failed", e)
     );
   }, [authMode, circleWalletReady, circleWallet?.address, address]);
+
+  useEffect(() => {
+    if (activeTab !== "pools" && activeTab !== "privpay") return;
+    const userAddr = getActiveWalletAddress();
+    if (!userAddr) return;
+    if (activeTab === "pools") {
+      refreshUserLiquidityData(userAddr).catch((e) =>
+        console.warn("Pools refresh failed", e)
+      );
+    }
+    if (activeTab === "privpay") {
+      runRecurringDueOnServerThrottled(String(userAddr).toLowerCase()).catch(() => {});
+      refreshRecurringStateFromBackend().catch(() => {});
+    }
+  }, [activeTab]);
 
   async function handleClaimRewards(poolPreset) {
     console.log("[CircleTx] Starting Claim Rewards...");
@@ -4216,51 +4357,53 @@ export default function SwaparcApp() {
     }
   }
 
-  async function getLpTokenAmountsData(user, provider) {
+  async function getLpTokenAmountsData(user, _providerIgnored) {
     const result = {};
     let totalLpUsd = 0;
+    const userNorm = normalizeAddress(user);
+    if (!userNorm) return { amounts: result, totalLpUsd };
 
     for (const p of POOLS) {
       try {
-        // Contracts
-        const pool = new ethers.Contract(p.poolAddress, POOL_ABI, provider);
-        const lp = new ethers.Contract(p.lpToken, LP_ABI, provider);
+        await withReadProviders(async (provider) => {
+          let lpTokenAddress = p.lpToken;
+          try {
+            const poolRead = new ethers.Contract(p.poolAddress, POOL_ABI, provider);
+            const resolved = await poolRead.lpToken().catch(() => null);
+            if (resolved && resolved !== ethers.ZeroAddress) lpTokenAddress = resolved;
+          } catch {
+            // keep preset lp token
+          }
 
-        // LP math
-        const userLP = await lp.balanceOf(user); // raw LP
-        const totalLP = await lp.totalSupply(); // raw LP
+          const pool = new ethers.Contract(p.poolAddress, POOL_ABI, provider);
+          const lp = new ethers.Contract(lpTokenAddress, LP_ABI, provider);
 
-        if (totalLP === 0n || userLP === 0n) continue;
+          const [userLP, totalLP, balances] = await Promise.all([
+            lp.balanceOf(userNorm),
+            lp.totalSupply(),
+            pool.getBalances(),
+          ]);
 
-        const share = Number(userLP) / Number(totalLP);
+          if (totalLP === 0n || userLP === 0n) return;
 
-        // Pool balances
-        const balances = await pool.getBalances();
+          // Use bigint-safe share via floating division of formatted values when possible.
+          const share = Number(userLP) / Number(totalLP);
+          if (!Number.isFinite(share) || share <= 0) return;
 
-        result[p.id] = {};
-
-        for (let i = 0; i < p.tokens.length; i++) {
-          const sym = p.tokens[i];
-          const token = INITIAL_TOKENS.find((t) => t.symbol === sym);
-          const tokenC = new ethers.Contract(
-            token.address,
-            ERC20_ABI,
-            provider
-          );
-          const dec = await tokenC.decimals();
-
-          const poolAmount = Number(ethers.formatUnits(balances[i], dec));
-          const userShareAmount = poolAmount * share;
-
-          result[p.id][sym] = userShareAmount;
-
-          // Calculate USD value for this portion using already-fetched tokenPrices
-          // (avoid extra on-chain calls that can trigger RPC rate limits and UI flicker)
-          const price = Number(tokenPrices?.[sym] || 0);
-          totalLpUsd += userShareAmount * price;
-        }
+          result[p.id] = {};
+          for (let i = 0; i < p.tokens.length; i++) {
+            const sym = p.tokens[i];
+            const token = INITIAL_TOKENS.find((t) => t.symbol === sym);
+            const dec = token?.decimals != null ? Number(token.decimals) : 6;
+            const poolAmount = Number(ethers.formatUnits(balances[i], dec));
+            const userShareAmount = poolAmount * share;
+            result[p.id][sym] = userShareAmount;
+            const price = Number(tokenPrices?.[sym] || 0);
+            totalLpUsd += userShareAmount * price;
+          }
+        }, `lpAmounts(${p.id})`);
       } catch (e) {
-        console.warn("LP breakdown failed for", p.id, e);
+        console.warn("LP breakdown failed for", p.id, e?.message || e);
       }
     }
     return { amounts: result, totalLpUsd };
@@ -4281,8 +4424,7 @@ export default function SwaparcApp() {
       const usdcIndex = TOKEN_INDICES.USDC;
 
       const token = INITIAL_TOKENS.find((t) => t.symbol === fromSymbol);
-      const tokenC = new ethers.Contract(token.address, ERC20_ABI, provider);
-      const decimals = await tokenC.decimals();
+      const decimals = token?.decimals != null ? Number(token.decimals) : 6;
 
       const oneToken = ethers.parseUnits("1", decimals);
       const dy = await pool.get_dy(fromIndex, usdcIndex, oneToken);
@@ -4294,36 +4436,31 @@ export default function SwaparcApp() {
     }
   }
 
-  async function fetchPoolBalances(provider) {
+  async function fetchPoolBalances(_providerIgnored) {
     const tvlResult = {};
     const tokenResult = {};
 
     for (const p of POOLS) {
       try {
-        const pool = new ethers.Contract(p.poolAddress, POOL_ABI, provider);
-        const raw = await pool.getBalances();
+        await withReadProviders(async (provider) => {
+          const pool = new ethers.Contract(p.poolAddress, POOL_ABI, provider);
+          const raw = await pool.getBalances();
 
-        tokenResult[p.id] = {};
-        let tvl = 0;
+          tokenResult[p.id] = {};
+          let tvl = 0;
 
-        for (let i = 0; i < p.tokens.length; i++) {
-          const sym = p.tokens[i];
-          const token = INITIAL_TOKENS.find((t) => t.symbol === sym);
-          const tokenC = new ethers.Contract(
-            token.address,
-            ERC20_ABI,
-            provider
-          );
-          const dec = await tokenC.decimals();
+          for (let i = 0; i < p.tokens.length; i++) {
+            const sym = p.tokens[i];
+            const token = INITIAL_TOKENS.find((t) => t.symbol === sym);
+            const dec = token?.decimals != null ? Number(token.decimals) : 6;
+            const bal = Number(ethers.formatUnits(raw[i], dec));
+            tokenResult[p.id][sym] = bal;
+            const priceInUSDC = await getOnchainPriceInUSDC(provider, sym);
+            tvl += bal * priceInUSDC;
+          }
 
-          const bal = Number(ethers.formatUnits(raw[i], dec));
-          tokenResult[p.id][sym] = bal;
-
-          const priceInUSDC = await getOnchainPriceInUSDC(provider, sym);
-          tvl += bal * priceInUSDC;
-        }
-
-        tvlResult[p.id] = tvl;
+          tvlResult[p.id] = tvl;
+        }, `poolBalances(${p.id})`);
       } catch {
         tvlResult[p.id] = 0;
         tokenResult[p.id] = {};
@@ -5133,7 +5270,11 @@ export default function SwaparcApp() {
         return new Set();
       }
     };
-    setBillHistory(readArray("privpay_bill_history"));
+    setBillHistory(
+      readArray("privpay_bill_history").filter(
+        (h) => String(h?.status || "").toLowerCase() !== "retry"
+      )
+    );
     setPayrollHistory(readArray("privpay_payroll_history"));
     setPoolClaimHistory(readArray("privpay_claim_history"));
     setResolvedBillHistoryIds(readSet("privpay_bill_history_resolved"));
@@ -5835,14 +5976,14 @@ export default function SwaparcApp() {
 
   function recurringAutopaySummaryText(billName) {
     const name = billName || "bill";
-    return `Autopay enabled for "${name}". You authorized recurring pulls, approved USDC treasury fees, and funded relayer gas (native USDC) — future charges run on the server while you are offline.`;
+    return `Autopay enabled for "${name}". You authorized recurring pulls and approved USDC treasury fees (${PRIVPAY_USAGE_FEE_USDC} USDC/run). Relayer gas is covered by Swaparc — future charges run on the server while you are offline.`;
   }
 
   function recurringStatusCopy(bill) {
     if (!bill?.recurring) return "Autopay is off.";
     const state = String(bill?.lastSchedulerStatus || "").toLowerCase();
     if (state === "failed") {
-      return "Autopay paused: the scheduler reached max retries. Re-authorize or top up and re-enable.";
+      return "Autopay paused: the scheduler reached max retries. Toggle Recurring off → on to re-enable.";
     }
     if (state === "retry") {
       return "Autopay retrying after a temporary failure.";
@@ -5856,10 +5997,49 @@ export default function SwaparcApp() {
   function isRecurringGasError(reason) {
     const msg = String(reason || "").toLowerCase();
     return (
-      /gas sponsor|intrinsic transaction cost|insufficient funds|native usdc|usdc.*gas|fund autopay|relayer.*gas|out of arc/i.test(
+      /gas sponsor|intrinsic transaction cost|insufficient funds|native usdc|usdc.*gas|fund autopay|relayer.*gas|out of arc|topping up relayer/i.test(
         msg
       )
     );
+  }
+
+  function isSoftRecurringRetry(reason) {
+    const msg = String(reason || "");
+    return /queue conflict|temporary network|request limit|rate limit|will retry|timed out|coalesce|backup rpc|retrying automatically|topping up relayer/i.test(
+      msg
+    );
+  }
+
+  /** Soft RPC/queue blips shouldn't stick on the card after the schedule has moved on. */
+  function shouldShowRecurringFailure(bill) {
+    const reason = bill?.schedulerFailureReason;
+    if (!reason) return false;
+    if (!isSoftRecurringRetry(reason)) return true;
+    const nextMs = new Date(bill?.nextExecutionAt || 0).getTime();
+    if (!Number.isFinite(nextMs)) return true;
+    // Only show soft retry copy while the bill is due / about to fire.
+    return nextMs <= Date.now() + 2 * 60 * 1000;
+  }
+
+  function formatRecurringAutomationIssue(reason) {
+    const msg = String(reason || "");
+    if (/nonce has already been used|nonce too low|NONCE_EXPIRED|network queue conflict|queue conflict/i.test(msg)) {
+      return "Retrying automatically…";
+    }
+    if (/request limit|rate limit|could not coalesce|-32011|backup rpc/i.test(msg)) {
+      return "Network busy — retrying on backup RPC…";
+    }
+    if (isRecurringGasError(msg)) {
+      return "Autopay is topping up relayer gas and will retry automatically.";
+    }
+    // Strip raw RPC dumps for UX; keep a short actionable line.
+    if (/transaction=|info=\{|"code":\s*-32|error=\{|payload=\{/i.test(msg)) {
+      return "Network busy — retrying automatically…";
+    }
+    if (isSoftRecurringRetry(msg)) {
+      return "Retrying automatically…";
+    }
+    return msg;
   }
 
   async function fundRecurringAutopayGasForBill(bill) {
@@ -5912,7 +6092,27 @@ export default function SwaparcApp() {
     };
   }
 
-  async function ensureRecurringRelayerPrefundedFromPayer(executorAddress) {
+  async function ensureRecurringRelayerPrefundedFromPayer(
+    executorAddress,
+    onStatus = setBillRuntimeStatus
+  ) {
+    // Default: operator MY_PK sponsors gas on the server — never ask the payer wallet.
+    if (!RECURRING_USER_GAS_PREFUND) {
+      onStatus("Finalizing autopay — server covers relayer gas…");
+      try {
+        await fetch("/api/payments/recurring/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            owner: String(getActiveWalletAddress() || "").toLowerCase(),
+          }),
+        });
+      } catch {
+        // Best-effort; deposit path also tops up before each run.
+      }
+      return;
+    }
+
     const executor = ethers.getAddress(String(executorAddress || "").trim());
     let targetWei;
     try {
@@ -5920,21 +6120,20 @@ export default function SwaparcApp() {
     } catch {
       targetWei = ethers.parseEther("0.05");
     }
-    const provider = getReadProvider();
     const current = await ethCallWithRpcFallback(
       (prov) => prov.getBalance(executor),
       "relayer-balance"
     );
-    const minExecutionWei = ethers.parseEther("0.04");
+    const minExecutionWei = ethers.parseEther("0.06");
     if (current >= minExecutionWei) return;
 
     let sendWei = targetWei > current ? targetWei - current : minExecutionWei - current;
-    const minSendWei = ethers.parseEther("0.01");
+    const minSendWei = ethers.parseEther("0.02");
     if (sendWei < minSendWei) sendWei = minSendWei;
 
     const sendHuman = formatNativeGasUsdc(sendWei);
     const statusLabel = `Step 4/4: Fund autopay relayer gas (${sendHuman})`;
-    setBillRuntimeStatus(`${statusLabel} — confirm in your wallet…`);
+    onStatus(`${statusLabel} — confirm in your wallet…`);
 
     if (isCircleMode()) {
       const { userToken, walletId } = requireCircleAuth();
@@ -5981,7 +6180,7 @@ export default function SwaparcApp() {
     }
   }
 
-  async function ensureRecurringOnchainAuthorization(bill) {
+  async function ensureRecurringOnchainAuthorization(bill, onStatus = setBillRuntimeStatus) {
     if (!bill?.id || !bill?.token) return null;
     if (!bill.recurring) return null;
     if (!RECURRING_AUTOMATION_CONTRACT_ADDRESS || !RECURRING_AUTOMATION_EXECUTOR_ADDRESS) {
@@ -6010,6 +6209,8 @@ export default function SwaparcApp() {
     if (maxPerExecution <= 0n) {
       throw new Error("Recurring amount must be greater than zero.");
     }
+    // Allow a few same-period retries (RPC flake recovery) without blocking the whole week.
+    const maxPerPeriod = maxPerExecution * 3n;
     const periodSeconds = recurringPeriodSecondsForBillFrequency(bill);
     const feeAllowanceTarget = (() => {
       let parsed;
@@ -6035,7 +6236,7 @@ export default function SwaparcApp() {
       ).catch(() => 0n);
       if (current >= minimumAllowance) return;
       if (isCircleMode()) {
-        setBillRuntimeStatus(`${approvalLabel} — confirm in Circle…`);
+        onStatus(`${approvalLabel} — confirm in Circle…`);
         await executeCircleContractAction({
           contractAddress: tokenAddr,
           abiFunctionSignature: "approve(address,uint256)",
@@ -6057,6 +6258,7 @@ export default function SwaparcApp() {
           `${approvalLabel} did not confirm on-chain. Wait a moment and toggle Recurring off/on to retry.`
         );
       }
+      onStatus(`${approvalLabel} — confirm in your wallet…`);
       const signer = await getSigner();
       const writeToken = new ethers.Contract(tokenAddr, ERC20_ABI, signer);
       await sendWalletTxHardened({
@@ -6086,7 +6288,8 @@ export default function SwaparcApp() {
         ethers.getAddress(auth.executor) === executorAddress &&
         ethers.getAddress(auth.token) === tokenAddress &&
         ethers.getAddress(auth.pool) === ethers.getAddress(poolAddress) &&
-        BigInt(auth.maxAmountPerExecution) >= maxPerExecution
+        BigInt(auth.maxAmountPerExecution) >= maxPerExecution &&
+        BigInt(auth.maxAmountPerPeriod || 0) >= maxPerPeriod
       ) {
         needsConfigureAuthorization = false;
       }
@@ -6094,10 +6297,12 @@ export default function SwaparcApp() {
       // If read fails (RPC), fall through to configure.
     }
 
+    const authStepTotal = RECURRING_USER_GAS_PREFUND ? 4 : 3;
+
     if (needsConfigureAuthorization) {
       if (isCircleMode()) {
-        setBillRuntimeStatus(
-          `Step 1/4: Enable recurring authorization for ${bill.name || "bill"} — confirm in Circle…`
+        onStatus(
+          `Step 1/${authStepTotal}: Enable recurring authorization for ${bill.name || "bill"} — confirm in Circle…`
         );
         await executeCircleContractAction({
           contractAddress: recurringAutomationAddress,
@@ -6109,13 +6314,16 @@ export default function SwaparcApp() {
             tokenAddress,
             ethers.getAddress(poolAddress),
             maxPerExecution.toString(),
-            maxPerExecution.toString(),
+            maxPerPeriod.toString(),
             String(periodSeconds),
           ],
           title: `Enable recurring authorization for ${bill.name || "bill"}`,
           stageLabel: `Enable recurring autopay for ${bill.name || "bill"}`,
         });
       } else {
+        onStatus(
+          `Step 1/${authStepTotal}: Enable recurring authorization for ${bill.name || "bill"} — confirm in your wallet…`
+        );
         const signer = await getSigner();
         const contract = new ethers.Contract(
           recurringAutomationAddress,
@@ -6132,7 +6340,7 @@ export default function SwaparcApp() {
             tokenAddress,
             ethers.getAddress(poolAddress),
             maxPerExecution,
-            maxPerExecution,
+            maxPerPeriod,
             periodSeconds,
           ],
           timeoutMs: 120000,
@@ -6145,16 +6353,16 @@ export default function SwaparcApp() {
       tokenAddr: tokenAddress,
       spender: recurringAutomationAddress,
       minimumAllowance: maxPerExecution,
-      approvalLabel: `Step 2/4: Approve ${token.symbol} for recurring autopay`,
+      approvalLabel: `Step 2/${authStepTotal}: Approve ${token.symbol} for recurring autopay`,
     });
     await ensureAllowanceForSpender({
       tokenAddr: ethers.getAddress(PRIVPAY_USDC_ADDRESS),
       spender: executorAddress,
       minimumAllowance: feeAllowanceTarget,
-      approvalLabel: "Step 3/4: Approve USDC for recurring treasury fees",
+      approvalLabel: `Step 3/${authStepTotal}: Approve USDC for recurring treasury fees (${PRIVPAY_USAGE_FEE_USDC}/run)`,
     });
 
-    await ensureRecurringRelayerPrefundedFromPayer(executorAddress);
+    await ensureRecurringRelayerPrefundedFromPayer(executorAddress, onStatus);
 
     return authId;
   }
@@ -8125,7 +8333,10 @@ export default function SwaparcApp() {
             ? "Setting up recurring autopay (up to 4 Circle confirmations: auth, approvals, relayer gas in USDC)..."
             : "Setting up recurring autopay (up to 4 wallet confirmations: auth, approvals, relayer gas in USDC)..."
         );
-        const onchainAuthorizationId = await ensureRecurringOnchainAuthorization(bill);
+        const onchainAuthorizationId = await ensureRecurringOnchainAuthorization(
+          bill,
+          setBillCreateStatus
+        );
         setBillCreateStatus("Registering recurring schedule...");
         const recurringRes = await ownerFetch("/api/payments/recurring/create", {
           action: "payments-recurring-create",
@@ -9421,30 +9632,42 @@ export default function SwaparcApp() {
     a.remove();
     URL.revokeObjectURL(url);
   }
-  async function getBalances(userAddress, provider) {
-    const tokenBalances = {};
-    // Use fallback provider if none passed
-    const p = provider || (window.ethereum 
-      ? new ethers.BrowserProvider(window.ethereum) 
-      : new ethers.JsonRpcProvider("https://rpc.testnet.arc.network"));
+  async function getBalances(userAddress, _providerIgnored) {
+    const NATIVE_USDC = "0x3600000000000000000000000000000000000000";
 
-    for (const t of tokens) {
-      try {
-        const tokenContract = new ethers.Contract(
-          t.address,
-          ERC20_ABI,
-          p
-        );
-        const rawBalance = await tokenContract.balanceOf(userAddress);
-        const decimals = await tokenContract.decimals();
-        tokenBalances[t.symbol] = parseFloat(
-          ethers.formatUnits(rawBalance, decimals)
-        ).toFixed(4);
-      } catch {
-        tokenBalances[t.symbol] = "n/a";
+    const readOne = async (t, p) => {
+      const addr = String(t.address || "").toLowerCase();
+      if (addr === NATIVE_USDC.toLowerCase()) {
+        try {
+          const raw = await p.getBalance(userAddress);
+          return parseFloat(ethers.formatEther(raw)).toFixed(4);
+        } catch {
+          // fall through
+        }
       }
-    }
-    return tokenBalances;
+      const tokenContract = new ethers.Contract(t.address, ERC20_ABI, p);
+      const rawBalance = await tokenContract.balanceOf(userAddress);
+      const decimals =
+        t.decimals != null
+          ? Number(t.decimals)
+          : Number(await tokenContract.decimals().catch(() => 6));
+      return parseFloat(ethers.formatUnits(rawBalance, decimals)).toFixed(4);
+    };
+
+    const entries = await Promise.all(
+      tokens.map(async (t) => {
+        try {
+          const bal = await ethCallWithRpcFallback(
+            (p) => readOne(t, p),
+            `balanceOf(${t.symbol})`
+          );
+          return [t.symbol, bal];
+        } catch {
+          return [t.symbol, "n/a"];
+        }
+      })
+    );
+    return Object.fromEntries(entries);
   }
 
   async function fetchBalances(userAddress, provider) {
@@ -10118,10 +10341,23 @@ export default function SwaparcApp() {
 
     setQuote(`Swap succeeded - tx ${txHash}`);
 
-    // Update Profile Stats
+    // Update Profile Stats (USDC-equivalent via pool quote)
     try {
-      const price = tokenPrices[swapFrom] || 1;
-      const usdValue = Number(swapAmount) * Number(price);
+      const usdcIdx = TOKEN_INDICES.USDC ?? 0;
+      const fromIdx = TOKEN_INDICES[swapFrom];
+      let usdValue = 0;
+      if (swapFrom === "USDC") {
+        usdValue = Number(swapAmount) || 0;
+      } else if (swapTo === "USDC" && expectedOut) {
+        usdValue = Number(ethers.formatUnits(expectedOut, 6));
+      } else if (fromIdx != null) {
+        try {
+          const dy = await poolReader.get_dy(fromIdx, usdcIdx, amountIn);
+          usdValue = Number(ethers.formatUnits(dy, 6));
+        } catch {
+          usdValue = 0;
+        }
+      }
       await fetch("/api/profile/addSwap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -10143,6 +10379,7 @@ export default function SwaparcApp() {
   }
 
   async function performSwap() {
+    if (swapBusy || circleActionsBusy) return;
     if (!swapAmount || Number(swapAmount) <= 0) {
       alert("Enter a valid amount to swap.");
       return;
@@ -10155,44 +10392,63 @@ export default function SwaparcApp() {
       alert("Pool not loaded - please reconnect wallet.");
       return;
     }
-    if (
-      !balances[swapFrom] ||
-      balances[swapFrom] === "n/a" ||
-      Number(swapAmount) > Number(balances[swapFrom])
-    ) {
-      alert("Insufficient balance for " + swapFrom);
-      return;
-    }
+
+    setSwapBusy(true);
+    setQuote("Preparing swap…");
 
     try {
+      let fromBal = balances[swapFrom];
+      if ((!fromBal || fromBal === "n/a") && getActiveWalletAddress()) {
+        setQuote("Reading balance…");
+        const fresh = await Promise.race([
+          getBalances(getActiveWalletAddress()),
+          new Promise((_, rej) =>
+            setTimeout(() => rej(new Error("balance read timed out")), 10000)
+          ),
+        ]).catch(() => null);
+        if (fresh) {
+          setBalances(fresh);
+          fromBal = fresh?.[swapFrom];
+        }
+      }
+      if (!fromBal || fromBal === "n/a") {
+        throw new Error(
+          `Could not read ${swapFrom} balance. Public RPC may be down — wait a second and retry.`
+        );
+      }
+      if (Number(swapAmount) > Number(fromBal)) {
+        throw new Error("Insufficient balance for " + swapFrom);
+      }
+
       if (authMode === "email") {
         await performSwapEmail();
         return;
       }
-      // Use our custom signer helper
-      const signer = await getSigner();
-      // For reads, we can use the signer's provider or a default one
-      const provider = signer.provider || new ethers.BrowserProvider(window.ethereum);
 
+      setQuote("Confirm in MetaMask…");
+      const signer = await getSigner();
       const fromToken = tokens.find((t) => t.symbol === swapFrom);
       const toToken = tokens.find((t) => t.symbol === swapTo);
       if (!fromToken || !toToken) throw new Error("Token not found");
 
-      const i = TOKEN_INDICES[swapFrom];
-      const j = TOKEN_INDICES[swapTo];
-
-      // Contract instance connected to our signer
-      const tokenIn = new ethers.Contract(fromToken.address, ERC20_ABI, signer);
-      const decimalsIn = await tokenIn.decimals(); // This is a read, uses provider
+      const fromIdx = TOKEN_INDICES[fromToken.symbol];
+      const toIdx = TOKEN_INDICES[toToken.symbol];
+      const decimalsIn = fromToken.decimals != null ? Number(fromToken.decimals) : 6;
       const amountIn = ethers.parseUnits(swapAmount, decimalsIn);
+      const owner = await signer.getAddress();
 
-      const allowance = await tokenIn.allowance(
-        await signer.getAddress(),
-        SWAP_POOL_ADDRESS
+      const allowance = await ethCallWithRpcFallback(
+        (p) =>
+          new ethers.Contract(fromToken.address, ERC20_ABI, p).allowance(
+            owner,
+            SWAP_POOL_ADDRESS
+          ),
+        `allowance(${swapFrom})`
       );
 
       if (BigInt(allowance) < BigInt(amountIn)) {
-        setQuote(`Approving ${swapFrom} for trading...`);
+        setQuote(`Approving ${swapFrom} — confirm in MetaMask…`);
+        const tokenIn = new ethers.Contract(fromToken.address, ERC20_ABI, signer);
         await sendWalletTxHardened({
           signer,
           contract: tokenIn,
@@ -10200,65 +10456,65 @@ export default function SwaparcApp() {
           args: [SWAP_POOL_ADDRESS, ethers.MaxUint256],
           timeoutMs: 90000,
           txLabel: `${swapFrom} approval`,
+          estimateGas: false,
         });
-        setQuote("Waiting for approval confirmation...");
-        // tx already confirmed by sendWalletTxHardened
-        
-        // Add a small delay for public RPC nodes to catch up on state BEFORE the swap simulation
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, 1000));
       }
 
-      // 2. Perform Swap
       const pool = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, signer);
-      const poolReader = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, getReadProvider());
-
-      const fromIdx = TOKEN_INDICES[fromToken.symbol];
-      const toIdx = TOKEN_INDICES[toToken.symbol];
-
-      let expectedOut = null;
-      try {
-        expectedOut = await poolReader.get_dy(fromIdx, toIdx, amountIn);
-      } catch (e) {
-        console.warn("get_dy failed:", e);
-      }
-
+      const expectedOut = await ethCallWithRpcFallback(
+        (p) =>
+          new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, p).get_dy(
+            fromIdx,
+            toIdx,
+            amountIn
+          ),
+        "get_dy"
+      );
       if (!expectedOut || expectedOut === 0n) {
         throw new Error("Could not get expected output. Try a smaller amount.");
       }
 
-      const slippagePct = Math.max(0.1, Math.min(100, Number(slippageTolerance) || 1));
-      const min_dy = (expectedOut * BigInt(Math.floor(100 - slippagePct))) / 100n;
+      const expectedHuman = Number(ethers.formatUnits(expectedOut, 6));
 
-      const rawBalances = await poolReader.getBalances();
-      const poolFromBalance = rawBalances[fromIdx];
-      if (poolFromBalance != null && poolFromBalance > 0n && amountIn > (poolFromBalance * 10n) / 100n) {
-        throw new Error("Trade size is too large for current liquidity.");
-      }
-
-      const poolToBalance = rawBalances[toIdx];
-      if (poolFromBalance != null && poolToBalance != null && poolFromBalance > 0n && poolToBalance > 0n) {
-        const decOut = 6;
-        const expectedHumanForImpact = Number(ethers.formatUnits(expectedOut, decOut));
-        const amountNum = Number(swapAmount) || 0;
-        const poolFromNum = Number(ethers.formatUnits(poolFromBalance, decimalsIn));
-        const poolToNum = Number(ethers.formatUnits(poolToBalance, decOut));
-        const executionRate = expectedHumanForImpact / amountNum;
-        const spotRate = poolToNum / poolFromNum;
-        const priceImpactPercent = (1 - executionRate / spotRate) * 100;
-        if (priceImpactPercent > 25 && !highImpactConfirmed) {
-          throw new Error("Please confirm high price impact in the swap panel before continuing.");
+      try {
+        const rawBalances = await ethCallWithRpcFallback(
+          (p) => new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, p).getBalances(),
+          "pool.getBalances"
+        );
+        const poolFromBalance = rawBalances[fromIdx];
+        if (
+          poolFromBalance != null &&
+          poolFromBalance > 0n &&
+          amountIn > (poolFromBalance * 10n) / 100n
+        ) {
+          throw new Error("Trade size is too large for current liquidity.");
         }
+        const poolToBalance = rawBalances[toIdx];
+        if (
+          poolFromBalance != null &&
+          poolToBalance != null &&
+          poolFromBalance > 0n &&
+          poolToBalance > 0n
+        ) {
+          const executionRate =
+            expectedHuman / (Number(swapAmount) || 1);
+          const spotRate =
+            Number(ethers.formatUnits(poolToBalance, 6)) /
+            Number(ethers.formatUnits(poolFromBalance, decimalsIn));
+          const priceImpactPercent = (1 - executionRate / spotRate) * 100;
+          if (priceImpactPercent > 25 && !highImpactConfirmed) {
+            throw new Error(
+              "Please confirm high price impact in the swap panel before continuing."
+            );
+          }
+        }
+      } catch (e) {
+        if (/too large|high price impact/i.test(String(e?.message || e))) throw e;
       }
 
-      let expectedHuman = Number(ethers.formatUnits(expectedOut, 6));
+      setQuote(`Confirm swap in MetaMask… (~${expectedHuman.toFixed(6)} ${swapTo})`);
 
-      setQuote(
-        expectedHuman
-          ? `Estimated: ~${expectedHuman.toFixed(6)} ${swapTo}. Min: ~${Number(ethers.formatUnits(min_dy, 6)).toFixed(6)}. Sending...`
-          : "Sending swap..."
-      );
-
-      // Execute Swap (contract does not support min_dy natively, so we pass 3 arguments)
       const { tx } = await sendWalletTxHardened({
         signer,
         contract: pool,
@@ -10266,56 +10522,41 @@ export default function SwaparcApp() {
         args: [fromIdx, toIdx, amountIn],
         timeoutMs: 120000,
         txLabel: "Swap transaction",
+        estimateGas: false,
       });
-      
-      setQuote(`Submitted! Waiting for confirmation...`);
-      console.log("Swap TX submitted:", tx.hash);
-      
-      // Save pending tx to localStorage so we don't lose it if user refreshes
-      const pendingTx = {
-          fromToken: swapFrom,
-          fromAmount: swapAmount,
-          toToken: swapTo,
-          toAmount: expectedHuman ? expectedHuman.toFixed(6) : "0",
-          txUrl: `https://testnet.arcscan.app/tx/${tx.hash}`,
-          hash: tx.hash,
-          timestamp: Date.now(),
-          status: "pending",
-      };
-      
-      // Add to local history immediately
-      setSwapHistory((prev) => [pendingTx, ...prev]);
-      
-      // sendWalletTxHardened already confirmed or failed explicitly
-      console.log("Swap TX confirmed!");
 
-      const txUrl = `https://testnet.arcscan.app/tx/${tx.hash}`;
-      
-      // Update history item to success
-      setSwapHistory((prev) => prev.map(item => item.hash === tx.hash ? { ...item, status: "success" } : item));
+      setQuote(`Submitted! Waiting for confirmation...`);
+
+      const pendingTx = {
+        fromToken: swapFrom,
+        fromAmount: swapAmount,
+        toToken: swapTo,
+        toAmount: expectedHuman.toFixed(6),
+        txUrl: `https://testnet.arcscan.app/tx/${tx.hash}`,
+        hash: tx.hash,
+        timestamp: Date.now(),
+        status: "pending",
+      };
+      setSwapHistory((prev) => [pendingTx, ...prev]);
+      setSwapHistory((prev) =>
+        prev.map((item) =>
+          item.hash === tx.hash ? { ...item, status: "success" } : item
+        )
+      );
 
       setTxModal({
         status: "success",
         fromToken: swapFrom,
         fromAmount: swapAmount,
         toToken: swapTo,
-        toAmount: expectedHuman ? expectedHuman.toFixed(6) : estimatedTo || "0",
+        toAmount: expectedHuman.toFixed(6),
         txHash: tx.hash,
       });
-
       setQuote(`Swap succeeded - tx ${tx.hash}`);
 
-      // Update profile immediately (indexer also tails RPC; txHash dedup prevents double-count)
       try {
         const userAddr = await signer.getAddress();
-        let usdValue = 0;
-        if (swapFrom === "USDC") {
-          usdValue = Number(swapAmount) || 0;
-        } else if (swapTo === "USDC") {
-          usdValue = expectedHuman || Number(estimatedTo) || 0;
-        } else {
-          usdValue = Number(swapAmount) * Number(tokenPrices[swapFrom] || 1);
-        }
+        const usdValue = swapFrom === "USDC" ? Number(swapAmount) || 0 : expectedHuman;
         await fetch("/api/profile/addSwap", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -10325,17 +10566,15 @@ export default function SwaparcApp() {
             txHash: tx.hash,
           }),
         });
-        setTimeout(() => {
-          fetchProfile(userAddr);
-        }, 1500);
+        setTimeout(() => fetchProfile(userAddr), 1500);
       } catch (err) {
         console.warn("Profile update failed", err);
       }
 
-      await fetchBalances(await signer.getAddress(), provider);
+      await fetchBalances(await signer.getAddress());
     } catch (err) {
       console.error(err);
-      const m = err?.message || String(err);
+      const m = err?.shortMessage || err?.reason || err?.message || String(err);
       setQuote("Swap failed: " + m);
       setTxModal({
         status: "failed",
@@ -10345,6 +10584,9 @@ export default function SwaparcApp() {
         toAmount: " - ",
         txHash: null,
       });
+      alert("Swap failed: " + m);
+    } finally {
+      setSwapBusy(false);
     }
   }
 
@@ -12624,12 +12866,13 @@ export default function SwaparcApp() {
                       className="primaryBtn neon-btn"
                       onClick={performSwap}
                       disabled={
+                        swapBusy ||
                         circleActionsBusy ||
                         swapSummary.tradeSizeTooLarge ||
                         (swapSummary.isExtremeImpact && !highImpactConfirmed)
                       }
                     >
-                      {circleActionsBusy ? "Please wait..." : "Swap"}
+                      {swapBusy || circleActionsBusy ? "Please wait..." : "Swap"}
                     </button>
                   </div>
 
@@ -12842,12 +13085,18 @@ export default function SwaparcApp() {
                                     ([sym, amt]) => (
                                       <div key={sym} className="liquidityRow">
                                         <span>{sym}</span>
-                                        <strong>{amt.toFixed(4)}</strong>
+                                        <strong>
+                                          {Number(amt) >= 0.0001
+                                            ? Number(amt).toFixed(4)
+                                            : Number(amt).toPrecision(4)}
+                                        </strong>
                                       </div>
                                     )
                                   )
                                 ) : (
-                                  <span className="muted"> - </span>
+                                  <span className="muted">
+                                    {lpLoading ? "Loading…" : " - "}
+                                  </span>
                                 )}
                               </div>
 
@@ -13405,9 +13654,18 @@ export default function SwaparcApp() {
                                       <div className="muted billsMeta">
                                         {recurringStatusCopy(bill)}
                                       </div>
-                                      {bill.schedulerFailureReason && (
-                                        <div className="muted billsMeta" style={{ color: "#ff9c9c" }}>
-                                          Automation issue: {bill.schedulerFailureReason}
+                                      {shouldShowRecurringFailure(bill) && (
+                                        <div
+                                          className="muted billsMeta"
+                                          style={{
+                                            color: isSoftRecurringRetry(bill.schedulerFailureReason)
+                                              ? "#fbbf24"
+                                              : "#ff9c9c",
+                                          }}
+                                        >
+                                          {isSoftRecurringRetry(bill.schedulerFailureReason)
+                                            ? formatRecurringAutomationIssue(bill.schedulerFailureReason)
+                                            : `Automation issue: ${formatRecurringAutomationIssue(bill.schedulerFailureReason)}`}
                                         </div>
                                       )}
                                     </div>
@@ -13441,7 +13699,8 @@ export default function SwaparcApp() {
                                       >
                                         {billBusyId === bill.id ? "Processing..." : "Pay Now"}
                                       </button>
-                                      {isRecurringGasError(bill.schedulerFailureReason) && (
+                                      {RECURRING_USER_GAS_PREFUND &&
+                                        isRecurringGasError(bill.schedulerFailureReason) && (
                                         <button
                                           className="secondaryBtn billsPayBtn"
                                           disabled={billBusyId === bill.id}
@@ -13627,7 +13886,14 @@ export default function SwaparcApp() {
                                     ) : null}
                                   </div>
                                   <div className="muted">
-                                    {h.amount} {h.token} - {h.status}
+                                    {h.amount} {h.token} -{" "}
+                                    {String(h.status || "").toLowerCase() === "retry"
+                                      ? "pending retry"
+                                      : h.status}
+                                    {h.alreadySettledThisPeriod ||
+                                    String(h.status || "").toLowerCase() === "settled"
+                                      ? " (already paid this period)"
+                                      : ""}
                                     {h.paymentRail === "privacyPool" ? " - privacy pool" : ""}
                                   </div>
                                   {h.paymentRail === "privacyPool" && h.poolRecipient && (
@@ -14316,9 +14582,7 @@ export default function SwaparcApp() {
                                           {e.failureReason && (
                                             <div className="muted billsMeta" style={{ color: "#ff9c9c" }}>
                                               Automation issue:{" "}
-                                              {e.failureReason.length > 280
-                                                ? `${e.failureReason.slice(0, 280)}...`
-                                                : e.failureReason}
+                                              {formatRecurringAutomationIssue(e.failureReason)}
                                             </div>
                                           )}
                                         </div>

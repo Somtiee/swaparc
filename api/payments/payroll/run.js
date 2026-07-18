@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 import { kv } from "../../../lib/server/kv.js";
 import { computeNextExecutionDate } from "../recurring-engine.js";
 import { getArcpayAccessByAddress } from "../subscription-eligibility.js";
-import { executeRecurringPrivpayDeposit } from "../../../lib/server/recurringPrivpayExecution.js";
+import { executeRecurringPrivpayDeposit, maintainRecurringRelayerGasBestEffort } from "../../../lib/server/recurringPrivpayExecution.js";
 import { assertCronAuthStrict } from "../../security/walletAuth.js";
 
 const OWNER_SET = "privpay:payroll:owners";
@@ -251,6 +251,8 @@ export default async function handler(req, res) {
         note: "Server-side recurring execution disabled (set RECURRING_SERVER_EXECUTION_ENABLED=true).",
       });
     }
+
+    await maintainRecurringRelayerGasBestEffort();
 
     if (owner) {
       const summary = await runOwnerSerialized(owner);

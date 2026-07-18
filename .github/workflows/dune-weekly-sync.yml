@@ -1,0 +1,26 @@
+name: Dune weekly stats sync
+
+on:
+  schedule:
+    # Sunday 01:30 UTC — after landing cron (0 0 * * 0) publishes Blob JSON
+    - cron: "30 1 * * 0"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Sync landing KPIs to Dune
+        env:
+          DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
+          DUNE_LANDING_STATS_URL: ${{ vars.DUNE_LANDING_STATS_URL }}
+        run: npm run stats:sync-dune-weekly

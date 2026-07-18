@@ -8,6 +8,7 @@
  *   MY_PK — treasury (pool owner)
  *   SWAP_POOL_ADDRESS — V2 proxy (or read deployment JSON)
  *   SEED_USDC_ANCHOR — override U in human USDC (default: max balanced from treasury)
+ *   SEED_CUSTOM=1 — use explicit SEED_USDC, SEED_EURC, SEED_SWPRC, SEED_CIRCBTC (human units)
  *   SEED_DRY_RUN=1 — preview only
  *
  * Usage:
@@ -75,6 +76,29 @@ function planAmounts(treasury, anchorOverride) {
   return { human, wei, maxU };
 }
 
+function customAmountsFromEnv() {
+  if (process.env.SEED_CUSTOM !== "1") return null;
+  const dec = Object.fromEntries(SWAP_POOL_TOKENS.map((t) => [t.symbol, t.decimals]));
+  const human = {
+    USDC: Number(process.env.SEED_USDC),
+    EURC: Number(process.env.SEED_EURC),
+    SWPRC: Number(process.env.SEED_SWPRC),
+    CircBTC: Number(process.env.SEED_CIRCBTC),
+  };
+  for (const t of SWAP_POOL_TOKENS) {
+    if (!Number.isFinite(human[t.symbol]) || human[t.symbol] < 0) {
+      throw new Error(`SEED_CUSTOM=1 requires SEED_${t.symbol === "CircBTC" ? "CIRCBTC" : t.symbol}`);
+    }
+  }
+  const wei = {
+    USDC: ethers.parseUnits(human.USDC.toFixed(6), dec.USDC),
+    EURC: ethers.parseUnits(human.EURC.toFixed(6), dec.EURC),
+    SWPRC: ethers.parseUnits(human.SWPRC.toFixed(6), dec.SWPRC),
+    CircBTC: ethers.parseUnits(human.CircBTC.toFixed(8), dec.CircBTC),
+  };
+  return { human, wei, maxU: human.USDC };
+}
+
 async function main() {
   if (!PRIVATE_KEY) throw new Error("Set MY_PK in .env");
 
@@ -98,7 +122,8 @@ async function main() {
   }
 
   const override = process.env.SEED_USDC_ANCHOR;
-  const { human, wei, maxU } = planAmounts(treasury, override);
+  const custom = customAmountsFromEnv();
+  const { human, wei, maxU } = custom || planAmounts(treasury, override);
 
   console.log("Seed V2 pool:", proxy);
   console.log("Treasury:", wallet.address);

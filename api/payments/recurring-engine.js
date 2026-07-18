@@ -330,7 +330,8 @@ export class RecurringPaymentEngine {
     );
   }
 
-  async executeSchedule(scheduleId, now = new Date()) {
+  async executeSchedule(scheduleId, now = new Date(), options = {}) {
+    const force = !!options?.force;
     const lock = await acquireScheduleLock(scheduleId);
     if (!lock) {
       return { skipped: true, reason: "locked", scheduleId };
@@ -344,7 +345,7 @@ export class RecurringPaymentEngine {
       }
 
       const due = new Date(schedule.nextExecutionAt).getTime() <= now.getTime();
-      if (!due) {
+      if (!due && !force) {
         return { skipped: true, reason: "not-due", scheduleId };
       }
 
@@ -355,7 +356,11 @@ export class RecurringPaymentEngine {
 
         for (let idx = 0; idx < this.maxCatchupPerRun; idx += 1) {
           const dueAt = new Date(working.nextExecutionAt);
-          if (!Number.isFinite(dueAt.getTime()) || dueAt.getTime() > now.getTime()) {
+          const isDue =
+            Number.isFinite(dueAt.getTime()) && dueAt.getTime() <= now.getTime();
+          // force=true runs exactly one settle/advance even when nextExecutionAt is future
+          // (used to clear stale retry UI after on-chain period already spent).
+          if (!isDue && !(force && idx === 0)) {
             break;
           }
           const result = await this.executionHandler(working);
@@ -414,7 +419,23 @@ export class RecurringPaymentEngine {
           ...working,
           retryCount,
           lastFailureAt: nowIso,
-          failureReason: err?.message || String(err),
+          failureReason: (() => {
+            const raw = err?.message || String(err);
+            if (/nonce has already been used|nonce too low|NONCE_EXPIRED/i.test(raw)) {
+              return "Temporary autopay queue conflict — will retry automatically.";
+            }
+            if (/request limit|rate limit|-32011|could not coalesce/i.test(raw)) {
+              return "Network busy — retrying on backup RPC…";
+            }
+            if (/transaction=|info=\{|"code":\s*-32/i.test(raw)) {
+              return "Autopay hit a temporary network issue and will retry.";
+            }
+            // Never persist multi-line RPC dumps on the schedule card.
+            if (raw.length > 180 || /error=\{|payload=\{|version=6\./i.test(raw)) {
+              return "Autopay hit a temporary network issue and will retry.";
+            }
+            return raw;
+          })(),
           status: hardFailed ? "failed" : "active",
           nextExecutionAt: hardFailed
             ? working.nextExecutionAt
@@ -459,9 +480,14 @@ export class RecurringPaymentEngine {
       .filter((s) => new Date(s.nextExecutionAt).getTime() <= now.getTime())
       .slice(0, this.maxBatchSize);
 
-    const results = await Promise.allSettled(
-      due.map((s) => this.executeSchedule(s.id, now))
-    );
+    const details = [];
+    for (const s of due) {
+      try {
+        details.push(await this.executeSchedule(s.id, now));
+      } catch (err) {
+        details.push({ status: "error", error: String(err?.message || err) });
+      }
+    }
 
     const summary = {
       checked: all.length,
@@ -475,13 +501,12 @@ export class RecurringPaymentEngine {
       details: [],
     };
 
-    for (const r of results) {
-      if (r.status === "rejected") {
+    for (const v of details) {
+      if (v?.status === "error") {
         summary.errors += 1;
-        summary.details.push({ status: "error", error: String(r.reason) });
+        summary.details.push(v);
         continue;
       }
-      const v = r.value;
       if (v?.skipped) {
         summary.skipped += 1;
         summary.details.push(v);

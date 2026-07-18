@@ -1,8 +1,9 @@
 {
-  "totalSwapVolume": 288329350921.77496,
-  "activeSwapProfiles": 104412,
-  "scannedProfiles": 107275,
-  "scanBatchSize": 1000,
-  "updatedAt": "2026-05-06T06:45:59.419Z",
-  "durationMs": 89941
+  "totalSwapVolume": 397959983.61815363,
+  "onChainSwapVolume": 397959983.61815363,
+  "onChainSwapCount": 8632323,
+  "platformSwapCount": 8067424,
+  "volumeScaleFactor": 1,
+  "source": "on_chain_usdc_equivalent_backfill",
+  "updatedAt": "2026-06-25T00:57:03.987Z"
 }
