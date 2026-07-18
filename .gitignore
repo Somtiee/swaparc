@@ -38,6 +38,13 @@ lint_errors.txt
 count_output.txt
 backfill_logs_checkpoint.json
 
+# Local Dune / volume backfill working files (regenerate via scripts; do not commit)
+data/dune-export/
+data/stats/volume-shards/
+data/stats/*-swaps.ndjson
+data/stats/volume-backfill-*.json
+data/stats/*.checkpoint.json
+
 # ZK / circom build artifacts (large)
 build/privpay/*.r1cs
 build/privpay/*.zkey
