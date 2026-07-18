@@ -12,11 +12,11 @@
   "crons": [
     {
       "path": "/api/payments/recurring/run",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 4 * * *"
     },
     {
       "path": "/api/payments/payroll/run",
-      "schedule": "*/5 * * * *"
+      "schedule": "15 4 * * *"
     },
     {
       "path": "/api/profile/refresh-landing-stats",
