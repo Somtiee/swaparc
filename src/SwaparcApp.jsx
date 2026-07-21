@@ -10398,8 +10398,22 @@ export default function SwaparcApp() {
           if (j?.newCount != null || j?.newVolume != null) {
             setProfileStats((prev) => ({
               ...prev,
-              ...(j.newCount != null ? { swapCount: Number(j.newCount) } : {}),
-              ...(j.newVolume != null ? { swapVolume: Number(j.newVolume) } : {}),
+              ...(j.newCount != null
+                ? {
+                    swapCount: Math.max(
+                      Number(prev?.swapCount) || 0,
+                      Number(j.newCount) || 0
+                    ),
+                  }
+                : {}),
+              ...(j.newVolume != null
+                ? {
+                    swapVolume: Math.max(
+                      Number(prev?.swapVolume) || 0,
+                      Number(j.newVolume) || 0
+                    ),
+                  }
+                : {}),
             }));
           }
           setTimeout(() => fetchProfile(walletAddr), 1500);
@@ -10605,8 +10619,22 @@ export default function SwaparcApp() {
             if (j?.newCount != null || j?.newVolume != null) {
               setProfileStats((prev) => ({
                 ...prev,
-                ...(j.newCount != null ? { swapCount: Number(j.newCount) } : {}),
-                ...(j.newVolume != null ? { swapVolume: Number(j.newVolume) } : {}),
+                ...(j.newCount != null
+                  ? {
+                      swapCount: Math.max(
+                        Number(prev?.swapCount) || 0,
+                        Number(j.newCount) || 0
+                      ),
+                    }
+                  : {}),
+                ...(j.newVolume != null
+                  ? {
+                      swapVolume: Math.max(
+                        Number(prev?.swapVolume) || 0,
+                        Number(j.newVolume) || 0
+                      ),
+                    }
+                  : {}),
               }));
             }
             setTimeout(() => fetchProfile(userAddr), 1500);

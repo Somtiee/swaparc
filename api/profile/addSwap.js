@@ -3,6 +3,11 @@ import {
   claimSwapTxForIndexing,
   releaseSwapTxClaim,
 } from "../../lib/server/swapIndexDedup.js";
+import {
+  healCanonicalSwapStats,
+  readMergedSwapStats,
+  resolveCanonicalProfile,
+} from "../../lib/server/profileKeys.js";
 import { assertIpRateLimit } from "../security/walletAuth.js";
 
 export default async function handler(req, res) {
@@ -20,32 +25,42 @@ export default async function handler(req, res) {
   try {
     await assertIpRateLimit(req, "profile-add-swap", 60);
 
-    let profileKey = `profile:${userId}`;
-    if (userId.startsWith("0x")) {
-      const lowerWallet = userId.toLowerCase();
-      const mappedId = await kv.get(`wallet:${lowerWallet}`);
-      profileKey = mappedId ? `profile:${mappedId}` : `profile:${lowerWallet}`;
+    const resolved = await resolveCanonicalProfile(kv, userId);
+    if (!resolved.profileKey) {
+      return res.status(400).json({ error: "Invalid userId" });
     }
 
+    // Lift any wallet-key leftovers onto the mapped profile before incrementing.
+    await healCanonicalSwapStats(kv, resolved).catch(() => null);
+
     if (txHash && !(await claimSwapTxForIndexing(txHash))) {
-      // Indexer (or a prior call) already owns this tx — return current stats for UI.
-      const existing = await kv.hgetall(profileKey).catch(() => null);
+      // Indexer (or a prior call) already owns this tx — return merged stats for UI.
+      const merged = await readMergedSwapStats(kv, resolved);
       return res.status(200).json({
         success: true,
         skipped: true,
         reason: "already_indexed",
-        newCount: existing?.swapCount != null ? Number(existing.swapCount) : null,
-        newVolume: existing?.swapVolume != null ? Number(existing.swapVolume) : null,
+        newCount: merged.swapCount,
+        newVolume: merged.swapVolume,
       });
     }
     claimed = Boolean(txHash);
 
-    const newCount = await kv.hincrby(profileKey, "swapCount", 1);
-    const newVolume = await kv.hincrbyfloat(profileKey, "swapVolume", amount);
+    const newCount = await kv.hincrby(resolved.profileKey, "swapCount", 1);
+    const newVolume = await kv.hincrbyfloat(
+      resolved.profileKey,
+      "swapVolume",
+      amount
+    );
 
-    const memberId = profileKey.replace("profile:", "");
-    await kv.zadd("leaderboard:swapCount", { score: newCount, member: memberId });
-    await kv.zadd("leaderboard:swapVolume", { score: newVolume, member: memberId });
+    await kv.zadd("leaderboard:swapCount", {
+      score: newCount,
+      member: resolved.memberId,
+    });
+    await kv.zadd("leaderboard:swapVolume", {
+      score: newVolume,
+      member: resolved.memberId,
+    });
 
     return res.status(200).json({ success: true, newCount, newVolume });
   } catch (error) {

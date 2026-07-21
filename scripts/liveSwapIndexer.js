@@ -2,6 +2,7 @@ import "dotenv/config";
 import { ethers } from "ethers";
 import { kv } from "../lib/server/kv.js";
 import { claimSwapTxForIndexing } from "../lib/server/swapIndexDedup.js";
+import { resolveCanonicalProfile } from "../lib/server/profileKeys.js";
 import {
   SWAP_INDEXER_V2_STATE_KEY,
   SWAP_POOL_INDEX_TO_SYMBOL,
@@ -185,21 +186,26 @@ async function getStartingBlock() {
 async function flushWalletDeltas(walletDeltas) {
   for (const [wallet, { count, volume }] of walletDeltas.entries()) {
     try {
-      const profileKey = `profile:${wallet}`;
+      // Must match addSwap: write mapped user profile when wallet:* exists.
+      // Writing only profile:0x… left count stuck while volume rose via Math.max.
+      const resolved = await resolveCanonicalProfile(kv, wallet);
+      const profileKey = resolved.profileKey || `profile:${wallet}`;
+      const memberId = resolved.memberId || wallet;
+
       const newCount = await kv.hincrby(profileKey, "swapCount", count);
       const newVolume = await kv.hincrbyfloat(profileKey, "swapVolume", volume);
 
       await kv.zadd("leaderboard:swapCount", {
         score: Number(newCount),
-        member: wallet,
+        member: memberId,
       });
       await kv.zadd("leaderboard:swapVolume", {
         score: Number(newVolume),
-        member: wallet,
+        member: memberId,
       });
 
       console.log(
-        `[RPC] Wallet ${wallet}: +${count} swaps, +$${volume.toFixed(
+        `[RPC] ${wallet} → ${memberId}: +${count} swaps, +$${volume.toFixed(
           2
         )} (count=${newCount}, volume=${newVolume})`
       );

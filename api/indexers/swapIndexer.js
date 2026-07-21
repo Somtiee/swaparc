@@ -1,5 +1,6 @@
 import { kv } from "../../lib/server/kv.js";
 import { ethers } from "ethers";
+import { resolveCanonicalProfile } from "../../lib/server/profileKeys.js";
 import {
   SWAP_POOL_INDEX_TO_SYMBOL,
   SWAP_POOL_TOKEN_DECIMALS,
@@ -52,17 +53,23 @@ export function startIndexer() {
         }
       }
 
-      const profileKey = `profile:${wallet}`;
+      const resolved = await resolveCanonicalProfile(kv, wallet);
+      const profileKey = resolved.profileKey || `profile:${wallet}`;
+      const memberId = resolved.memberId || wallet;
       const newSwapCount = await kv.hincrby(profileKey, "swapCount", 1);
       const newSwapVolume = await kv.hincrbyfloat(profileKey, "swapVolume", usdValue);
 
+      await kv.zadd("leaderboard:swapCount", {
+        score: Number(newSwapCount),
+        member: memberId,
+      });
       await kv.zadd("leaderboard:swapVolume", {
         score: Number(newSwapVolume),
-        member: wallet,
+        member: memberId,
       });
 
       console.log(
-        `Indexed Swap: ${wallet} ${symbolIn || i}→${symbolOut || j} volume $${usdValue.toFixed(2)}. Total: $${newSwapVolume}`
+        `Indexed Swap: ${wallet}→${memberId} ${symbolIn || i}→${symbolOut || j} volume $${usdValue.toFixed(2)}. Total: $${newSwapVolume} count=${newSwapCount}`
       );
     } catch (err) {
       console.error("Error processing swap event:", err);

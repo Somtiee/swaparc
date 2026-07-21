@@ -1,5 +1,6 @@
 import { kv } from "../../lib/server/kv.js";
 import { isFrozenEarlySwaparcer } from "../../lib/server/earlySwaparcerFrozen.js";
+import { healCanonicalSwapStats } from "../../lib/server/profileKeys.js";
 // import { startIndexer } from "../indexers/swapIndexer.js";
 
 function sanitizeBadges(raw) {
@@ -49,6 +50,14 @@ export default async function handler(req, res) {
 
       if (mappedProfile && walletProfile) {
         key = mappedKey;
+        // One-time heal: volume-only backfills / indexer wrote wallet keys while
+        // addSwap wrote mapped userIds — Math.max hid count stalls.
+        const healed = await healCanonicalSwapStats(kv, {
+          profileKey: mappedKey,
+          memberId: mapped,
+          wallet: lower,
+          mappedId: mapped,
+        }).catch(() => null);
         profile = {
           ...mappedProfile,
           ...walletProfile,
@@ -56,18 +65,24 @@ export default async function handler(req, res) {
           walletAddress: lower,
           username: walletProfile.username || mappedProfile.username,
           avatar: walletProfile.avatar || mappedProfile.avatar,
-          swapCount: Math.max(
-            Number(walletProfile.swapCount) || 0,
-            Number(mappedProfile.swapCount) || 0
-          ),
-          swapVolume: Math.max(
-            Number(walletProfile.swapVolume) || 0,
-            Number(mappedProfile.swapVolume) || 0
-          ),
-          lpProvided: Math.max(
-            Number(walletProfile.lpProvided) || 0,
-            Number(mappedProfile.lpProvided) || 0
-          ),
+          swapCount:
+            healed?.swapCount ??
+            Math.max(
+              Number(walletProfile.swapCount) || 0,
+              Number(mappedProfile.swapCount) || 0
+            ),
+          swapVolume:
+            healed?.swapVolume ??
+            Math.max(
+              Number(walletProfile.swapVolume) || 0,
+              Number(mappedProfile.swapVolume) || 0
+            ),
+          lpProvided:
+            healed?.lpProvided ??
+            Math.max(
+              Number(walletProfile.lpProvided) || 0,
+              Number(mappedProfile.lpProvided) || 0
+            ),
         };
       } else if (mappedProfile) {
         key = mappedKey;
