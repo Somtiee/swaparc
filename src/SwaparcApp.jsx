@@ -5122,12 +5122,10 @@ export default function SwaparcApp() {
         return;
       }
 
-      // 400ms debounce to avoid 429 rate limit on rapid typing
+      // 400ms debounce to avoid hammering RPC on rapid typing
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(async () => {
         try {
-          const provider = new ethers.JsonRpcProvider("https://rpc.testnet.arc.network");
-
           const fromToken = tokens.find((t) => t.symbol === swapFrom);
           const toToken = tokens.find((t) => t.symbol === swapTo);
           if (!fromToken || !toToken) return;
@@ -5135,21 +5133,31 @@ export default function SwaparcApp() {
           const i = TOKEN_INDICES[swapFrom];
           const j = TOKEN_INDICES[swapTo];
 
-          // 1. Get Decimals (Cached in local memory to save RPC calls)
-          const getDecimals = async (token) => {
-            if (token.symbol === "USDC" || token.symbol === "EURC" || token.symbol === "USDG") return 6;
+          const getDecimals = async (token, provider) => {
+            if (token.symbol === "USDC" || token.symbol === "EURC" || token.symbol === "USDG")
+              return 6;
             const contract = new ethers.Contract(token.address, ERC20_ABI, provider);
             return await contract.decimals().catch(() => 18);
           };
 
-          const decimalsIn = await getDecimals(fromToken);
+          const decimalsIn = await ethCallWithRpcFallback(
+            (prov) => getDecimals(fromToken, prov),
+            "swap.decimals.in"
+          );
           const amountIn = ethers.parseUnits(swapAmount, decimalsIn);
 
-          // 2. Query Pool
-          const pool = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, provider);
-          const dy = await pool.get_dy(i, j, amountIn);
+          // Live Buy quote must use the same public → dRPC → Alchemy waterfall as other reads.
+          // Hardcoding public Arc alone left Buy at 0.00 whenever that RPC rate-limited.
+          const dy = await ethCallWithRpcFallback(
+            (prov) =>
+              new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, prov).get_dy(i, j, amountIn),
+            "swap.get_dy"
+          );
 
-          const decimalsOut = await getDecimals(toToken);
+          const decimalsOut = await ethCallWithRpcFallback(
+            (prov) => getDecimals(toToken, prov),
+            "swap.decimals.out"
+          );
           const human = Number(ethers.formatUnits(dy, decimalsOut));
 
           const formatted =
@@ -5161,18 +5169,29 @@ export default function SwaparcApp() {
             setEstimatedTo(formatted);
             setExpectedOutputNum(human);
             setExpectedOutputRaw(dy);
+            setQuote("");
           }
 
-          // 3. Fetch swap pool balances (Consolidated to one call)
           try {
-            const rawBalances = await pool.getBalances();
+            const rawBalances = await ethCallWithRpcFallback(
+              (prov) =>
+                new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, prov).getBalances(),
+              "swap.getBalances"
+            );
             const symbols = ["USDC", "EURC", "SWPRC", "CircBTC"];
             const nextBalances = {};
             for (let idx = 0; idx < symbols.length && idx < rawBalances.length; idx++) {
               const sym = symbols[idx];
               const tok = tokens.find((t) => t.symbol === sym);
               const dec =
-                sym === "CircBTC" ? 8 : tok ? await getDecimals(tok) : 6;
+                sym === "CircBTC"
+                  ? 8
+                  : tok
+                    ? await ethCallWithRpcFallback(
+                        (prov) => getDecimals(tok, prov),
+                        "swap.decimals.pool"
+                      )
+                    : 6;
               nextBalances[sym] = Number(ethers.formatUnits(rawBalances[idx], dec));
             }
             if (mounted) setSwapPoolTokenBalances(nextBalances);
@@ -5181,11 +5200,18 @@ export default function SwaparcApp() {
           }
         } catch (e) {
           console.warn("On-chain estimate failed", e);
-          if (mounted && e.message.includes("429")) {
-            setQuote("Too many requests. Please wait a moment...");
+          if (!mounted) return;
+          setEstimatedTo("");
+          setExpectedOutputNum(null);
+          setExpectedOutputRaw(null);
+          const msg = String(e?.message || e || "");
+          if (/429|request limit|rate limit/i.test(msg)) {
+            setQuote("Network busy — retrying quote on backup RPC…");
+          } else {
+            setQuote("Quote unavailable — check network and try again.");
           }
         }
-      }, 400); 
+      }, 400);
     }
 
     estimateOut();
@@ -10366,10 +10392,18 @@ export default function SwaparcApp() {
           amount: usdValue,
           txHash,
         }),
-      });
-      setTimeout(() => {
-        fetchProfile(walletAddr);
-      }, 3000);
+      })
+        .then((r) => r.json().catch(() => ({})))
+        .then((j) => {
+          if (j?.newCount != null || j?.newVolume != null) {
+            setProfileStats((prev) => ({
+              ...prev,
+              ...(j.newCount != null ? { swapCount: Number(j.newCount) } : {}),
+              ...(j.newVolume != null ? { swapVolume: Number(j.newVolume) } : {}),
+            }));
+          }
+          setTimeout(() => fetchProfile(walletAddr), 1500);
+        });
     } catch (err) {
       console.warn("[App] Profile update failed", err);
     }
@@ -10565,8 +10599,18 @@ export default function SwaparcApp() {
             amount: usdValue,
             txHash: tx.hash,
           }),
-        });
-        setTimeout(() => fetchProfile(userAddr), 1500);
+        })
+          .then((r) => r.json().catch(() => ({})))
+          .then((j) => {
+            if (j?.newCount != null || j?.newVolume != null) {
+              setProfileStats((prev) => ({
+                ...prev,
+                ...(j.newCount != null ? { swapCount: Number(j.newCount) } : {}),
+                ...(j.newVolume != null ? { swapVolume: Number(j.newVolume) } : {}),
+              }));
+            }
+            setTimeout(() => fetchProfile(userAddr), 1500);
+          });
       } catch (err) {
         console.warn("Profile update failed", err);
       }

@@ -219,10 +219,6 @@ async function processSwappedEvents(events) {
   for (const ev of events) {
     try {
       const txHash = ev.transactionHash || ev.log?.transactionHash;
-      if (txHash && !(await claimSwapTxForIndexing(txHash))) {
-        continue;
-      }
-
       const wallet = String(ev.args?.user || ev.args?.[0] || "").toLowerCase();
       if (!wallet.startsWith("0x")) continue;
 
@@ -233,6 +229,11 @@ async function processSwappedEvents(events) {
 
       const usd = await usdVolumeForSwap(i, j, dx, dy);
       if (!Number.isFinite(usd)) continue;
+
+      // Claim only after we have a usable USD quote — claiming earlier dropped swaps forever.
+      if (txHash && !(await claimSwapTxForIndexing(txHash))) {
+        continue;
+      }
 
       const current = walletDeltas.get(wallet) || { count: 0, volume: 0 };
       current.count += 1;
