@@ -49,7 +49,8 @@
     "stats:requote-dune-v2": "node scripts/requoteDuneV2Swaps.mjs",
     "stats:refresh-dune-grant-summaries": "node scripts/refreshDuneGrantSummaries.mjs",
     "stats:upload-dune-grant-summaries": "node scripts/uploadDuneGrantSummaries.mjs",
-    "verify:rpc-fallback": "node scripts/verifyRpcFallbackFlows.mjs",
+    "stats:refresh-dune-pool-tvl": "node scripts/refreshDuneLpPoolTvl.mjs",
+    "verify:rpc-fallback": "node scripts/verifyRpcFallbackFlows.mjs"
   },
   "dependencies": {
     "@circle-fin/developer-controlled-wallets": "^10.1.0",
