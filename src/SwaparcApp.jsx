@@ -262,10 +262,10 @@ function privacyPoolDepositErrorMessage(err) {
   }
   const msg = err instanceof Error ? err.message : String(err);
   if (/missing revert data|CALL_EXCEPTION|estimateGas/i.test(msg)) {
-    return (
-      `${msg} - Often: wrong network (switch wallet to Arc testnet), insufficient native USDC for gas, ` +
-      `insufficient pool token balance, or the selected VITE_PRIVACY_POOL_ADDRESS_<TOKEN> points to a contract that is not this ZK pool.`
-    );
+    if (/request limit|rate limit|-32011|could not coalesce|timeout|timed out/i.test(msg)) {
+      return "Network is busy simulating the deposit. Please try Pay Now again in a few seconds.";
+    }
+    return "Could not simulate the privacy pool deposit. Check Arc testnet, token balance/allowance, then retry.";
   }
   return msg;
 }
@@ -1957,30 +1957,53 @@ export default function SwaparcApp() {
 
   async function ethCallWithRpcFallback(fn, label = "read") {
     let lastErr = null;
-    // Always public → dRPC → Alchemy so Alchemy free-tier is last resort only.
-    for (const url of READ_RPC_URLS) {
+    const alchemy = String(import.meta.env.VITE_ALCHEMY_ARC_RPC_URL || "").trim();
+    const freeUrls = READ_RPC_URLS.filter((u) => u && u !== alchemy);
+    const paidUrls = alchemy ? [alchemy] : [];
+
+    // Race free RPCs first (public + dRPC) — first healthy answer wins.
+    if (freeUrls.length > 0) {
       try {
-        const result = await withTimeout(
-          fn(getReadProviderForUrl(url), url),
-          4000,
-          label
+        const { result, url } = await Promise.any(
+          freeUrls.map(async (url) => {
+            const result = await withTimeout(
+              fn(getReadProviderForUrl(url), url),
+              url === ARC_PUBLIC_RPC ? 2500 : 4500,
+              label
+            );
+            return { result, url };
+          })
         );
         rememberHealthyRpc(url);
         return result;
+      } catch (agg) {
+        const errs = agg?.errors || [];
+        lastErr = errs[errs.length - 1] || agg;
+        console.warn(
+          `[RPC] ${label} failed on free RPCs, trying Alchemy:`,
+          String(lastErr?.message || lastErr).slice(0, 120)
+        );
+      }
+    }
+
+    // Alchemy last resort only.
+    for (const url of paidUrls) {
+      try {
+        const result = await withTimeout(
+          fn(getReadProviderForUrl(url), url),
+          6000,
+          label
+        );
+        return result;
       } catch (e) {
         lastErr = e;
-        if (!isTransientRpcError(e)) {
-          // Still try next URL for call exceptions from flaky public RPC.
-          if (!/CALL_EXCEPTION|missing revert|coalesce|limit|429|timeout/i.test(String(e?.message || e))) {
-            break;
-          }
-        }
         console.warn(
-          `[RPC] ${label} failed on ${url}, trying fallback:`,
+          `[RPC] ${label} failed on Alchemy:`,
           String(e?.message || e).slice(0, 120)
         );
       }
     }
+
     throw lastErr || new Error(`${label} failed`);
   }
 
@@ -2000,6 +2023,21 @@ export default function SwaparcApp() {
     ).catch(() => fallback);
     const n = Number(raw);
     return Number.isFinite(n) && n >= 0 ? n : fallback;
+  }
+
+  async function readErc20BalanceBestEffort(tokenAddr, owner) {
+    return ethCallWithRpcFallback(
+      (prov) =>
+        new ethers.Contract(tokenAddr, ERC20_ABI, prov).balanceOf(owner),
+      `balanceOf(${String(tokenAddr || "").slice(0, 10)})`
+    );
+  }
+
+  async function readContractCodeBestEffort(address) {
+    return ethCallWithRpcFallback(
+      (prov) => prov.getCode(address),
+      `getCode(${String(address || "").slice(0, 10)})`
+    ).catch(() => "0x");
   }
 
   async function assertNoWalletNonceGap(signer, signerProvider = null) {
@@ -6069,11 +6107,29 @@ export default function SwaparcApp() {
 
   function humanizePrivpayPaymentError(err) {
     const msg = String(err?.shortMessage || err?.message || err || "");
-    if (/missing revert data|CALL_EXCEPTION|could not coalesce|request limit|rate limit|-32011/i.test(msg)) {
-      return "Network RPC was busy reading token allowance. Please try Pay Now again in a few seconds.";
+    if (/insufficient .* for pool deposit|Insufficient /i.test(msg)) return msg;
+    if (/Privacy pool could not pull|commitment already used|Merkle tree is full/i.test(msg)) {
+      return msg;
+    }
+    if (/No contract at privacy pool|truncated on-chain code|only accepts the token/i.test(msg)) {
+      return msg;
+    }
+    if (/nonce gap|pending queue is stuck/i.test(msg)) return msg;
+    if (/user rejected|ACTION_REJECTED|denied transaction/i.test(msg)) {
+      return "Wallet rejected the transaction.";
+    }
+    if (/request limit|rate limit|-32011|could not coalesce|timed out|timeout|network busy|backup rpc/i.test(msg)) {
+      return "Network is busy. Please try again in a few seconds.";
+    }
+    if (/missing revert data|CALL_EXCEPTION/i.test(msg)) {
+      return "Network could not simulate the payment. Please try again — if it keeps failing, check Arc testnet connection and token balance.";
     }
     if (/transaction=|info=\{|"code":\s*-32|error=\{|payload=\{/i.test(msg)) {
-      return "Network was busy. Please try Pay Now again.";
+      return "Network was busy. Please try again.";
+    }
+    // Prefer shortMessage when ethers dumps the full call object into message.
+    if (msg.length > 220) {
+      return "Payment failed due to a network error. Please try again.";
     }
     return msg;
   }
@@ -7204,8 +7260,7 @@ export default function SwaparcApp() {
       });
     }
 
-    const chainProvider = signer.provider ?? getReadProvider();
-    const poolCode = await chainProvider.getCode(poolAddress).catch(() => "0x");
+    const poolCode = await readContractCodeBestEffort(poolAddress);
     const poolCodeBytes = poolCode && poolCode !== "0x" ? (poolCode.length - 2) / 2 : 0;
     if (!poolCode || poolCode === "0x") {
       throw new Error(
@@ -7218,10 +7273,13 @@ export default function SwaparcApp() {
           `ARC testnet rejects very large single contracts - redeploy with this repo (Poseidon = linked library): npm run deploy:pool, then update VITE_PRIVACY_POOL_ADDRESS_${token.symbol}.`
       );
     }
-    const poolReader = new ethers.Contract(poolAddress, PRIVACY_POOL_ABI, chainProvider);
     let poolTokenAddr;
     try {
-      poolTokenAddr = await poolReader.token();
+      poolTokenAddr = await ethCallWithRpcFallback(
+        (prov) =>
+          new ethers.Contract(poolAddress, PRIVACY_POOL_ABI, prov).token(),
+        "pool.token"
+      );
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e);
       throw new Error(
@@ -7235,7 +7293,7 @@ export default function SwaparcApp() {
           "Use a pool deployed for that token or change the bill token."
       );
     }
-    const bal = await tokenContract.balanceOf(fromAddr);
+    const bal = await readErc20BalanceBestEffort(token.address, fromAddr);
     if (bal < amountUnits) {
       throw new Error(
         `Insufficient ${token.symbol} for pool deposit (need ${ethers.formatUnits(amountUnits, Number(decimals) || 18)}, have ${ethers.formatUnits(bal, Number(decimals) || 18)}).`
@@ -7277,10 +7335,36 @@ export default function SwaparcApp() {
         PRIVACY_POOL_ABI,
         signer
       );
+      // Never simulate via wallet RPC — MetaMask/public nodes flake with missing revert data.
       try {
-        await poolContract.deposit.staticCall(commitment, amountUnits);
+        await ethCallWithRpcFallback(
+          (prov) =>
+            new ethers.Contract(poolAddress, PRIVACY_POOL_ABI, prov).deposit.staticCall(
+              commitment,
+              amountUnits,
+              { from: fromAddr }
+            ),
+          "pool-deposit-sim"
+        );
       } catch (simErr) {
-        throw new Error(privacyPoolDepositErrorMessage(simErr));
+        const simMsg = String(simErr?.message || simErr || "");
+        // Real contract reverts should block; pure RPC flakes should not block Pay Now.
+        if (
+          simErr?.revert?.name ||
+          /TransferInFailed|CommitmentAlreadyUsed|TreeFull|AmountZero|execution reverted/i.test(simMsg)
+        ) {
+          throw new Error(privacyPoolDepositErrorMessage(simErr));
+        }
+        if (
+          !isTransientRpcError(simErr) &&
+          !/missing revert data|CALL_EXCEPTION|could not coalesce/i.test(simMsg)
+        ) {
+          throw new Error(privacyPoolDepositErrorMessage(simErr));
+        }
+        console.warn(
+          "[PrivPay] deposit simulation skipped after RPC flake; sending tx:",
+          simMsg.slice(0, 160)
+        );
       }
       let tx;
       try {
@@ -7291,6 +7375,7 @@ export default function SwaparcApp() {
           args: [commitment, amountUnits],
           timeoutMs: 150000,
           txLabel: "Privacy pool deposit",
+          estimateGas: false,
         });
         tx = sent.tx;
         receipt = sent.receipt;
@@ -8769,6 +8854,9 @@ export default function SwaparcApp() {
       }
     } catch (e) {
       const errorMsg = humanizePrivpayPaymentError(e) || "Stealth payment generation failed";
+      if (source === "manual") {
+        setBillRuntimeStatus("");
+      }
       setBillHistory((prev) => [
         {
           id: `billtx_${crypto.randomUUID()}`,
@@ -10281,20 +10369,22 @@ export default function SwaparcApp() {
     console.log("[CircleTx] Starting Swap...");
     if (!isCircleMode()) throw new Error("Circle wallet not ready");
 
-    const provider = getReadProvider();
     const fromToken = tokens.find((t) => t.symbol === swapFrom);
     const toToken = tokens.find((t) => t.symbol === swapTo);
     if (!fromToken || !toToken) throw new Error("Token not found");
 
-    // 1. Prepare Amount & Decimals (Read from public provider)
-    const tokenInReader = new ethers.Contract(fromToken.address, ERC20_ABI, provider);
-    const decimalsIn = await tokenInReader.decimals();
+    // 1. Prepare Amount & Decimals (public → dRPC → Alchemy)
+    const decimalsIn = await readErc20DecimalsBestEffort(fromToken.address, 18);
     const amountIn = ethers.parseUnits(swapAmount, decimalsIn);
     console.log(`[CircleTx] Swap Amount: ${amountIn.toString()} (${swapAmount} ${swapFrom})`);
 
     // 2. Check Allowance
     const walletAddr = getActiveWalletAddress();
-    const allowance = await tokenInReader.allowance(walletAddr, SWAP_POOL_ADDRESS);
+    const allowance = await readErc20AllowanceBestEffort(
+      fromToken.address,
+      walletAddr,
+      SWAP_POOL_ADDRESS
+    );
     console.log(`[CircleTx] Allowance: ${allowance.toString()}`);
 
     if (BigInt(allowance) < BigInt(amountIn)) {
@@ -10316,7 +10406,11 @@ export default function SwaparcApp() {
       let allowanceConfirmed = false;
       for (let i = 0; i < 20; i++) {
           await new Promise((r) => setTimeout(r, 2000));
-          const newAllowance = await tokenInReader.allowance(walletAddr, SWAP_POOL_ADDRESS);
+          const newAllowance = await readErc20AllowanceBestEffort(
+            fromToken.address,
+            walletAddr,
+            SWAP_POOL_ADDRESS
+          );
           if (newAllowance >= MAX_UINT256 / 2n) {
               allowanceConfirmed = true;
               break;
@@ -10327,11 +10421,18 @@ export default function SwaparcApp() {
       }
     }
 
-    // 3. Estimate Output (Read-only)
-    const poolReader = new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, provider);
+    // 3. Estimate Output (Read-only via RPC fallback)
     let expectedOut = null;
     try {
-      expectedOut = await poolReader.get_dy(TOKEN_INDICES[swapFrom], TOKEN_INDICES[swapTo], amountIn);
+      expectedOut = await ethCallWithRpcFallback(
+        (p) =>
+          new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, p).get_dy(
+            TOKEN_INDICES[swapFrom],
+            TOKEN_INDICES[swapTo],
+            amountIn
+          ),
+        "circle-get_dy"
+      );
     } catch (e) {
       console.warn("[CircleRead] get_dy failed:", e);
     }
@@ -10345,7 +10446,10 @@ export default function SwaparcApp() {
     const min_dy = (expectedOut * BigInt(Math.floor(100 - slippagePct))) / 100n;
 
     // Trade size check: swap amount must not exceed 10% of pool liquidity
-    const rawBalances = await poolReader.getBalances();
+    const rawBalances = await ethCallWithRpcFallback(
+      (p) => new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, p).getBalances(),
+      "circle-getBalances"
+    );
     const fromIdx = TOKEN_INDICES[swapFrom];
     const poolFromBalance = rawBalances[fromIdx];
     if (poolFromBalance != null && poolFromBalance > 0n && amountIn > (poolFromBalance * 10n) / 100n) {
@@ -10358,7 +10462,7 @@ export default function SwaparcApp() {
     if (poolFromBalance != null && poolToBalance != null && poolFromBalance > 0n && poolToBalance > 0n) {
       const amountNum = Number(swapAmount) || 0;
       const expectedHumanForImpact = Number(ethers.formatUnits(expectedOut, 6));
-      const poolFromNum = Number(ethers.formatUnits(poolFromBalance, await tokenInReader.decimals()));
+      const poolFromNum = Number(ethers.formatUnits(poolFromBalance, decimalsIn));
       const poolToNum = Number(ethers.formatUnits(poolToBalance, 6));
       const executionRate = expectedHumanForImpact / amountNum;
       const spotRate = poolToNum / poolFromNum;
@@ -10944,7 +11048,6 @@ export default function SwaparcApp() {
 
     try {
       setLiqLoading(true);
-      const provider = getReadProvider();
 
       if (isCircleMode()) {
         const amounts = [];
@@ -10962,13 +11065,16 @@ export default function SwaparcApp() {
             continue;
           }
 
-          const tokenReader = new ethers.Contract(token.address, ERC20_ABI, provider);
-          const decimals = await tokenReader.decimals();
+          const decimals = await readErc20DecimalsBestEffort(token.address, 18);
           const parsed = ethers.parseUnits(rawVal, decimals);
           amounts.push(parsed.toString());
 
           // Check existing allowance - skip approve if already sufficient
-          const currentAllowance = await tokenReader.allowance(walletAddr, activePreset.poolAddress);
+          const currentAllowance = await readErc20AllowanceBestEffort(
+            token.address,
+            walletAddr,
+            activePreset.poolAddress
+          );
           if (BigInt(currentAllowance) >= BigInt(parsed)) {
             console.log(`[CircleTx] ${sym} allowance already sufficient (${currentAllowance.toString()}), skipping approve.`);
             continue;
@@ -10990,7 +11096,11 @@ export default function SwaparcApp() {
           const deadline = Date.now() + 45000;
           while (Date.now() < deadline) {
             await new Promise((r) => setTimeout(r, 3000));
-            const newAllowance = await tokenReader.allowance(walletAddr, activePreset.poolAddress);
+            const newAllowance = await readErc20AllowanceBestEffort(
+              token.address,
+              walletAddr,
+              activePreset.poolAddress
+            );
             console.log(`[CircleTx] ${sym} on-chain allowance: ${newAllowance.toString()}`);
             if (BigInt(newAllowance) >= BigInt(parsed)) {
               console.log(`[CircleTx] ${sym} approve confirmed on-chain OK`);
@@ -11049,10 +11159,14 @@ export default function SwaparcApp() {
           }
 
           const tokenContract = new ethers.Contract(token.address, ERC20_ABI, signer);
-          const decimals = await tokenContract.decimals();
+          const decimals = await readErc20DecimalsBestEffort(token.address, 18);
           const parsed = ethers.parseUnits(rawVal, decimals);
           const ownerAddr = await signer.getAddress();
-          const allowance = await tokenContract.allowance(ownerAddr, activePreset.poolAddress);
+          const allowance = await readErc20AllowanceBestEffort(
+            token.address,
+            ownerAddr,
+            activePreset.poolAddress
+          );
 
           if (BigInt(allowance) < BigInt(parsed)) {
             await sendWalletTxHardened({
