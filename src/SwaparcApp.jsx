@@ -1984,6 +1984,24 @@ export default function SwaparcApp() {
     throw lastErr || new Error(`${label} failed`);
   }
 
+  /** Arc USDC / wrappers often flake on wallet-RPC allowance(); never block Pay Now on that. */
+  async function readErc20AllowanceBestEffort(tokenAddr, owner, spender) {
+    return ethCallWithRpcFallback(
+      (prov) =>
+        new ethers.Contract(tokenAddr, ERC20_ABI, prov).allowance(owner, spender),
+      `allowance(${String(tokenAddr || "").slice(0, 10)})`
+    ).catch(() => 0n);
+  }
+
+  async function readErc20DecimalsBestEffort(tokenAddr, fallback = 18) {
+    const raw = await ethCallWithRpcFallback(
+      (prov) => new ethers.Contract(tokenAddr, ERC20_ABI, prov).decimals(),
+      `decimals(${String(tokenAddr || "").slice(0, 10)})`
+    ).catch(() => fallback);
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+  }
+
   async function assertNoWalletNonceGap(signer, signerProvider = null) {
     try {
       const addr = await signer.getAddress();
@@ -6038,6 +6056,8 @@ export default function SwaparcApp() {
 
   /** Soft RPC/queue blips shouldn't stick on the card after the schedule has moved on. */
   function shouldShowRecurringFailure(bill) {
+    // Manual Pay Now failures must never look like autopay issues.
+    if (!bill?.recurring) return false;
     const reason = bill?.schedulerFailureReason;
     if (!reason) return false;
     if (!isSoftRecurringRetry(reason)) return true;
@@ -6045,6 +6065,17 @@ export default function SwaparcApp() {
     if (!Number.isFinite(nextMs)) return true;
     // Only show soft retry copy while the bill is due / about to fire.
     return nextMs <= Date.now() + 2 * 60 * 1000;
+  }
+
+  function humanizePrivpayPaymentError(err) {
+    const msg = String(err?.shortMessage || err?.message || err || "");
+    if (/missing revert data|CALL_EXCEPTION|could not coalesce|request limit|rate limit|-32011/i.test(msg)) {
+      return "Network RPC was busy reading token allowance. Please try Pay Now again in a few seconds.";
+    }
+    if (/transaction=|info=\{|"code":\s*-32|error=\{|payload=\{/i.test(msg)) {
+      return "Network was busy. Please try Pay Now again.";
+    }
+    return msg;
   }
 
   function formatRecurringAutomationIssue(reason) {
@@ -6838,14 +6869,16 @@ export default function SwaparcApp() {
     const walletAddr = getActiveWalletAddress();
     if (!walletAddr) throw new Error("Connect wallet first");
 
-    const provider = getReadProvider();
-    const tokenReader = new ethers.Contract(token.address, ERC20_ABI, provider);
-    const decimals = await tokenReader.decimals().catch(() => 18);
+    const decimals = await readErc20DecimalsBestEffort(token.address, 18);
     const amountUnits = ethers.parseUnits(String(amount), Number(decimals) || 18);
 
     if (isCircleMode()) {
       const { userToken, walletId } = requireCircleAuth();
-      const allowance = await tokenReader.allowance(walletAddr, STEALTH_PAYMENTS_ADDRESS);
+      const allowance = await readErc20AllowanceBestEffort(
+        token.address,
+        walletAddr,
+        STEALTH_PAYMENTS_ADDRESS
+      );
       if (allowance < amountUnits) {
         const approveTx = buildApproveCall(
           token.address,
@@ -6930,8 +6963,13 @@ export default function SwaparcApp() {
     }
 
     const signer = await getSigner();
+    const fromAddr = await signer.getAddress();
     const tokenContract = new ethers.Contract(token.address, ERC20_ABI, signer);
-    const allowance = await tokenContract.allowance(await signer.getAddress(), STEALTH_PAYMENTS_ADDRESS);
+    const allowance = await readErc20AllowanceBestEffort(
+      token.address,
+      fromAddr,
+      STEALTH_PAYMENTS_ADDRESS
+    );
     if (allowance < amountUnits) {
       await sendWalletTxHardened({
         signer,
@@ -6996,9 +7034,7 @@ export default function SwaparcApp() {
     const walletAddr = getActiveWalletAddress();
     if (!walletAddr) throw new Error("Connect wallet first");
 
-    const provider = getReadProvider();
-    const tokenReader = new ethers.Contract(token.address, ERC20_ABI, provider);
-    const decimals = await tokenReader.decimals().catch(() => 18);
+    const decimals = await readErc20DecimalsBestEffort(token.address, 18);
     const amountUnits = ethers.parseUnits(String(amount), Number(decimals) || 18);
 
     const secret = ethers.hexlify(ethers.randomBytes(32));
@@ -7021,7 +7057,11 @@ export default function SwaparcApp() {
 
     if (isCircleMode()) {
       const { userToken, walletId } = requireCircleAuth();
-      const allowance = await tokenReader.allowance(walletAddr, poolAddress);
+      const allowance = await readErc20AllowanceBestEffort(
+        token.address,
+        walletAddr,
+        poolAddress
+      );
       if (allowance < amountUnits) {
         const approveTx = buildApproveCall(
           token.address,
@@ -7148,7 +7188,11 @@ export default function SwaparcApp() {
     const signer = await getSigner();
     const tokenContract = new ethers.Contract(token.address, ERC20_ABI, signer);
     const fromAddr = await signer.getAddress();
-    const allowance = await tokenContract.allowance(fromAddr, poolAddress);
+    const allowance = await readErc20AllowanceBestEffort(
+      token.address,
+      fromAddr,
+      poolAddress
+    );
     if (allowance < amountUnits) {
       await sendWalletTxHardened({
         signer,
@@ -8543,6 +8587,14 @@ export default function SwaparcApp() {
     if (source === "manual") {
       setBillRuntimeError("");
       setBillRuntimeStatus("");
+      // Clear stale autopay banners left from earlier RPC flakes while Recurring was on.
+      if (!bill.recurring && bill.schedulerFailureReason) {
+        setBills((prev) =>
+          prev.map((b) =>
+            b.id === bill.id ? { ...b, schedulerFailureReason: null } : b
+          )
+        );
+      }
     }
     if (source === "manual" && bill.recurring) {
       setBillRuntimeError(
@@ -8716,7 +8768,7 @@ export default function SwaparcApp() {
         fetchBalances(activeWallet, getReadProvider()).catch(() => {});
       }
     } catch (e) {
-      const errorMsg = e?.message || "Stealth payment generation failed";
+      const errorMsg = humanizePrivpayPaymentError(e) || "Stealth payment generation failed";
       setBillHistory((prev) => [
         {
           id: `billtx_${crypto.randomUUID()}`,
@@ -8737,15 +8789,19 @@ export default function SwaparcApp() {
           b.id === bill.id
             ? {
                 ...b,
-                schedulerFailureReason: errorMsg,
+                // Only recurring autopay owns schedulerFailureReason — never manual Pay Now.
+                schedulerFailureReason:
+                  source !== "manual" && b.recurring ? errorMsg : null,
                 recurring: invalidConfig ? false : b.recurring,
                 lastSchedulerStatus: invalidConfig
                   ? "invalid-recipient-keys"
-                  : b.recurring
+                  : source !== "manual" && b.recurring
                     ? "retry"
                     : b.lastSchedulerStatus,
                 nextExecutionAt:
-                  b.recurring && !invalidConfig ? retryAt : b.nextExecutionAt,
+                  source !== "manual" && b.recurring && !invalidConfig
+                    ? retryAt
+                    : b.nextExecutionAt,
               }
             : b
         )
