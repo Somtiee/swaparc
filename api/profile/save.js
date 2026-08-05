@@ -34,7 +34,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { userId, username, walletId, avatar, walletAddress, swapCount, swapVolume, lpProvided } = req.body;
+    const {
+      userId,
+      username,
+      walletId,
+      avatar,
+      walletAddress,
+      swapCount,
+      swapVolume,
+      lpProvided,
+      eliteSwaparcer,
+    } = req.body;
 
     if (!userId) {
       return res.status(400).json({ error: "Missing userId" });
@@ -66,6 +76,11 @@ export default async function handler(req, res) {
     const updatedBadges = { ...existingBadges };
     if (earlySwaparcerFlag) updatedBadges.earlySwaparcer = true;
     else delete updatedBadges.earlySwaparcer;
+
+    // Elite Swaparcer is sticky: once true (stored or requested), never cleared.
+    if (updatedBadges.eliteSwaparcer || eliteSwaparcer === true) {
+      updatedBadges.eliteSwaparcer = true;
+    }
 
     const profile = {
       ...existingProfile,

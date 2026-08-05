@@ -725,6 +725,962 @@ body {
   }
 }
 
+/* ?? Profile + Send modal (premium dark / Jupiter?Relay craft) ?? */
+.profileTabRoot {
+  width: 100%;
+  text-align: left;
+  padding: 12px 8px 28px;
+  color: #f0f4ff;
+}
+
+.profileTabRoot .muted,
+.profileSendModal .muted {
+  color: var(--muted) !important;
+}
+
+.profileTabHeader {
+  margin-bottom: 22px;
+}
+
+.profileTabTitle {
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  color: #ffffff !important;
+}
+
+.profileTabSubtitle {
+  margin: 8px 0 0;
+  font-size: 0.92rem;
+  color: var(--muted) !important;
+}
+
+.profileConnectGate {
+  margin: 40px auto 0;
+  padding: 32px 24px;
+  border-radius: 18px;
+  border: 1px solid rgba(124, 197, 255, 0.28);
+  background:
+    linear-gradient(180deg, rgba(12, 36, 72, 0.88), rgba(6, 20, 44, 0.92));
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 1px rgba(124, 197, 255, 0.08);
+  max-width: 440px;
+  text-align: center;
+  backdrop-filter: blur(12px);
+}
+
+.profileConnectGateTitle {
+  font-size: 1.05em;
+  font-weight: 700;
+  color: #e8fbff !important;
+  letter-spacing: 0.4px;
+  margin-bottom: 22px;
+  line-height: 1.4;
+}
+
+.profileConnectGateActions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.profileConnectPrimary {
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(90deg, #00f0ff, #00ffb7);
+  color: #001018 !important;
+  font-weight: 750;
+  cursor: pointer;
+  box-shadow: 0 0 22px rgba(0, 255, 255, 0.45);
+  transition: transform 140ms ease, filter 140ms ease;
+}
+
+.profileConnectPrimary:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+
+.profileConnectSecondary {
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(124, 197, 255, 0.55);
+  background: rgba(8, 28, 56, 0.75);
+  color: #9eefff !important;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.profileConnectSecondary:hover {
+  background: rgba(20, 56, 100, 0.85);
+  border-color: rgba(158, 239, 255, 0.75);
+}
+
+.profileWorkspace {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.15fr);
+  gap: 20px;
+  align-items: start;
+  width: 100%;
+}
+
+.profileIdentityCard,
+.profileMiniWalletCard {
+  padding: 28px;
+  text-align: left;
+  color: #f0f4ff !important;
+  border: 1px solid rgba(124, 197, 255, 0.16) !important;
+  background:
+    linear-gradient(165deg, rgba(14, 40, 78, 0.72) 0%, rgba(6, 18, 42, 0.88) 100%) !important;
+  border-radius: 20px;
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.28),
+    inset 0 0 0 1px rgba(124, 197, 255, 0.07);
+  backdrop-filter: blur(14px);
+}
+
+.profileIdentityTop {
+  margin-bottom: 26px;
+}
+
+.profileIdentityLeft {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+}
+
+.profileAvatar {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(158, 239, 255, 0.35);
+  box-shadow: 0 8px 24px rgba(46, 110, 246, 0.28);
+  overflow: hidden;
+  position: relative;
+}
+
+.profileAvatarEditOverlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.profileAvatarFallback {
+  font-size: 30px;
+}
+
+.profileIdentityMeta {
+  min-width: 0;
+  flex: 1;
+}
+
+.profileNameRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.profileUsername {
+  margin: 0;
+  font-size: 1.4em;
+  font-weight: 750;
+  letter-spacing: 0.3px;
+  color: #ffffff !important;
+}
+
+.profileUsernameInput {
+  flex: 0 1 auto !important;
+  padding: 8px 12px !important;
+  font-size: 1.05em !important;
+  width: min(220px, 100%);
+  margin-bottom: 0 !important;
+  color: #ffffff !important;
+  background: rgba(0, 0, 0, 0.35) !important;
+  border: 1px solid rgba(124, 197, 255, 0.28) !important;
+  border-radius: 10px !important;
+  line-height: 1.3 !important;
+}
+
+.profileUsernameInput::placeholder {
+  color: rgba(158, 189, 232, 0.55) !important;
+}
+
+.profileEditBtn.primaryBtn,
+.profileEditBtn.secondaryBtn {
+  width: auto !important;
+  margin-top: 0 !important;
+  padding: 6px 12px !important;
+  min-width: 52px;
+  height: 30px;
+  font-size: 0.75rem !important;
+  border-radius: 9px !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+  color: #ffffff !important;
+}
+
+.profileEditBtn.secondaryBtn {
+  background: rgba(124, 197, 255, 0.08) !important;
+  border: 1px solid rgba(124, 197, 255, 0.28) !important;
+  color: #d8ecff !important;
+}
+
+.profileEditBtn.secondaryBtn:hover {
+  background: rgba(124, 197, 255, 0.16) !important;
+  color: #ffffff !important;
+  transform: none;
+}
+
+.profileIdentityCard .addressPill {
+  color: #e8f3ff !important;
+  border-color: rgba(124, 197, 255, 0.22);
+  background: rgba(8, 24, 48, 0.55);
+}
+
+.profileLoadingBlock {
+  margin-bottom: 20px;
+  text-align: center;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 14px;
+  border: 1px solid rgba(124, 197, 255, 0.1);
+  color: var(--muted) !important;
+}
+
+.profileStatsPanel {
+  margin: 0 0 26px 0 !important;
+  background: rgba(0, 8, 24, 0.35) !important;
+  padding: 18px !important;
+  border-radius: 16px !important;
+  border: 1px solid rgba(124, 197, 255, 0.12) !important;
+  max-width: none !important;
+  gap: 12px !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+.profileIdentityCard .profileStatsGrid > div:nth-child(3) {
+  grid-column: span 2;
+  justify-self: stretch;
+  width: 100%;
+}
+
+.profileStatCell {
+  text-align: center;
+  padding: 14px 10px;
+  border-radius: 12px;
+  background: rgba(124, 197, 255, 0.05);
+  border: 1px solid rgba(124, 197, 255, 0.08);
+}
+
+.profileStatLabel {
+  font-size: 0.7em !important;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+  color: var(--muted) !important;
+  opacity: 1 !important;
+}
+
+.profileStatValue {
+  font-size: 1.15em;
+  font-weight: 750;
+  color: #ffffff !important;
+}
+
+.profileStatValueGold {
+  color: #ffd76a !important;
+  text-shadow: 0 0 18px rgba(255, 215, 106, 0.25);
+}
+
+.profileStatValueCyan {
+  color: #5ef0ff !important;
+  text-shadow: 0 0 18px rgba(94, 240, 255, 0.22);
+}
+
+.profileBadgesSection {
+  margin-bottom: 0;
+}
+
+.profileSectionLabel {
+  margin: 0 0 12px;
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 750;
+  color: var(--muted) !important;
+  opacity: 1 !important;
+}
+
+.profileBadgesGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 148px);
+  justify-content: start;
+  gap: 14px;
+}
+
+@media (max-width: 360px) {
+  .profileBadgesGrid {
+    grid-template-columns: 148px;
+  }
+}
+
+.profileIdentityCard .badgeTile {
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25);
+}
+
+.profileMiniWalletHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(124, 197, 255, 0.14);
+}
+
+.profileMiniWalletHeaderTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.profileMiniWalletTitle {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 750;
+  color: #ffffff !important;
+}
+
+.profileMiniWalletHint {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted) !important;
+}
+
+.profileMiniWalletTotal {
+  text-align: right;
+}
+
+.profileMiniWalletTotal .profileStatLabel {
+  margin-bottom: 4px;
+}
+
+.profileMiniWalletTotalValue {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: #3dff9a !important;
+  letter-spacing: 0.01em;
+  text-shadow: 0 0 24px rgba(61, 255, 154, 0.28);
+  line-height: 1.15;
+}
+
+.profileSendGlobalBtn.primaryBtn {
+  width: 100% !important;
+  margin-top: 0 !important;
+  padding: 13px 18px !important;
+  border-radius: 14px !important;
+  font-size: 0.95rem !important;
+  font-weight: 750 !important;
+  background: linear-gradient(90deg, #2e9bff, #1b5ef0) !important;
+  box-shadow:
+    0 10px 28px rgba(46, 110, 246, 0.35),
+    0 0 0 1px rgba(124, 197, 255, 0.2) inset !important;
+  color: #ffffff !important;
+}
+
+.profileSendGlobalBtn.primaryBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+  box-shadow:
+    0 14px 32px rgba(46, 110, 246, 0.45),
+    0 0 0 1px rgba(158, 220, 255, 0.28) inset !important;
+}
+
+.profileSendGlobalBtn.primaryBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
+}
+
+.profileMiniWalletSection + .profileMiniWalletSection {
+  margin-top: 22px;
+}
+
+.profileTokenList {
+  background: rgba(0, 6, 18, 0.38);
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(124, 197, 255, 0.12);
+}
+
+.profileTokenRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(124, 197, 255, 0.08);
+  transition: background 160ms ease;
+}
+
+.profileTokenRow:last-child {
+  border-bottom: none;
+}
+
+.profileTokenRow:hover {
+  background: rgba(80, 145, 255, 0.1);
+}
+
+.profileTokenLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.profileTokenLogo {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  object-fit: cover;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.profileTokenLogoFallback {
+  width: 36px !important;
+  height: 36px !important;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.profileTokenMeta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.profileTokenSymbol {
+  font-weight: 750;
+  font-size: 0.98rem;
+  color: #ffffff !important;
+}
+
+.profileTokenName {
+  font-size: 0.76em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted) !important;
+}
+
+.profileTokenRight {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.profileTokenAmounts {
+  text-align: right;
+  min-width: 88px;
+}
+
+.profileTokenBalance {
+  font-weight: 700;
+  font-size: 0.98rem;
+  color: #ffffff !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.profileTokenUsd {
+  font-size: 0.8em;
+  margin-top: 2px;
+  color: var(--muted) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.profileTokenSendBtn {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(124, 197, 255, 0.35);
+  background: rgba(46, 110, 246, 0.12);
+  color: #d8f0ff !important;
+  font-size: 0.74rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease,
+    opacity 140ms ease;
+}
+
+.profileTokenSendBtn:hover:not(:disabled) {
+  background: rgba(46, 110, 246, 0.22);
+  border-color: rgba(158, 220, 255, 0.55);
+  color: #ffffff !important;
+  box-shadow: 0 0 16px rgba(46, 110, 246, 0.25);
+}
+
+.profileTokenSendBtn:disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+}
+
+.profileLpRow {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.profileLpRowTop,
+.profileLpRowBottom {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.profileLpRowTop .profileTokenSymbol,
+.profileLpRowTop .profileTokenBalance {
+  color: #ffffff !important;
+}
+
+.profileLpRowBottom {
+  font-size: 0.8em;
+  color: var(--muted) !important;
+}
+
+.profileAuthCaption {
+  margin-top: 20px;
+  text-align: center;
+  color: var(--muted) !important;
+  font-size: 0.88rem;
+}
+
+/* ?? Send modal ?? */
+.profileSendOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(2, 8, 22, 0.78);
+  backdrop-filter: blur(10px);
+}
+
+.profileSendModal {
+  width: 100%;
+  max-width: 460px;
+  padding: 28px;
+  border-radius: 20px;
+  border: 1px solid rgba(124, 197, 255, 0.28) !important;
+  background:
+    linear-gradient(165deg, rgba(12, 36, 72, 0.97) 0%, rgba(5, 16, 38, 0.98) 100%) !important;
+  box-shadow:
+    0 28px 70px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(124, 197, 255, 0.08) inset,
+    0 0 40px rgba(46, 110, 246, 0.12);
+  text-align: left;
+  color: #f0f4ff !important;
+  backdrop-filter: blur(16px);
+}
+
+.profileSendModalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.profileSendModalHeader h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 750;
+  color: #ffffff !important;
+  letter-spacing: 0.02em;
+}
+
+.profileSendCloseBtn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(124, 197, 255, 0.18);
+  border-radius: 10px;
+  color: #c5dcff !important;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 6px 10px;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.profileSendCloseBtn:hover:not(:disabled) {
+  background: rgba(124, 197, 255, 0.12);
+  color: #ffffff !important;
+}
+
+.profileSendCloseBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.profileSendLabel {
+  display: block;
+  margin: 18px 0 8px;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted) !important;
+}
+
+.profileSendTokenRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(124, 197, 255, 0.2);
+  background: rgba(0, 8, 24, 0.45);
+}
+
+.profileSendSelect.privpayInput,
+.profileSendInput.privpayInput {
+  width: 100%;
+  height: 48px !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(124, 197, 255, 0.22) !important;
+  background: rgba(0, 8, 24, 0.5) !important;
+  color: #ffffff !important;
+  caret-color: #9eefff !important;
+  font-size: 1rem !important;
+  padding: 0 14px !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.profileSendTokenRow .profileSendSelect.privpayInput {
+  border: none !important;
+  background: transparent !important;
+  height: 40px !important;
+  padding-left: 0 !important;
+  padding-right: 28px !important;
+  font-weight: 700 !important;
+  font-size: 1.05rem !important;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%2399b5e8' d='M1.4.6 6 5.2 10.6.6 12 2 6 8 0 2z'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 4px center !important;
+  background-size: 12px 8px !important;
+}
+
+.profileSendSelect.privpayInput option {
+  background: #0a1c38;
+  color: #ffffff;
+}
+
+.profileSendInput.privpayInput::placeholder {
+  color: rgba(153, 181, 232, 0.45) !important;
+  -webkit-text-fill-color: rgba(153, 181, 232, 0.45) !important;
+}
+
+.profileSendInput.privpayInput:focus {
+  border-color: rgba(94, 240, 255, 0.55) !important;
+  box-shadow: 0 0 0 3px rgba(46, 110, 246, 0.22);
+  outline: none;
+}
+
+#profileSendTo.profileSendInput {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 0.92rem !important;
+  letter-spacing: 0.01em;
+}
+
+.profileSendAvailable {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted) !important;
+}
+
+.profileSendAmountShell {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.profileSendAmountShell .profileSendInput {
+  padding-right: 72px !important;
+  font-size: 1.35rem !important;
+  font-weight: 700 !important;
+  height: 56px !important;
+  letter-spacing: 0.01em;
+}
+
+.profileSendMaxBtn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: auto !important;
+  margin: 0 !important;
+  padding: 7px 12px !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(124, 197, 255, 0.4);
+  background: rgba(46, 110, 246, 0.2);
+  color: #e8f6ff !important;
+  font-size: 0.75rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.profileSendMaxBtn:hover:not(:disabled) {
+  background: rgba(46, 110, 246, 0.35);
+  border-color: rgba(158, 220, 255, 0.65);
+}
+
+.profileSendMaxBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.profileSendFeeNote {
+  margin: 16px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--muted) !important;
+}
+
+.profileSendStatus {
+  margin: 12px 0 0;
+  color: #7cc5ff !important;
+  font-size: 0.9rem;
+}
+
+.profileSendError {
+  margin: 12px 0 0;
+  color: #ff9c9c !important;
+  font-size: 0.9rem;
+}
+
+.profileSendActions {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.profileSendCancelBtn.secondaryBtn {
+  width: 100% !important;
+  margin-top: 0 !important;
+  padding: 14px 16px !important;
+  border-radius: 14px !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(124, 197, 255, 0.22) !important;
+  color: #d0e4ff !important;
+}
+
+.profileSendCancelBtn.secondaryBtn:hover:not(:disabled) {
+  background: rgba(124, 197, 255, 0.1) !important;
+  color: #ffffff !important;
+  transform: none;
+}
+
+.profileSendConfirmBtn.primaryBtn {
+  width: 100% !important;
+  margin-top: 0 !important;
+  min-width: 0;
+  padding: 14px 16px !important;
+  border-radius: 14px !important;
+  font-weight: 750 !important;
+  background: linear-gradient(90deg, #2ec4ff, #1b6ef6) !important;
+  box-shadow: 0 12px 30px rgba(46, 110, 246, 0.4) !important;
+  color: #ffffff !important;
+}
+
+.profileSendConfirmBtn.primaryBtn:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.profileSendConfirmBtn.primaryBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
+}
+
+/* Wide profile shell: no lift jitter on the outer card */
+.swapCardCentered.privpayWideCard.card:hover {
+  transform: none;
+}
+
+@media (max-width: 900px) {
+  .profileWorkspace {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .profileMiniWalletHeaderTop {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .profileMiniWalletTotal {
+    text-align: left;
+  }
+}
+
+/* Profile token Send: escape global button{width:100%} + thumb-friendly targets */
+@media (max-width: 768px) {
+  .profileTokenRow {
+    gap: 12px;
+    padding: 14px 14px;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .profileTokenLeft {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .profileTokenRight {
+    flex: 0 0 auto;
+    gap: 10px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .profileTokenAmounts {
+    min-width: 0;
+  }
+
+  .profileTokenSendBtn {
+    width: auto !important;
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 10px 16px !important;
+    font-size: 0.8rem !important;
+    line-height: 1.1;
+  }
+}
+
+@media (max-width: 600px) {
+  .profileTabRoot {
+    padding: 4px 0 16px;
+  }
+
+  .profileIdentityCard,
+  .profileMiniWalletCard {
+    padding: 20px;
+    border-radius: 16px;
+  }
+
+  .profileIdentityLeft {
+    align-items: flex-start;
+  }
+
+  .profileAvatar {
+    width: 64px;
+    height: 64px;
+  }
+
+  .profileTokenSendBtn {
+    width: auto !important;
+    min-height: 44px;
+    padding: 10px 16px !important;
+    font-size: 0.8rem !important;
+  }
+
+  .profileSendOverlay {
+    padding: 12px;
+    align-items: flex-end;
+  }
+
+  .profileSendModal {
+    max-width: 100%;
+    padding: 22px 18px 20px;
+    border-radius: 20px 20px 14px 14px;
+  }
+
+  .profileSendActions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .profileIdentityCard,
+  .profileMiniWalletCard {
+    padding: 18px 16px;
+    border-radius: 16px;
+  }
+
+  .profileAvatar {
+    width: 64px;
+    height: 64px;
+  }
+
+  .profileTokenRow {
+    gap: 10px;
+    padding: 14px 12px;
+    flex-wrap: nowrap;
+  }
+
+  .profileTokenRight {
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .profileTokenAmounts {
+    text-align: right;
+    min-width: 0;
+  }
+
+  .profileTokenSendBtn {
+    width: auto !important;
+    min-height: 44px;
+    padding: 10px 16px !important;
+    font-size: 0.8rem !important;
+  }
+
+  .profileTokenSymbol,
+  .profileTokenBalance {
+    font-size: 0.95rem;
+  }
+}
+
 .neon-btn {
   background: rgba(0, 255, 255, 0.12);
   border: 1px solid rgba(0, 255, 255, 0.35);
@@ -1367,7 +2323,7 @@ body {
   }
 }
 
-/* privpay module — exchange-grade layout */
+/* privpay module ? exchange-grade layout */
 .privpayModule {
   width: 100%;
   max-width: 1220px;
@@ -1422,20 +2378,25 @@ body {
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 8px;
-  padding: 11px 18px;
-  font-weight: 700;
+  border-radius: 12px;
+  padding: 12px 18px;
+  font-weight: 750;
   font-size: 14px;
   cursor: pointer;
-  color: #0b0e11;
-  background: linear-gradient(180deg, #fcd535 0%, #f0b90b 100%);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.22) inset;
-  transition: filter 0.15s ease, transform 0.15s ease;
+  color: #ffffff;
+  background: linear-gradient(90deg, #2ec4ff, #1b6ef6);
+  box-shadow:
+    0 10px 28px rgba(46, 110, 246, 0.35),
+    0 0 0 1px rgba(124, 197, 255, 0.2) inset;
+  transition: filter 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .privpayBtnPrimary:hover:not(:disabled) {
-  filter: brightness(1.06);
+  filter: brightness(1.08);
   transform: translateY(-1px);
+  box-shadow:
+    0 14px 32px rgba(46, 110, 246, 0.45),
+    0 0 0 1px rgba(158, 220, 255, 0.28) inset;
 }
 
 .privpayBtnPrimary:disabled {
@@ -1452,20 +2413,21 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  padding: 11px 14px;
-  font-weight: 600;
+  border: 1px solid rgba(124, 197, 255, 0.28);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-weight: 650;
   font-size: 14px;
   cursor: pointer;
-  color: #eaecef;
-  background: rgba(255, 255, 255, 0.04);
-  transition: background 0.15s ease, border-color 0.15s ease;
+  color: #e8f3ff;
+  background: rgba(124, 197, 255, 0.06);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .privpayBtnSecondary:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(124, 197, 255, 0.12);
+  border-color: rgba(158, 220, 255, 0.45);
+  color: #ffffff;
 }
 
 .privpayBtnSecondary:disabled {
@@ -1495,11 +2457,16 @@ body {
 }
 
 .privpayPanel {
-  border-radius: 16px !important;
-  padding: 20px !important;
-  background: linear-gradient(180deg, rgba(18, 22, 32, 0.92), rgba(11, 14, 20, 0.94)) !important;
-  border: 1px solid rgba(255, 255, 255, 0.06) !important;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  border-radius: 18px !important;
+  padding: 24px !important;
+  color: #f0f4ff !important;
+  background:
+    linear-gradient(165deg, rgba(14, 40, 78, 0.88) 0%, rgba(6, 18, 42, 0.94) 100%) !important;
+  border: 1px solid rgba(124, 197, 255, 0.15) !important;
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.32),
+    inset 0 0 0 1px rgba(124, 197, 255, 0.06);
+  backdrop-filter: blur(12px);
 }
 
 .privpayPanelCompact {
@@ -1547,17 +2514,39 @@ body {
 
 .privpayLabel {
   font-size: 11px !important;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(148, 170, 200, 0.95) !important;
+  color: var(--muted) !important;
 }
 
 .privpayInput {
-  height: 44px !important;
-  border-radius: 8px !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  background: rgba(0, 0, 0, 0.25) !important;
+  height: 46px !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(124, 197, 255, 0.22) !important;
+  background: rgba(0, 8, 24, 0.5) !important;
+  color: #ffffff !important;
+  caret-color: #9eefff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  font-size: 0.95rem !important;
+  padding: 0 14px !important;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.privpayInput::placeholder {
+  color: rgba(153, 181, 232, 0.45) !important;
+  -webkit-text-fill-color: rgba(153, 181, 232, 0.45) !important;
+}
+
+.privpayInput:focus {
+  outline: none;
+  border-color: rgba(94, 240, 255, 0.55) !important;
+  box-shadow: 0 0 0 3px rgba(46, 110, 246, 0.22);
+}
+
+.privpayInput option {
+  background: #0a1c38;
+  color: #ffffff;
 }
 
 /* Payments Claim: keep monospace body readable on dark cards (overrides UA / theme on textarea). */
@@ -1606,25 +2595,27 @@ textarea.privpayInput.poolClaimTextarea {
 .privpaySegBtn {
   flex: 1;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 10px 12px;
   font-size: 14px;
-  font-weight: 600;
-  color: rgba(200, 210, 225, 0.85);
+  font-weight: 650;
+  color: var(--muted);
   background: transparent;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .privpaySegBtn:hover {
   color: #fff;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(124, 197, 255, 0.08);
 }
 
 .privpaySegBtn.active {
-  color: #0b0e11;
-  background: linear-gradient(180deg, #fcd535 0%, #f0b90b 100%);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset;
+  color: #ffffff;
+  background: linear-gradient(90deg, rgba(46, 156, 255, 0.55), rgba(27, 110, 246, 0.65));
+  box-shadow:
+    0 0 0 1px rgba(124, 197, 255, 0.35) inset,
+    0 8px 20px rgba(46, 110, 246, 0.25);
 }
 
 .privpaySegBtnSm {
@@ -1649,21 +2640,22 @@ textarea.privpayInput.poolClaimTextarea {
 }
 
 .privpayBtnGhost {
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
+  border: 1px solid rgba(124, 197, 255, 0.24);
+  border-radius: 10px;
   padding: 8px 14px;
-  font-weight: 600;
+  font-weight: 650;
   font-size: 13px;
   cursor: pointer;
-  color: #eaecef;
-  background: rgba(255, 255, 255, 0.04);
-  transition: background 0.15s ease, border-color 0.15s ease;
+  color: #d8ecff;
+  background: rgba(124, 197, 255, 0.05);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   flex-shrink: 0;
 }
 
 .privpayBtnGhost:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(124, 197, 255, 0.12);
+  border-color: rgba(158, 220, 255, 0.45);
+  color: #ffffff;
 }
 
 .privpayPlaceholderCard {
@@ -1720,13 +2712,33 @@ textarea.privpayInput.poolClaimTextarea {
   list-style: none;
   padding: 0;
   margin: 0;
+  border: 1px solid rgba(124, 197, 255, 0.12);
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(0, 6, 18, 0.28);
 }
 
 .historyItem {
-  padding: 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  margin-bottom: 10px;
+  padding: 14px 16px;
+  border-radius: 0;
+  background: transparent;
+  margin-bottom: 0;
+  border-bottom: 1px solid rgba(124, 197, 255, 0.1);
+  transition: background 160ms ease;
+  color: #f0f4ff;
+}
+
+.historyList .historyItem:last-child {
+  border-bottom: none;
+}
+
+.historyItem:hover {
+  background: rgba(80, 145, 255, 0.08);
+}
+
+.historyLeft strong,
+.historyLeft > div:first-child {
+  color: #ffffff;
 }
 
 .historyMeta {
@@ -2322,7 +3334,12 @@ textarea.privpayInput.poolClaimTextarea {
 .billsWrap {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
+  color: #f0f4ff;
+}
+
+.billsWrap .muted {
+  color: var(--muted) !important;
 }
 
 .mobilePrivpaySectionTabs {
@@ -2330,27 +3347,37 @@ textarea.privpayInput.poolClaimTextarea {
 }
 
 .mobilePrivpaySectionTab {
-  border: 1px solid rgba(138, 186, 255, 0.24);
-  background: rgba(255, 255, 255, 0.03);
-  color: #b8d8ff;
-  border-radius: 10px;
-  padding: 9px 12px;
+  border: 1px solid rgba(124, 197, 255, 0.22);
+  background: rgba(8, 24, 48, 0.55);
+  color: var(--muted);
+  border-radius: 12px;
+  padding: 11px 12px;
   font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.mobilePrivpaySectionTab:hover {
+  color: #ffffff;
+  border-color: rgba(158, 220, 255, 0.4);
+  background: rgba(46, 110, 246, 0.12);
 }
 
 .mobilePrivpaySectionTab.active {
-  border-color: rgba(100, 170, 255, 0.9);
-  color: #eaf6ff;
-  background: linear-gradient(180deg, rgba(57, 126, 255, 0.22) 0%, rgba(30, 90, 210, 0.2) 100%);
-  box-shadow: 0 0 0 1px rgba(80, 145, 255, 0.35) inset;
+  border-color: rgba(124, 197, 255, 0.65);
+  color: #ffffff;
+  background: linear-gradient(180deg, rgba(57, 126, 255, 0.28) 0%, rgba(30, 90, 210, 0.24) 100%);
+  box-shadow:
+    0 0 0 1px rgba(80, 145, 255, 0.35) inset,
+    0 8px 20px rgba(46, 110, 246, 0.22);
 }
 
 .billsWorkspaceTop {
   display: grid;
   grid-template-columns: minmax(340px, 1fr) minmax(360px, 1fr);
-  gap: 14px;
+  gap: 18px;
   align-items: start;
 }
 
@@ -2363,47 +3390,63 @@ textarea.privpayInput.poolClaimTextarea {
 .billsCreateCard,
 .billsListCard,
 .billsHistoryCard {
-  padding: 16px 16px;
-  border: 1px solid rgba(134, 176, 255, 0.14);
+  padding: 26px 28px;
+  border: 1px solid rgba(124, 197, 255, 0.15) !important;
+  border-radius: 18px;
+  color: #f0f4ff !important;
   background: linear-gradient(
-    180deg,
-    rgba(10, 27, 57, 0.94) 0%,
-    rgba(7, 20, 45, 0.94) 100%
-  );
+    165deg,
+    rgba(14, 40, 78, 0.88) 0%,
+    rgba(6, 18, 42, 0.94) 100%
+  ) !important;
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.28),
+    inset 0 0 0 1px rgba(124, 197, 255, 0.06);
+  backdrop-filter: blur(12px);
 }
 
 .billsTitleRow {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(124, 197, 255, 0.12);
 }
 
 .billsTitle {
   margin: 0;
+  font-size: 1.35rem;
+  font-weight: 750;
+  color: #ffffff !important;
+  letter-spacing: 0.01em;
 }
 
 .billsSubtitle {
-  font-size: 12px;
-  color: #8fb0db;
+  font-size: 0.84rem;
+  color: var(--muted) !important;
+  line-height: 1.4;
 }
 
 .billsGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 14px;
 }
 
 .billsField {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .billsField span {
-  font-size: 12px;
-  color: #a8c5e8;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted) !important;
 }
 
 .billsFieldFull {
@@ -2412,21 +3455,36 @@ textarea.privpayInput.poolClaimTextarea {
 
 .billsInput {
   width: 100%;
-  height: 40px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.03);
-  color: #eef7ff;
-  padding: 0 10px;
+  height: 46px;
+  border-radius: 12px;
+  border: 1px solid rgba(124, 197, 255, 0.22);
+  background: rgba(0, 8, 24, 0.5);
+  color: #ffffff !important;
+  caret-color: #9eefff;
+  -webkit-text-fill-color: #ffffff;
+  padding: 0 14px;
+  font-size: 0.95rem;
   /* Native dropdown follows OS theme unless options are styled; keeps list readable on Windows/Chrome. */
   color-scheme: dark;
-  background-color: rgba(15, 23, 41, 0.98);
+  background-color: rgba(8, 20, 42, 0.98);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.billsInput::placeholder {
+  color: rgba(153, 181, 232, 0.45);
+  -webkit-text-fill-color: rgba(153, 181, 232, 0.45);
+}
+
+.billsInput:focus {
+  outline: none;
+  border-color: rgba(94, 240, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(46, 110, 246, 0.22);
 }
 
 select.billsInput option,
 .billsInput option {
-  background-color: #0f1729;
-  color: #eef7ff;
+  background-color: #0a1c38;
+  color: #ffffff;
 }
 
 .billsInputDatetime {
@@ -2450,9 +3508,9 @@ select.billsInput option,
 .billsHint {
   display: block;
   margin-top: 6px;
-  font-size: 11px;
-  line-height: 1.35;
-  color: rgba(200, 220, 255, 0.65);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--muted) !important;
 }
 
 .billsInput.mono {
@@ -2460,72 +3518,132 @@ select.billsInput option,
 }
 
 .billsActionsRow {
-  margin-top: 12px;
+  margin-top: 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .billsToggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #cde4ff;
+  color: #e0efff !important;
+  font-size: 0.9rem;
 }
 
 .billsToggle.small {
-  font-size: 13px;
+  font-size: 0.84rem;
+  color: var(--muted) !important;
 }
 
 .billsCreateBtn,
 .billsPayBtn {
-  margin-top: 0;
-  width: auto;
-  min-width: 120px;
+  margin-top: 0 !important;
+  width: auto !important;
+  min-width: 128px;
+  border-radius: 12px !important;
+  padding: 12px 16px !important;
+  font-weight: 750 !important;
+}
+
+.billsCreateBtn.primaryBtn {
+  background: linear-gradient(90deg, #2ec4ff, #1b6ef6) !important;
+  box-shadow: 0 10px 28px rgba(46, 110, 246, 0.35) !important;
+  color: #ffffff !important;
+}
+
+.billsCreateBtn.primaryBtn:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.billsPayBtn.secondaryBtn,
+.billsPayBtn.primaryBtn {
+  border-radius: 12px !important;
+}
+
+.billsPayBtn.secondaryBtn {
+  background: rgba(124, 197, 255, 0.08) !important;
+  border: 1px solid rgba(124, 197, 255, 0.28) !important;
+  color: #d8ecff !important;
+}
+
+.billsPayBtn.secondaryBtn:hover:not(:disabled) {
+  background: rgba(124, 197, 255, 0.16) !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
 }
 
 .billsSectionTitle {
-  margin: 0 0 10px 0;
-  letter-spacing: 0.2px;
+  margin: 0 0 14px 0;
+  letter-spacing: 0.04em;
+  font-size: 1.05rem;
+  font-weight: 750;
+  color: #ffffff !important;
 }
 
 .billsItems {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0;
+  border: 1px solid rgba(124, 197, 255, 0.12);
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(0, 6, 18, 0.28);
 }
 
 .billsItem {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.025);
-  padding: 14px;
+  border: none;
+  border-bottom: 1px solid rgba(124, 197, 255, 0.1);
+  border-radius: 0;
+  background: transparent;
+  padding: 16px 18px;
+  transition: background 160ms ease;
+}
+
+.billsItem:last-child {
+  border-bottom: none;
+}
+
+.billsItem:hover {
+  background: rgba(80, 145, 255, 0.08);
 }
 
 .billsItemTop {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 12px;
+  gap: 14px;
+}
+
+.billsItemTop > div:first-child {
+  color: #ffffff;
+  font-weight: 700;
 }
 
 .billsMeta {
-  font-size: 13px;
+  font-size: 0.84rem;
   margin-top: 4px;
+  color: var(--muted) !important;
 }
 
 .billsNext {
-  font-size: 12px;
-  color: #8fb0db;
+  font-size: 0.84rem;
+  color: #5ef0ff !important;
+  font-weight: 650;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .billsItemBottom {
-  margin-top: 10px;
+  margin-top: 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
@@ -2551,33 +3669,51 @@ select.billsInput option,
 }
 
 .payrollDashboardCard {
-  padding: 16px 16px;
-  border: 1px solid rgba(134, 176, 255, 0.14);
+  padding: 26px 28px;
+  border: 1px solid rgba(124, 197, 255, 0.15) !important;
+  border-radius: 18px;
+  color: #f0f4ff !important;
   background: linear-gradient(
-    180deg,
-    rgba(10, 27, 57, 0.94) 0%,
-    rgba(7, 20, 45, 0.94) 100%
-  );
+    165deg,
+    rgba(14, 40, 78, 0.88) 0%,
+    rgba(6, 18, 42, 0.94) 100%
+  ) !important;
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.28),
+    inset 0 0 0 1px rgba(124, 197, 255, 0.06);
+  backdrop-filter: blur(12px);
 }
 
 .payrollKpiGrid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
+  gap: 12px;
 }
 
 .payrollKpiCard {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  padding: 10px 12px;
+  border: 1px solid rgba(124, 197, 255, 0.12);
+  border-radius: 14px;
+  background: rgba(0, 8, 24, 0.35);
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.payrollKpiCard .muted {
+  color: var(--muted) !important;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .payrollKpiCard strong {
-  font-size: 18px;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #ffffff !important;
+  font-variant-numeric: tabular-nums;
 }
 
 .payrollKpiAction {
@@ -2611,14 +3747,14 @@ select.billsInput option,
 .payrollWorkspace {
   display: grid;
   grid-template-columns: minmax(340px, 1fr) minmax(420px, 1.2fr);
-  gap: 14px;
+  gap: 18px;
   align-items: start;
 }
 
 .payrollLeftPane,
 .payrollRightPane {
   display: grid;
-  gap: 14px;
+  gap: 18px;
 }
 
 .historyItem {
@@ -2645,8 +3781,9 @@ select.billsInput option,
   min-width: 0;
   max-width: 100%;
   text-align: right;
-  font-size: 12px;
-  opacity: 0.9;
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .historyRightTimestamp {
@@ -2730,8 +3867,8 @@ select.billsInput option,
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  color: #98b9dd;
+  font-size: 0.78rem;
+  color: var(--muted) !important;
 }
 
 .historySelect input {
@@ -2749,9 +3886,9 @@ select.billsInput option,
 }
 
 .paginationMeta {
-  color: #a5c8ea;
-  font-size: 12px;
-  letter-spacing: 0.15px;
+  color: var(--muted) !important;
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
 }
 
 .paginationBtn {
@@ -2815,14 +3952,14 @@ select.billsInput option,
 }
 
 .historyStatusLegend {
-  margin: 0 0 14px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 12px;
-  line-height: 1.45;
-  color: #b8c9d9;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(0, 8, 24, 0.35);
+  border: 1px solid rgba(124, 197, 255, 0.12);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--muted) !important;
 }
 
 .historyLegendLine {
@@ -2894,66 +4031,110 @@ select.billsInput option,
 
 .historyToggleBtn {
   flex: 1;
-  padding: 8px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
-  color: #cfe7ff;
-  font-weight: 600;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(124, 197, 255, 0.18);
+  background: rgba(8, 24, 48, 0.45);
+  color: var(--muted);
+  font-weight: 700;
   cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.historyToggleBtn:hover {
+  color: #ffffff;
+  border-color: rgba(158, 220, 255, 0.4);
 }
 
 .historyToggleBtn.active {
-  background: linear-gradient(90deg, #2e6ef6, #1b4fd8);
-  color: white;
+  background: linear-gradient(90deg, rgba(46, 156, 255, 0.4), rgba(27, 110, 246, 0.6));
+  border-color: rgba(124, 197, 255, 0.55);
+  color: #ffffff;
+  box-shadow: 0 8px 20px rgba(46, 110, 246, 0.25);
 }
 
 .privpayModuleSwitchRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 8px;
+  border-radius: 16px;
+  background: rgba(0, 8, 24, 0.35);
+  border: 1px solid rgba(124, 197, 255, 0.12);
 }
 
 .privpayPrimaryPills {
   display: inline-flex;
-  gap: 10px;
+  gap: 8px;
 }
 
 .privpayModulePill {
-  padding: 8px 16px;
+  padding: 10px 20px;
   min-width: 120px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
-  color: #d9ebff;
-  font-weight: 700;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 750;
+  font-size: 0.92rem;
   cursor: pointer;
+  position: relative;
+  transition:
+    color 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.privpayModulePill:hover {
+  color: #ffffff;
+  background: rgba(124, 197, 255, 0.08);
 }
 
 .privpayModulePill.active {
-  background: linear-gradient(90deg, #2e6ef6, #1b4fd8);
-  border-color: rgba(110, 172, 255, 0.8);
-  color: #fff;
+  background: linear-gradient(90deg, rgba(46, 156, 255, 0.35), rgba(27, 110, 246, 0.55));
+  border-color: rgba(124, 197, 255, 0.55);
+  color: #ffffff;
+  box-shadow:
+    0 0 0 1px rgba(124, 197, 255, 0.2) inset,
+    0 8px 22px rgba(46, 110, 246, 0.28);
+}
+
+.privpayModulePill.active::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 4px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #5ef0ff, #2e9bff);
+  box-shadow: 0 0 10px rgba(94, 240, 255, 0.55);
 }
 
 .privpayClaimPill {
-  min-width: 84px;
-  padding: 6px 12px;
-  font-size: 12px;
-  opacity: 0.92;
+  min-width: 92px;
+  padding: 10px 16px;
+  font-size: 0.88rem;
+  opacity: 1;
 }
 
 .receiptModal {
   position: relative;
   width: min(760px, 92vw);
-  border-radius: 18px;
-  border: 1px solid rgba(104, 189, 255, 0.35);
+  border-radius: 20px;
+  border: 1px solid rgba(124, 197, 255, 0.3);
+  color: #f0f4ff;
   background: radial-gradient(1200px 400px at -10% -20%, rgba(38, 127, 255, 0.18), transparent 60%),
-    linear-gradient(180deg, rgba(7, 25, 53, 0.98), rgba(7, 18, 38, 0.98));
-  box-shadow: 0 0 0 1px rgba(112, 196, 255, 0.18), 0 18px 60px rgba(22, 96, 255, 0.35);
-  padding: 18px;
+    linear-gradient(165deg, rgba(12, 36, 72, 0.98), rgba(5, 16, 38, 0.99));
+  box-shadow:
+    0 0 0 1px rgba(112, 196, 255, 0.12) inset,
+    0 24px 64px rgba(0, 0, 0, 0.5),
+    0 0 40px rgba(46, 110, 246, 0.14);
+  padding: 26px 28px;
+  backdrop-filter: blur(14px);
 }
 
 .receiptGlow {
@@ -3011,23 +4192,28 @@ select.billsInput option,
 }
 
 .receiptField {
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 12px;
-  padding: 10px;
+  border: 1px solid rgba(124, 197, 255, 0.14);
+  background: rgba(0, 8, 24, 0.4);
+  border-radius: 14px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .receiptField span {
-  font-size: 12px;
-  color: #93b9db;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted) !important;
 }
 
 .receiptField strong {
-  color: #e9f7ff;
-  font-size: 14px;
+  color: #ffffff !important;
+  font-size: 0.98rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .receiptField code {
@@ -3037,11 +4223,12 @@ select.billsInput option,
 }
 
 .receiptClaimWrap {
-  margin-top: 12px;
-  border: 1px solid rgba(108, 219, 255, 0.28);
-  background: rgba(15, 30, 60, 0.65);
-  border-radius: 12px;
-  padding: 10px;
+  margin-top: 16px;
+  border: 1px solid rgba(124, 197, 255, 0.28);
+  background: rgba(0, 10, 28, 0.55);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: inset 0 0 0 1px rgba(124, 197, 255, 0.06);
 }
 
 .receiptClaimHead {
@@ -3067,11 +4254,15 @@ select.billsInput option,
 }
 
 .receiptQrPanel {
-  margin-top: 12px;
+  margin-top: 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(124, 197, 255, 0.16);
+  background: rgba(0, 8, 24, 0.35);
 }
 
 .receiptQrCaption {
@@ -3806,7 +4997,7 @@ select.billsInput option,
     grid-template-columns: 1fr;
   }
 
-  /* Stats: 2×2 grid on mobile — avoids overly wide single-column “bars” */
+  /* Stats: 2?2 grid on mobile ? avoids overly wide single-column ?bars? */
   .landingStatsRow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
@@ -3979,8 +5170,9 @@ select.billsInput option,
 
   .claimInputModeBtn {
     min-width: 0;
-    padding: 10px 6px;
-    font-size: 12px;
+    min-height: 44px;
+    padding: 10px 8px;
+    font-size: 13px;
   }
 
   .claimQrFilePill {
@@ -4113,11 +5305,23 @@ select.billsInput option,
     font-size: 16px;
   }
 
+  /* Keep premium breathing room on phones (do not squeeze to 10?12px) */
   .billsCreateCard,
   .billsListCard,
   .billsHistoryCard,
   .payrollDashboardCard {
-    padding: 12px 10px;
+    padding: 18px 16px;
+  }
+
+  .claimInputModeRow {
+    gap: 8px;
+  }
+
+  .claimInputModeBtn {
+    min-height: 44px;
+    padding: 12px 8px;
+    font-size: 13px;
+    letter-spacing: 0.01em;
   }
 
   .historyLegendLine {
@@ -4446,6 +5650,28 @@ select.billsInput option,
   gap: 18px;
 }
 
+/* Cap All Pools / My Positions at 3 columns on desktop; 2 then 1 on smaller screens. */
+@media (min-width: 900px) {
+  .poolsGrid,
+  .poolsPositionsGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 899px) and (min-width: 600px) {
+  .poolsGrid,
+  .poolsPositionsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 599px) {
+  .poolsGrid,
+  .poolsPositionsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .poolCard {
   padding: 18px;
 }
@@ -4580,7 +5806,7 @@ select.billsInput option,
 }
 
 /* -------------------------------------------------------------------------- */
-/* Docs site layout (full viewport, /docs/* — separate from app-container)   */
+/* Docs site layout (full viewport, /docs/* ? separate from app-container)   */
 /* -------------------------------------------------------------------------- */
 
 .srOnly {
@@ -4961,7 +6187,7 @@ select.billsInput option,
   background: rgba(0, 40, 70, 0.35);
 }
 
-/* Prev / next (BulkBlast-style “Next steps” cards) */
+/* Prev / next (BulkBlast-style ?Next steps? cards) */
 .docsPrevNext {
   margin-top: 40px;
   padding-top: 28px;
@@ -5339,5 +6565,823 @@ select.billsInput option,
 
   .docsPrevNextGrid {
     grid-template-columns: 1fr;
+  }
+}
+
+
+/* =============================================================================
+   PREMIUM POLISH ? PrivPay finish + light app-wide consistency (visual only)
+   ============================================================================= */
+
+.neon-card {
+  border: 1px solid rgba(124, 197, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(124, 197, 255, 0.04);
+}
+
+.primaryBtn {
+  border-radius: 14px;
+  background: linear-gradient(90deg, #2ec4ff, #1b6ef6);
+  box-shadow: 0 10px 28px rgba(46, 110, 246, 0.28);
+  color: #ffffff;
+}
+
+.primaryBtn:hover {
+  filter: brightness(1.08);
+}
+
+.secondaryBtn {
+  border: 1px solid rgba(124, 197, 255, 0.26);
+  background: rgba(124, 197, 255, 0.06);
+  color: #d8ecff;
+  border-radius: 14px;
+}
+
+.secondaryBtn:hover {
+  background: rgba(124, 197, 255, 0.12);
+  color: #ffffff;
+  border-color: rgba(158, 220, 255, 0.45);
+}
+
+/* Header / nav */
+.connectBtn {
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2ec4ff, #1b6ef6);
+  box-shadow: 0 10px 28px rgba(46, 110, 246, 0.3);
+  transition: transform 140ms ease, filter 140ms ease, box-shadow 140ms ease;
+}
+
+.connectBtn:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.walletCard.small {
+  border: 1px solid rgba(124, 197, 255, 0.2);
+  background: rgba(8, 24, 48, 0.55);
+  color: #f0f4ff;
+  border-radius: 12px;
+}
+
+.disconnectBtn {
+  border: 1px solid rgba(124, 197, 255, 0.22);
+  color: #e8f3ff;
+}
+
+.disconnectBtn:hover {
+  background: rgba(124, 197, 255, 0.12);
+  border-color: rgba(158, 220, 255, 0.4);
+}
+
+.navBtn {
+  color: var(--muted);
+  border-radius: 10px 10px 0 0;
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.navBtn:hover {
+  color: #ffffff;
+  background: rgba(124, 197, 255, 0.06);
+}
+
+.navBtn.active {
+  color: #ffffff;
+  border-bottom-color: #5ef0ff;
+  text-shadow: 0 0 18px rgba(94, 240, 255, 0.25);
+}
+
+.title {
+  color: #ffffff;
+}
+
+.subtitle {
+  color: var(--muted);
+}
+
+/* Swap ? light consistency only */
+.swapCardCentered.card {
+  border: 1px solid rgba(124, 197, 255, 0.14);
+  background:
+    linear-gradient(165deg, rgba(14, 40, 78, 0.72) 0%, rgba(6, 18, 42, 0.9) 100%);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.28),
+    inset 0 0 0 1px rgba(124, 197, 255, 0.05);
+}
+
+.swapTitle {
+  color: #ffffff;
+  font-weight: 750;
+}
+
+.swapBox {
+  background: rgba(0, 8, 24, 0.42);
+  border: 1px solid rgba(124, 197, 255, 0.14);
+  border-radius: 16px;
+}
+
+.swapBox:hover {
+  background: rgba(12, 32, 64, 0.55);
+  border-color: rgba(124, 197, 255, 0.28);
+}
+
+.swapBox:focus-within {
+  border-color: rgba(94, 240, 255, 0.5);
+  box-shadow: 0 0 0 3px rgba(46, 110, 246, 0.18);
+}
+
+.swapInput {
+  color: #ffffff;
+}
+
+.tokenBalanceHint {
+  color: var(--muted) !important;
+  opacity: 1;
+}
+
+/* Pools ? light consistency */
+.poolCard.neon-card,
+.positionCard.neon-card,
+.poolCard,
+.positionCard {
+  border: 1px solid rgba(124, 197, 255, 0.14);
+  background:
+    linear-gradient(165deg, rgba(14, 40, 78, 0.72) 0%, rgba(6, 18, 42, 0.9) 100%);
+  border-radius: 16px;
+  color: #f0f4ff;
+}
+
+.poolName,
+.positionHeader {
+  color: #ffffff;
+}
+
+.poolStat,
+.positionStat {
+  color: var(--muted);
+}
+
+.poolStat strong,
+.positionStat strong,
+.poolStat span:last-child,
+.positionStat span:last-child {
+  color: #ffffff;
+}
+
+/* Landing ? light continuity */
+.landingHeroSection h1 {
+  color: #ffffff;
+}
+
+.landingHeroSubcopy,
+.landingWhySection > p,
+.landingFlowCopy p {
+  color: var(--muted) !important;
+}
+
+.landingActionTile {
+  border: 1px solid rgba(124, 197, 255, 0.16);
+  background:
+    linear-gradient(165deg, rgba(14, 40, 78, 0.75) 0%, rgba(6, 18, 42, 0.92) 100%);
+  box-shadow: inset 0 0 0 1px rgba(124, 197, 255, 0.05);
+}
+
+.landingActionTile strong {
+  color: #ffffff;
+}
+
+.landingActionTile p {
+  color: var(--muted) !important;
+}
+
+.landingActionCta {
+  background: linear-gradient(90deg, #2ec4ff, #1b6ef6);
+  color: #ffffff;
+  box-shadow: 0 8px 22px rgba(46, 110, 246, 0.3);
+}
+
+.landingStatCard {
+  border: 1px solid rgba(124, 197, 255, 0.14);
+  background: rgba(0, 8, 24, 0.4);
+}
+
+.landingStatCard span {
+  color: var(--muted) !important;
+}
+
+.landingStatCard strong {
+  color: #ffffff !important;
+}
+
+/* PrivPay access / panels / empty / claim finish */
+.privpayAccessCard {
+  padding: 18px 20px;
+  border-radius: 16px;
+  border: 1px solid rgba(124, 197, 255, 0.16);
+  background:
+    linear-gradient(165deg, rgba(14, 40, 78, 0.8) 0%, rgba(6, 18, 42, 0.92) 100%);
+  color: #f0f4ff;
+}
+
+.privpayProSub,
+.privpayProHint,
+.privpayFinePrint,
+.privpayPanelDesc,
+.privpayFormSubtitle,
+.privpayUpgradeLead {
+  color: var(--muted) !important;
+}
+
+.privpayPanelTitle,
+.privpaySectionTitle,
+.privpayFormTitle,
+.privpayProHeading {
+  color: #ffffff !important;
+}
+
+.privpayBrandMark {
+  color: var(--accent) !important;
+}
+
+.privpayUpgradeCard {
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(124, 197, 255, 0.18);
+  background: rgba(0, 8, 24, 0.45);
+}
+
+.privpayPlaceholderCard {
+  padding: 28px;
+  border-radius: 20px;
+  border: 1px solid rgba(124, 197, 255, 0.28);
+}
+
+.privpayPlaceholderInner {
+  border-radius: 16px;
+  padding: 28px 20px;
+}
+
+.privpayPlaceholderInner h2 {
+  color: #ffffff;
+}
+
+.privpayPlaceholderInner p {
+  color: var(--muted);
+  letter-spacing: 0.12em;
+}
+
+.billsHistoryCard .historyList,
+.payrollDashboardCard .historyList,
+.billsListCard .historyList {
+  margin-top: 4px;
+}
+
+.billsWrap .quote,
+.billsOk {
+  color: #6ff3c5 !important;
+}
+
+.billsErr,
+.privpayUpgradeError,
+.claimQrError {
+  color: #ff9c9c !important;
+}
+
+.claimInputModeBtn.secondaryBtn {
+  border-radius: 12px !important;
+  min-height: 44px;
+}
+
+.claimInputModeBtnActive {
+  border-color: rgba(124, 197, 255, 0.65) !important;
+  background: rgba(46, 110, 246, 0.22) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 0 1px rgba(124, 197, 255, 0.2) inset;
+}
+
+.claimQrHint,
+.claimQrPrefillNote,
+.receiptQrCaption,
+.receiptClaimHead {
+  color: var(--muted) !important;
+}
+
+.claimQrReadingHint {
+  color: #7cc5ff !important;
+}
+
+.poolClaimTextarea.privpayInput,
+textarea.privpayInput {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  border-radius: 14px !important;
+  padding: 14px !important;
+  min-height: 5rem !important;
+}
+
+.receiptClaimCode {
+  border: 1px solid rgba(124, 197, 255, 0.22);
+  background: rgba(0, 8, 24, 0.65);
+  color: #ffffff;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.receiptClaimCode:focus {
+  outline: none;
+  border-color: rgba(94, 240, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(46, 110, 246, 0.22);
+}
+
+.payrollKpiAction.active,
+.payrollKpiAction:hover {
+  border-color: rgba(124, 197, 255, 0.55);
+  background: rgba(46, 110, 246, 0.12);
+  box-shadow: 0 0 0 1px rgba(67, 132, 255, 0.3) inset;
+}
+
+.billsStealthAddr {
+  color: var(--muted) !important;
+  word-break: break-all;
+}
+
+.historyHeaderRow .billsSectionTitle {
+  margin-bottom: 0;
+}
+
+.tabBtn {
+  border: 1px solid rgba(124, 197, 255, 0.16);
+  color: var(--muted);
+  border-radius: 12px;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.tabBtn:hover {
+  color: #ffffff;
+  border-color: rgba(158, 220, 255, 0.35);
+}
+
+.tabBtn.active {
+  background: linear-gradient(90deg, rgba(46, 156, 255, 0.4), rgba(27, 110, 246, 0.6));
+  border-color: rgba(124, 197, 255, 0.55);
+  color: #ffffff;
+  box-shadow: 0 8px 20px rgba(46, 110, 246, 0.22);
+}
+
+/* Soften outer wide-card hover lift on PrivPay / Profile shells */
+.swapCardCentered.privpayWideCard.card:hover {
+  transform: none;
+}
+
+@media (max-width: 900px) {
+  .billsCreateCard,
+  .billsListCard,
+  .billsHistoryCard,
+  .payrollDashboardCard,
+  .receiptModal {
+    padding: 20px;
+  }
+
+  .privpayModuleSwitchRow {
+    padding: 8px;
+  }
+
+  .mobilePrivpaySectionTab {
+    min-height: 44px;
+  }
+}
+
+/* Phones: win over the ?900 padding rule so 480px stays ~18?20px premium, not squeezed */
+@media (max-width: 480px) {
+  .billsCreateCard,
+  .billsListCard,
+  .billsHistoryCard,
+  .payrollDashboardCard {
+    padding: 18px 16px;
+  }
+
+  .receiptModal {
+    padding: 18px 16px;
+  }
+
+  .claimInputModeBtn {
+    min-height: 44px;
+    padding: 12px 8px;
+    font-size: 13px;
+  }
+}
+.privpayEmptyState {
+  margin: 8px 0 0 !important;
+  padding: 36px 20px !important;
+  text-align: center;
+  border-radius: 14px;
+  border: 1px dashed rgba(124, 197, 255, 0.22);
+  background: rgba(0, 8, 24, 0.28);
+  color: var(--muted) !important;
+  font-size: 0.92rem !important;
+  line-height: 1.5;
+}
+
+.billsItem strong {
+  color: #ffffff !important;
+  font-weight: 750;
+  font-size: 0.98rem;
+}
+
+.billsItem .billsNext,
+.billsItemTop > div:last-child {
+  font-variant-numeric: tabular-nums;
+}
+
+.privpaySegmentRow {
+  border: 1px solid rgba(124, 197, 255, 0.12);
+  background: rgba(0, 8, 24, 0.4);
+  border-radius: 14px;
+  padding: 5px;
+  gap: 5px;
+}
+
+.billsWrap .primaryBtn:not(.billsPayBtn) {
+  box-shadow: 0 10px 28px rgba(46, 110, 246, 0.32);
+}
+
+/* =============================================================================
+   POOLS ? premium parity with PrivPay / Profile (visual only)
+   ============================================================================= */
+
+.poolsTabRoot {
+  width: 100%;
+  color: #f0f4ff;
+  text-align: left;
+}
+
+.poolsTabRoot .muted {
+  color: var(--muted) !important;
+}
+
+.poolsModuleSwitchRow {
+  margin-bottom: 20px;
+  justify-content: stretch;
+}
+
+.poolsPrimaryPills {
+  display: flex !important;
+  width: 100%;
+  gap: 8px;
+}
+
+.poolsPrimaryPills .privpayModulePill {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.poolsTabBody {
+  width: 100%;
+}
+
+.poolsPositionsView {
+  width: 100%;
+  color: #f0f4ff;
+}
+
+.poolsSectionTitle {
+  margin: 0 0 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(124, 197, 255, 0.12);
+  font-size: 1.25rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  color: #ffffff !important;
+  text-align: left;
+}
+
+.poolsEmptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.poolsEmptyState .privpayEmptyState {
+  margin: 0 !important;
+}
+
+.poolsPositionsGrid {
+  /* same auto-fit grid as All Pools */
+  margin-top: 0;
+}
+
+/* Shared card surface ? All Pools + My Positions */
+.poolsTabRoot .poolCard,
+.poolsTabRoot .poolsPositionCard {
+  padding: 22px 24px !important;
+  margin-bottom: 0 !important;
+  border: 1px solid rgba(124, 197, 255, 0.14) !important;
+  border-radius: 16px !important;
+  background:
+    linear-gradient(165deg, rgba(12, 36, 72, 0.72) 0%, rgba(5, 16, 38, 0.9) 100%) !important;
+  box-shadow: inset 0 0 0 1px rgba(124, 197, 255, 0.05);
+  transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  transform: none !important;
+  color: #f0f4ff !important;
+}
+
+.poolsTabRoot .poolCard:hover,
+.poolsTabRoot .poolsPositionCard:hover {
+  transform: none !important;
+  background: rgba(80, 145, 255, 0.08) !important;
+  border-color: rgba(124, 197, 255, 0.28) !important;
+  box-shadow:
+    0 0 0 1px rgba(124, 197, 255, 0.12) inset,
+    0 12px 28px rgba(46, 110, 246, 0.18);
+}
+
+.poolsTabRoot .poolHeader {
+  margin-bottom: 16px;
+  align-items: center;
+  gap: 12px;
+}
+
+.poolsTabRoot .poolHeaderDivided {
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(124, 197, 255, 0.12);
+}
+
+.poolsTabRoot .poolName {
+  font-size: 1.1rem;
+  font-weight: 750;
+  color: #ffffff !important;
+}
+
+.poolTokenBadge {
+  width: 36px !important;
+  height: 36px !important;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+.poolTokenBadgeOverlap {
+  margin-left: -10px;
+  z-index: 0;
+  -webkit-mask-image: radial-gradient(circle at -4px center, transparent 12px, black 13px);
+  mask-image: radial-gradient(circle at -4px center, transparent 12px, black 13px);
+}
+
+.poolTokenBadgeImg {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
+.poolsTabRoot .poolLiquidity {
+  padding: 14px 16px !important;
+  border-radius: 14px !important;
+  margin-bottom: 14px !important;
+  background: rgba(0, 8, 24, 0.38) !important;
+  border: 1px solid rgba(124, 197, 255, 0.12) !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+
+.poolsTabRoot .poolLiquidity:hover {
+  opacity: 1 !important;
+  box-shadow: none !important;
+  background: rgba(0, 12, 32, 0.48) !important;
+  border-color: rgba(124, 197, 255, 0.2) !important;
+}
+
+.poolsTabRoot .liquidityTitle {
+  font-size: 0.72rem !important;
+  font-weight: 750 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  margin-bottom: 10px !important;
+  color: var(--muted) !important;
+}
+
+.poolsTabRoot .liquidityRow {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  gap: 12px;
+  padding: 8px 0 !important;
+  margin-bottom: 0 !important;
+  border-bottom: 1px solid rgba(124, 197, 255, 0.08);
+  font-size: 0.95rem !important;
+  color: #f0f4ff !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.poolsTabRoot .liquidityRow:last-child {
+  border-bottom: none;
+  padding-bottom: 0 !important;
+}
+
+.poolsTabRoot .liquidityRow span {
+  color: var(--muted) !important;
+  font-weight: 650;
+  font-size: 0.95rem !important;
+}
+
+.poolsTabRoot .liquidityRow strong {
+  color: #ffffff !important;
+  font-weight: 750 !important;
+  font-size: 0.95rem !important;
+  text-align: right;
+}
+
+.poolsTabRoot .poolStat,
+.poolsTabRoot .poolStatFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0 14px;
+  margin-bottom: 0;
+  border-top: 1px solid rgba(124, 197, 255, 0.12);
+  font-size: 0.92rem;
+  color: var(--muted) !important;
+}
+
+.poolsTabRoot .poolStat strong,
+.poolsTabRoot .poolStatFooter strong {
+  color: #ffffff !important;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.poolsTxActions {
+  display: flex;
+  align-items: stretch;
+  margin-top: 2px;
+  gap: 10px;
+}
+
+.poolsPrimaryAction.primaryBtn,
+.poolsTabRoot .primaryBtn.poolsPrimaryAction {
+  width: 100% !important;
+  margin-top: 0 !important;
+  min-height: 48px !important;
+  height: auto !important;
+  padding: 14px 16px !important;
+  border-radius: 14px !important;
+  font-size: 0.95rem !important;
+  font-weight: 750 !important;
+  line-height: 1.2 !important;
+  background: linear-gradient(90deg, #2ec4ff, #1b6ef6) !important;
+  box-shadow: 0 10px 28px rgba(46, 110, 246, 0.35) !important;
+  color: #ffffff !important;
+}
+
+.poolsSecondaryAction.secondaryBtn {
+  width: 100% !important;
+  margin-top: 0 !important;
+  min-height: 48px !important;
+  height: auto !important;
+  padding: 14px 16px !important;
+  border-radius: 14px !important;
+  font-size: 0.95rem !important;
+  font-weight: 750 !important;
+  line-height: 1.2 !important;
+  background: rgba(124, 197, 255, 0.08) !important;
+  border: 1px solid rgba(124, 197, 255, 0.28) !important;
+  color: #d8ecff !important;
+  box-shadow: none !important;
+}
+
+.poolsSecondaryAction.secondaryBtn:hover:not(:disabled) {
+  background: rgba(124, 197, 255, 0.16) !important;
+  border-color: rgba(158, 220, 255, 0.45) !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+}
+
+.poolsPositionCard .poolsTxActions .poolsPrimaryAction,
+.poolsPositionCard .poolsTxActions .poolsSecondaryAction {
+  width: auto !important;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.poolsStatsGrid {
+  margin: 0 0 22px 0 !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  gap: 14px !important;
+}
+
+.poolStatCard {
+  padding: 18px 20px;
+  border-radius: 16px;
+  border: 1px solid rgba(124, 197, 255, 0.14);
+  background: rgba(0, 8, 24, 0.4);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: inset 0 0 0 1px rgba(124, 197, 255, 0.05);
+}
+
+.poolStatCardChart {
+  justify-content: flex-start;
+  min-height: 0;
+}
+
+.poolStatSpark {
+  width: 100%;
+  height: 56px;
+  margin-top: 4px;
+  pointer-events: none;
+}
+
+.poolStatSpark .recharts-wrapper,
+.poolStatSpark .recharts-surface {
+  outline: none;
+}
+
+.poolStatLabel {
+  font-size: 0.72rem !important;
+  font-weight: 750 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  color: var(--muted) !important;
+  margin: 0 !important;
+}
+
+.poolStatValue {
+  font-size: 1.65rem;
+  font-weight: 800;
+  line-height: 1.15;
+  color: #ffffff !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.poolStatValueAccent {
+  color: #3dff9a !important;
+  text-shadow: 0 0 22px rgba(61, 255, 154, 0.25);
+}
+
+.poolsGrid {
+  gap: 16px;
+}
+
+.poolsOnchainNote {
+  margin: 20px 0 0 !important;
+  text-align: center;
+  font-size: 0.84rem;
+  font-style: italic;
+  color: var(--muted) !important;
+}
+
+@media (max-width: 768px) {
+  .poolsTabRoot .poolCard,
+  .poolsTabRoot .poolsPositionCard {
+    padding: 18px 16px !important;
+  }
+
+  .poolsPrimaryAction.primaryBtn,
+  .poolsSecondaryAction.secondaryBtn {
+    min-height: 44px !important;
+  }
+
+  .poolsPrimaryPills .privpayModulePill {
+    min-height: 44px;
+    width: auto !important;
+  }
+
+  .poolStatValue {
+    font-size: 1.4rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .poolsModuleSwitchRow {
+    padding: 8px;
+  }
+
+  .poolsPrimaryPills {
+    flex-direction: column;
+  }
+
+  .poolsPrimaryPills .privpayModulePill {
+    width: 100% !important;
+    min-height: 44px;
+  }
+
+  .poolsPositionCard .poolsTxActions {
+    flex-direction: column;
+  }
+
+  .poolsPositionCard .poolsTxActions .poolsPrimaryAction,
+  .poolsPositionCard .poolsTxActions .poolsSecondaryAction {
+    width: 100% !important;
+  }
+
+  .poolStatCard {
+    padding: 16px;
   }
 }

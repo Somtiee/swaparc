@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ethers } from "ethers";
+import { AreaChart, Area, ResponsiveContainer, YAxis } from "recharts";
 import { Point, utils as secpUtils } from "@noble/secp256k1";
 import logo from "./assets/swaparc-logo.png";
 import usdcLogo from "./assets/usdc.jpg";
@@ -153,6 +154,30 @@ function formatNativeGasUsdc(wei) {
   return `${rounded} USDC`;
 }
 
+/**
+ * Format a human token amount for display.
+ * CircBTC (and tokens with decimals > 6) keep up to 8 fractional digits so
+ * scarce amounts like 0.00001 are not rounded to 0.
+ */
+function formatTokenAmount(amount, decimals = 6, symbol = "") {
+  const n = typeof amount === "number" ? amount : Number(amount);
+  if (!Number.isFinite(n)) return String(amount ?? "");
+  if (n === 0) return "0";
+
+  const dec = Number(decimals);
+  const symU = String(symbol || "").toUpperCase();
+  const highPrecision =
+    symU === "CIRCBTC" || (Number.isFinite(dec) && dec > 6);
+  const maxFrac = highPrecision
+    ? Math.min(8, Number.isFinite(dec) && dec > 0 ? dec : 8)
+    : Math.min(4, Number.isFinite(dec) && dec > 0 ? dec : 4);
+
+  const fixed = n.toFixed(maxFrac);
+  // Trim trailing zeros, keep leading "0." for fractions.
+  const trimmed = fixed.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  return trimmed === "-0" ? "0" : trimmed;
+}
+
 /** Same intent as Bills Pay Now guard - shown inline in Payroll Upcoming runs. */
 const PAYROLL_MANUAL_PAY_RECURRING_MSG =
   "Please toggle Recurring off to use Pay Now. While Recurring is on, payments run automatically on schedule.";
@@ -186,7 +211,102 @@ const POOLS = [
     poolAddress: "0x9463DE67E73B42B2cE5e45cab7e32184B9c24939",
     lpToken: "0xb81816d4fBB3D33b56c3efc04675d1cDed0f68b1",
   },
+  {
+    id: "usdc-circbtc",
+    name: "USDC / CircBTC",
+    tokens: ["USDC", "CircBTC"],
+    poolAddress: "0xa9DcE051b330E79150D0437921C63c498CC1bE91",
+    lpToken: "0x95BD0bB6a929f75872C1e1176c4B8Cb9B3e633a2",
+  },
+  {
+    id: "eurc-circbtc",
+    name: "EURC / CircBTC",
+    tokens: ["EURC", "CircBTC"],
+    poolAddress: "0xB725B7D06dCAeD7F13A9b7bEc63A98978079CeEE",
+    lpToken: "0x8a44c2Af504B1646a279b959d62FA915D13e0F18",
+  },
+  {
+    id: "swprc-circbtc",
+    name: "SWPRC / CircBTC",
+    tokens: ["SWPRC", "CircBTC"],
+    poolAddress: "0x49C7117FB670f387B5BA9e4Ea174Ae60cA384055",
+    lpToken: "0x089b4F57a841338cfb7EB0aF431F5b872AC31B1b",
+  },
 ];
+
+const POOLS_TVL_SPARK_KEY = "swaparc_pools_tvl_spark_v1";
+const POOLS_LP_SPARK_KEY_PREFIX = "swaparc_pools_lp_spark_v1:";
+const POOLS_SPARK_MAX_POINTS = 48;
+const POOLS_SPARK_MIN_INTERVAL_MS = 30_000;
+
+function loadPoolsSparkSeries(storageKey) {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((p) => ({
+        v: Number(p?.v),
+        t: Number(p?.t) || 0,
+      }))
+      .filter((p) => Number.isFinite(p.v) && p.v >= 0);
+  } catch {
+    return [];
+  }
+}
+
+function appendPoolsSparkSample(storageKey, value, prevSeries) {
+  const v = Number(value);
+  if (!Number.isFinite(v) || v < 0) return prevSeries;
+  const now = Date.now();
+  const last = prevSeries[prevSeries.length - 1];
+  if (last) {
+    const dt = now - (last.t || 0);
+    const dv = Math.abs(Number(last.v) - v);
+    // Skip near-duplicate samples unless enough time passed or value moved.
+    if (dv < 0.05 && dt < POOLS_SPARK_MIN_INTERVAL_MS) return prevSeries;
+    if (dv < 0.01 && dt < 5_000) return prevSeries;
+  }
+  const next = [...prevSeries, { v, t: now }].slice(-POOLS_SPARK_MAX_POINTS);
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(next));
+  } catch {
+    // ignore quota / private mode
+  }
+  return next;
+}
+
+/** Chart series from real samples; flat real line when history is thin. */
+function poolsSparkChartData(history, currentValue) {
+  const current = Number(currentValue);
+  const safeCurrent = Number.isFinite(current) && current >= 0 ? current : 0;
+  if (!history.length) {
+    return [
+      { v: safeCurrent },
+      { v: safeCurrent },
+      { v: safeCurrent },
+      { v: safeCurrent },
+    ];
+  }
+  if (history.length === 1) {
+    const only = Number(history[0].v) || 0;
+    return [{ v: only }, { v: only }, { v: safeCurrent }, { v: safeCurrent }];
+  }
+  return history.map((p) => ({ v: Number(p.v) || 0 }));
+}
+
+function poolsSparkYDomain(data) {
+  const vals = (data || []).map((d) => Number(d.v)).filter((n) => Number.isFinite(n));
+  if (!vals.length) return [0, 1];
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  if (max === min) {
+    const pad = max === 0 ? 1 : Math.abs(max) * 0.08 || 1;
+    return [Math.max(0, min - pad), max + pad];
+  }
+  return [min, max];
+}
 
 const LP_ABI = [
   "function balanceOf(address) view returns (uint256)",
@@ -310,6 +430,12 @@ const INITIAL_TOKENS = [
     decimals: 8,
   },
 ];
+
+function tokenDecimalsForSymbol(symbol) {
+  const t = INITIAL_TOKENS.find((x) => x.symbol === symbol);
+  if (t?.decimals != null) return Number(t.decimals);
+  return String(symbol || "").toUpperCase() === "CIRCBTC" ? 8 : 6;
+}
 
 const BILL_NAME_PRESETS = [
   "Rent",
@@ -1028,9 +1154,15 @@ export default function SwaparcApp() {
   const [lpCacheHydrated, setLpCacheHydrated] = useState(false);
   const lastLpCacheWalletRef = useRef(null);
   const lpPersistedValueRef = useRef(null);
+  /** True after the first on-chain LP amounts fetch for this session (allows persisting 0). */
+  const lpAmountsReadyRef = useRef(false);
   const [liquiditySuccess, setLiquiditySuccess] = useState(null);
   const [lpDecimals, setLpDecimals] = useState(18);
   const [poolBalances, setPoolBalances] = useState({});
+  const [poolsTvlSparkHistory, setPoolsTvlSparkHistory] = useState(() =>
+    loadPoolsSparkSeries(POOLS_TVL_SPARK_KEY)
+  );
+  const [poolsLpSparkHistory, setPoolsLpSparkHistory] = useState([]);
   const [status, setStatus] = useState("Not connected");
   const [balances, setBalances] = useState({});
   const [tokens, setTokens] = useState(INITIAL_TOKENS);
@@ -1041,11 +1173,13 @@ export default function SwaparcApp() {
     USDC: "",
     EURC: "",
     SWPRC: "",
+    CircBTC: "",
   });
   const [myDeposits, setMyDeposits] = useState({
     USDC: 0,
     EURC: 0,
     SWPRC: 0,
+    CircBTC: 0,
   });
 
   const [liqLoading, setLiqLoading] = useState(false);
@@ -1627,6 +1761,15 @@ export default function SwaparcApp() {
   const [leaderboardTab, setLeaderboardTab] = useState("swaps");
   const [portfolioValue, setPortfolioValue] = useState(0);
   const [tokenPrices, setTokenPrices] = useState({});
+  const [profileSendOpen, setProfileSendOpen] = useState(false);
+  const [profileSendSymbol, setProfileSendSymbol] = useState("USDC");
+  const [profileSendAmount, setProfileSendAmount] = useState("");
+  const [profileSendTo, setProfileSendTo] = useState("");
+  const [profileSendBusy, setProfileSendBusy] = useState(false);
+  const [profileSendError, setProfileSendError] = useState("");
+  const [profileSendStatus, setProfileSendStatus] = useState("");
+  /** On-chain ERC-20 available (human string) — preferred over display balances for Max/checks. */
+  const [profileSendAvailable, setProfileSendAvailable] = useState("");
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailStep, setEmailStep] = useState(1);
   const [emailInput, setEmailInput] = useState("");
@@ -3539,17 +3682,21 @@ export default function SwaparcApp() {
   const displayPortfolioValue =
     calculatedPortfolioValue + calculatedLpTotalValue;
 
-  // Persist LP Value (no wallet signature — value is derived from on-chain reads)
+  // Persist LP Value (no wallet signature — value is derived from on-chain reads).
+  // Writes 0 when LP is cleared, but only after the first LP amounts fetch completes
+  // so a pre-fetch empty state does not wipe a valid server value.
   useEffect(() => {
-    if (calculatedLpTotalValue <= 0 || !userId) return;
+    if (!userId) return;
+    if (!lpAmountsReadyRef.current) return;
+    const next = Number(calculatedLpTotalValue) || 0;
     const prev = Number(profileStats?.lpProvided || 0);
-    if (Math.abs(prev - calculatedLpTotalValue) <= 0.01) return;
-    if (lpPersistedValueRef.current === calculatedLpTotalValue) return;
-    lpPersistedValueRef.current = calculatedLpTotalValue;
+    if (Math.abs(prev - next) <= 0.01) return;
+    if (lpPersistedValueRef.current === next) return;
+    lpPersistedValueRef.current = next;
 
     setProfileStats((prevStats) => ({
       ...prevStats,
-      lpProvided: calculatedLpTotalValue,
+      lpProvided: next,
     }));
 
     fetch("/api/profile/updateLp", {
@@ -3557,18 +3704,197 @@ export default function SwaparcApp() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         userId,
-        lpTotalValue: calculatedLpTotalValue,
+        lpTotalValue: next,
       }),
     }).catch(console.error);
   }, [calculatedLpTotalValue, userId, profileStats?.lpProvided]);
 
+  // Real Pools sparklines: sample live TVL / LP USD into local history (not mock).
+  useEffect(() => {
+    const keys = Object.keys(poolBalances || {});
+    if (!keys.length) return;
+    const tvlNow = keys.reduce((sum, id) => sum + Number(poolBalances[id] || 0), 0);
+    if (!Number.isFinite(tvlNow)) return;
+    setPoolsTvlSparkHistory((prev) =>
+      appendPoolsSparkSample(POOLS_TVL_SPARK_KEY, tvlNow, prev)
+    );
+  }, [poolBalances]);
+
+  useEffect(() => {
+    const owner = String(getActiveWalletAddress() || "").toLowerCase();
+    const storageKey = `${POOLS_LP_SPARK_KEY_PREFIX}${owner || "none"}`;
+    if (!owner) {
+      setPoolsLpSparkHistory([]);
+      return;
+    }
+    setPoolsLpSparkHistory(loadPoolsSparkSeries(storageKey));
+  }, [address, circleWallet?.address, authMode, circleWalletReady]);
+
+  useEffect(() => {
+    const owner = String(getActiveWalletAddress() || "").toLowerCase();
+    if (!owner) return;
+    const storageKey = `${POOLS_LP_SPARK_KEY_PREFIX}${owner}`;
+    const lpNow = Number(calculatedLpTotalValue) || 0;
+    // Always record, including 0 — so empty LP shows a flat real line, not a fake uptrend.
+    setPoolsLpSparkHistory((prev) => appendPoolsSparkSample(storageKey, lpNow, prev));
+  }, [calculatedLpTotalValue, address, circleWallet?.address, authMode, circleWalletReady]);
+
+  const poolsTvlSparkChartData = useMemo(() => {
+    const tvlNow = Object.values(poolBalances || {}).reduce(
+      (sum, v) => sum + Number(v || 0),
+      0
+    );
+    return poolsSparkChartData(poolsTvlSparkHistory, tvlNow);
+  }, [poolsTvlSparkHistory, poolBalances]);
+
+  const poolsLpSparkChartData = useMemo(
+    () => poolsSparkChartData(poolsLpSparkHistory, calculatedLpTotalValue),
+    [poolsLpSparkHistory, calculatedLpTotalValue]
+  );
+
+  const poolsTvlSparkDomain = useMemo(
+    () => poolsSparkYDomain(poolsTvlSparkChartData),
+    [poolsTvlSparkChartData]
+  );
+
+  const poolsLpSparkDomain = useMemo(
+    () => poolsSparkYDomain(poolsLpSparkChartData),
+    [poolsLpSparkChartData]
+  );
+
   // Badge Logic (Memoized)
-  // STRICT LOCK: frontend must never recompute badge eligibility from
+  // STRICT LOCK: Early Swaparcer frontend must never recompute eligibility from
   // swap/volume/LP thresholds. Snapshot-backed server access state
   // (privpayAccess.isEarlySwaparcer) is the single source of truth.
   const badgeState = useMemo(() => {
-    return { earlySwaparcer: !!privpayAccess?.isEarlySwaparcer };
-  }, [privpayAccess?.isEarlySwaparcer]);
+    const earlySwaparcer = !!privpayAccess?.isEarlySwaparcer;
+
+    // Elite Swaparcer — unlock when at least 2 of 4 conditions are met.
+    // Sticky flag (profile.badges / localStorage) keeps it permanent once earned.
+    const has100Swaps = (profileStats?.swapCount || 0) >= 100;
+    const has10kVolume = (profileStats?.swapVolume || 0) >= 10000;
+    const poolsWithLp = Object.values(lpBalances || {}).filter(
+      (v) => Number(v) > 0
+    ).length;
+    const has2PoolsAnd1k =
+      poolsWithLp >= 2 && (calculatedLpTotalValue || 0) >= 1000;
+
+    // Best-effort recurring count: successful PrivPay bill + payroll history
+    // rows (manual + autopay). Explicit failures/retries are excluded; there
+    // is no separate "recurring-only" counter in client state today.
+    const recurringCount = [
+      ...(billHistory || []),
+      ...(payrollHistory || []),
+    ].filter((e) => {
+      const s = String(e?.status || "").toLowerCase();
+      if (s === "failed" || s === "retry") return false;
+      return (
+        Boolean(e?.txHash) ||
+        s === "success" ||
+        s === "settled" ||
+        s.startsWith("submitted")
+      );
+    }).length;
+    const has20Recurring = recurringCount >= 20;
+
+    const completed = [
+      has100Swaps,
+      has10kVolume,
+      has2PoolsAnd1k,
+      has20Recurring,
+    ].filter(Boolean).length;
+
+    const badgesObj =
+      profileStats?.badges &&
+      typeof profileStats.badges === "object" &&
+      !Array.isArray(profileStats.badges)
+        ? profileStats.badges
+        : {};
+    let stickyElite = badgesObj.eliteSwaparcer === true;
+    if (!stickyElite) {
+      try {
+        const owner = String(getActiveWalletAddress() || "").toLowerCase();
+        if (owner) {
+          stickyElite =
+            window.localStorage.getItem(`swaparc_badge_elite:${owner}`) === "1";
+        }
+      } catch {
+        // ignore storage errors
+      }
+    }
+    const eliteSwaparcer = stickyElite || completed >= 2;
+
+    return { earlySwaparcer, eliteSwaparcer, eliteCompleted: completed };
+  }, [
+    privpayAccess?.isEarlySwaparcer,
+    profileStats?.swapCount,
+    profileStats?.swapVolume,
+    profileStats?.badges,
+    lpBalances,
+    calculatedLpTotalValue,
+    billHistory,
+    payrollHistory,
+    address,
+    circleWallet?.address,
+    authMode,
+    circleWalletReady,
+  ]);
+
+  // Persist Elite Swaparcer sticky flag once earned (never cleared).
+  useEffect(() => {
+    if (!badgeState.eliteSwaparcer) return;
+    const owner = String(getActiveWalletAddress() || "").toLowerCase();
+    if (!owner) return;
+
+    try {
+      window.localStorage.setItem(`swaparc_badge_elite:${owner}`, "1");
+    } catch {
+      // ignore
+    }
+
+    const badgesObj =
+      profileStats?.badges &&
+      typeof profileStats.badges === "object" &&
+      !Array.isArray(profileStats.badges)
+        ? profileStats.badges
+        : {};
+    if (badgesObj.eliteSwaparcer === true) return;
+
+    setProfileStats((prev) => {
+      if (!prev) return prev;
+      const prevBadges =
+        prev.badges && typeof prev.badges === "object" && !Array.isArray(prev.badges)
+          ? prev.badges
+          : {};
+      if (prevBadges.eliteSwaparcer === true) return prev;
+      return {
+        ...prev,
+        badges: { ...prevBadges, eliteSwaparcer: true },
+      };
+    });
+
+    const uid = userId || owner;
+    if (!uid) return;
+    fetch("/api/profile/updateLp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: uid,
+        lpTotalValue: Number(calculatedLpTotalValue || profileStats?.lpProvided || 0),
+        eliteSwaparcer: true,
+      }),
+    }).catch(() => {});
+  }, [
+    badgeState.eliteSwaparcer,
+    userId,
+    address,
+    circleWallet?.address,
+    authMode,
+    circleWalletReady,
+    calculatedLpTotalValue,
+    profileStats?.lpProvided,
+    profileStats?.badges,
+  ]);
 
   useEffect(() => {
     // Prevent race condition: Only calculate totals AFTER both balances AND prices are available.
@@ -4347,6 +4673,7 @@ export default function SwaparcApp() {
     // Avoid fetching before Circle wallet is actually ready
     if (authMode === "email" && (!circleWalletReady || !circleWallet?.address)) return;
     lastLiquidityRefreshRef.current = userAddr;
+    lpAmountsReadyRef.current = false;
     refreshUserLiquidityData(userAddr).catch((e) =>
       console.warn("Liquidity refresh failed", e)
     );
@@ -4468,6 +4795,7 @@ export default function SwaparcApp() {
   async function fetchLPTokenAmounts(user, provider) {
     const { amounts, totalLpUsd } = await getLpTokenAmountsData(user, provider);
     setLpTokenAmounts(amounts);
+    lpAmountsReadyRef.current = true;
     if (activeTab === "profile") fetchProfile(user);
   }
   async function getOnchainPriceInUSDC(provider, fromSymbol) {
@@ -6564,6 +6892,249 @@ export default function SwaparcApp() {
       throw new Error("Network fee transaction failed on-chain.");
     }
     return tx.hash;
+  }
+
+  function openProfileSend(symbol) {
+    const sym = String(symbol || tokens[0]?.symbol || "USDC");
+    setProfileSendSymbol(sym);
+    setProfileSendAmount("");
+    setProfileSendTo("");
+    setProfileSendError("");
+    setProfileSendStatus("");
+    setProfileSendBusy(false);
+    setProfileSendAvailable("");
+    setProfileSendOpen(true);
+    // Resolve spendable ERC-20 balance (USDC display uses native getBalance elsewhere).
+    (async () => {
+      try {
+        const token =
+          tokens.find((t) => t.symbol === sym) ||
+          INITIAL_TOKENS.find((t) => t.symbol === sym);
+        const walletAddr = getActiveWalletAddress();
+        if (!token?.address || !walletAddr) return;
+        const decimals =
+          token.decimals != null ? Number(token.decimals) : 6;
+        const raw = await readErc20BalanceBestEffort(token.address, walletAddr);
+        setProfileSendAvailable(ethers.formatUnits(raw, decimals));
+      } catch {
+        const fallback = profileSendTokenBalance(sym);
+        setProfileSendAvailable(fallback > 0 ? String(fallback) : "0");
+      }
+    })();
+  }
+
+  function closeProfileSend() {
+    if (profileSendBusy) return;
+    setProfileSendOpen(false);
+    setProfileSendError("");
+    setProfileSendStatus("");
+    setProfileSendAvailable("");
+  }
+
+  function profileSendTokenBalance(symbol) {
+    const raw = balances[symbol];
+    if (raw == null || raw === "n/a") return 0;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function setProfileSendMax() {
+    const token =
+      tokens.find((t) => t.symbol === profileSendSymbol) ||
+      INITIAL_TOKENS.find((t) => t.symbol === profileSendSymbol);
+    const decimals =
+      token?.decimals != null ? Number(token.decimals) : 6;
+    const frac = Math.min(8, Math.max(0, Number.isFinite(decimals) ? decimals : 6));
+    let bal = Number(profileSendAvailable);
+    if (!Number.isFinite(bal) || bal <= 0) {
+      bal = profileSendTokenBalance(profileSendSymbol);
+    }
+    if (!(bal > 0)) {
+      setProfileSendAmount("");
+      return;
+    }
+    try {
+      const units = ethers.parseUnits(
+        bal.toFixed(Math.min(frac, 8)),
+        decimals
+      );
+      setProfileSendAmount(ethers.formatUnits(units, decimals));
+    } catch {
+      setProfileSendAmount(String(bal));
+    }
+  }
+
+  async function submitProfileSend() {
+    if (profileSendBusy) return;
+    setProfileSendError("");
+    setProfileSendStatus("");
+
+    const walletAddr = getActiveWalletAddress();
+    if (!walletAddr) {
+      setProfileSendError("Connect a wallet first.");
+      return;
+    }
+
+    const token =
+      tokens.find((t) => t.symbol === profileSendSymbol) ||
+      INITIAL_TOKENS.find((t) => t.symbol === profileSendSymbol);
+    if (!token?.address) {
+      setProfileSendError("Select a valid token.");
+      return;
+    }
+
+    let recipient;
+    try {
+      recipient = ethers.getAddress(String(profileSendTo || "").trim());
+    } catch {
+      setProfileSendError("Enter a valid recipient address (0x…).");
+      return;
+    }
+    if (recipient.toLowerCase() === String(walletAddr).toLowerCase()) {
+      setProfileSendError("Recipient cannot be your own address.");
+      return;
+    }
+
+    const decimals =
+      token.decimals != null ? Number(token.decimals) : 6;
+    let amountUnits;
+    try {
+      const amtStr = String(profileSendAmount || "").trim();
+      if (!amtStr || Number(amtStr) <= 0) throw new Error("bad amount");
+      amountUnits = ethers.parseUnits(amtStr, decimals);
+    } catch {
+      setProfileSendError("Enter a valid amount.");
+      return;
+    }
+    if (amountUnits <= 0n) {
+      setProfileSendError("Amount must be greater than zero.");
+      return;
+    }
+
+    let balUnits = 0n;
+    try {
+      balUnits = await readErc20BalanceBestEffort(token.address, walletAddr);
+    } catch {
+      try {
+        const human =
+          Number(profileSendAvailable) > 0
+            ? profileSendAvailable
+            : String(profileSendTokenBalance(profileSendSymbol));
+        balUnits = ethers.parseUnits(String(human), decimals);
+      } catch {
+        balUnits = 0n;
+      }
+    }
+    if (amountUnits > balUnits) {
+      setProfileSendError(`Insufficient ${token.symbol} balance.`);
+      return;
+    }
+
+    setProfileSendBusy(true);
+    try {
+      let txHash = null;
+      if (isCircleMode()) {
+        setProfileSendStatus("Preparing Circle confirmation…");
+        const { userToken, walletId } = requireCircleAuth();
+        const initRes = await fetch("/api/circle/enterprise/execute-usdc-transfer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userToken,
+            walletId,
+            to: recipient,
+            amount: String(profileSendAmount).trim(),
+            tokenAddress: token.address,
+            decimals,
+            feeLevel: "MEDIUM",
+            requestTimestampMs: Date.now(),
+            requestNonce: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
+          }),
+        });
+        const initData = await initRes.json().catch(() => ({}));
+        if (!initRes.ok || !initData?.challengeId) {
+          setProfileSendStatus("Confirm transfer in Circle…");
+          const { hash } = await executeCircleContractAction({
+            contractAddress: token.address,
+            abiFunctionSignature: "transfer(address,uint256)",
+            abiParameters: [recipient, amountUnits.toString()],
+            title: `Send ${token.symbol}`,
+            stageLabel: `Send ${token.symbol}`,
+          });
+          txHash = hash;
+        } else {
+          setProfileSendStatus("Confirm transfer in Circle…");
+          const sdkResult = await executeCircleChallengeViaPrompt(
+            initData.challengeId,
+            `Send ${token.symbol}`
+          );
+          txHash = extractCircleSdkTxHash(sdkResult);
+          if (!txHash) {
+            txHash = await waitForCircleTxHash(initData.challengeId, {
+              transactionId: initData.transactionId,
+              maxAttempts: 48,
+            });
+          }
+        }
+        if (!txHash) {
+          throw new Error(
+            "Transfer submitted but no transaction hash yet. Check your wallet activity."
+          );
+        }
+        if (txHash !== "SUBMITTED") {
+          try {
+            await waitForTxBestEffort(txHash, 60000);
+          } catch {
+            // non-blocking
+          }
+        }
+      } else {
+        if (!window?.ethereum) {
+          throw new Error(
+            "No injected wallet found. Open MetaMask/Rabby, or connect via Gmail."
+          );
+        }
+        setProfileSendStatus("Confirm transfer in your wallet…");
+        const signer = await getSigner();
+        const tokenContract = new ethers.Contract(
+          token.address,
+          ERC20_ABI,
+          signer
+        );
+        const { tx } = await sendWalletTxHardened({
+          signer,
+          contract: tokenContract,
+          method: "transfer",
+          args: [recipient, amountUnits],
+          timeoutMs: 120000,
+          txLabel: `Send ${token.symbol}`,
+        });
+        txHash = tx?.hash || null;
+      }
+
+      showToastMessage(
+        txHash && txHash !== "SUBMITTED"
+          ? `Sent ${String(profileSendAmount).trim()} ${token.symbol}`
+          : `${token.symbol} transfer submitted`
+      );
+      setProfileSendOpen(false);
+      setProfileSendAmount("");
+      setProfileSendTo("");
+      setProfileSendStatus("");
+      setProfileSendAvailable("");
+      fetchBalances(walletAddr, getReadProvider()).catch(() => {});
+    } catch (e) {
+      const msg = String(e?.shortMessage || e?.message || e || "Send failed");
+      if (/user rejected|ACTION_REJECTED|denied transaction/i.test(msg)) {
+        setProfileSendError("Wallet rejected the transfer.");
+      } else {
+        setProfileSendError(msg.length > 220 ? "Transfer failed. Please try again." : msg);
+      }
+      setProfileSendStatus("");
+    } finally {
+      setProfileSendBusy(false);
+    }
   }
 
   function csvEscape(value) {
@@ -9636,7 +10207,13 @@ export default function SwaparcApp() {
     const amount =
       percent === 100 ? Number(bal) : Number(bal) * (percent / 100);
 
-    setSwapAmount(amount.toFixed(6));
+    setSwapAmount(
+      formatTokenAmount(
+        amount,
+        tokenDecimalsForSymbol(swapFrom),
+        swapFrom
+      )
+    );
   }
 
   async function ensureArcNetwork() {
@@ -9810,7 +10387,8 @@ export default function SwaparcApp() {
       if (addr === NATIVE_USDC.toLowerCase()) {
         try {
           const raw = await p.getBalance(userAddress);
-          return parseFloat(ethers.formatEther(raw)).toFixed(4);
+          const human = Number(ethers.formatEther(raw));
+          return formatTokenAmount(human, 6, t.symbol || "USDC");
         } catch {
           // fall through
         }
@@ -9821,7 +10399,8 @@ export default function SwaparcApp() {
         t.decimals != null
           ? Number(t.decimals)
           : Number(await tokenContract.decimals().catch(() => 6));
-      return parseFloat(ethers.formatUnits(rawBalance, decimals)).toFixed(4);
+      const human = Number(ethers.formatUnits(rawBalance, decimals));
+      return formatTokenAmount(human, decimals, t.symbol);
     };
 
     const entries = await Promise.all(
@@ -11121,28 +11700,33 @@ export default function SwaparcApp() {
         });
         console.log("[CircleTx] Add Liquidity confirmed:", txHash);
 
+        // Show Done modal immediately; refresh LP data in the background.
         setLiquiditySuccess({
           poolId: activePreset.id,
           type: "add",
           amounts: { ...liqInputs },
           txHash,
         });
-
-        // 3. Post-Action Updates
-        // If txHash is "SUBMITTED" (chain confirmed but not yet indexed), wait before reading
-        // on-chain LP balances - otherwise balanceOf returns 0 immediately.
-        if (!txHash || txHash === "SUBMITTED") {
-          setQuote("Waiting for chain to settle...");
-          await new Promise((r) => setTimeout(r, 6000));
-        }
-        await refreshUserLiquidityData(walletAddr);
-
+        setShowAddLiquidity(false);
+        setPoolsView("positions");
+        setLiqInputs({ USDC: "", EURC: "", SWPRC: "", CircBTC: "" });
         setMyDeposits((prev) => ({
           ...prev,
           USDC: prev.USDC + Number(liqInputs.USDC || 0),
           EURC: prev.EURC + Number(liqInputs.EURC || 0),
           SWPRC: prev.SWPRC + Number(liqInputs.SWPRC || 0),
+          CircBTC: (prev.CircBTC || 0) + Number(liqInputs.CircBTC || 0),
         }));
+
+        void (async () => {
+          // Brief settle only when hash is not yet indexed (was 6000ms).
+          if (!txHash || txHash === "SUBMITTED") {
+            await new Promise((r) => setTimeout(r, 1500));
+          }
+          await refreshUserLiquidityData(walletAddr).catch((e) =>
+            console.warn("[App] Background LP refresh failed:", e)
+          );
+        })();
       } else {
         // --- Injected Wallet Path ---
         const signer = await getSigner();
@@ -11196,41 +11780,30 @@ export default function SwaparcApp() {
         }); 
         
         console.log("Add Liquidity TX submitted:", tx.hash);
-        
-        // Update UI immediately (optimistic)
-        setLiquiditySuccess({
-          poolId: activePreset.id,
-          type: "add",
-          amounts: { ...liqInputs },
-          status: "pending",
-          txHash: tx.hash
-        });
-
-        // sendWalletTxHardened already confirmed or failed explicitly
         console.log("Add Liquidity TX confirmed!");
-      }
 
-      // 4. Post-Action Updates (runs for BOTH Circle and Injected Wallet)
-      await refreshUserLiquidityData(walletAddr);
-      setMyDeposits((prev) => ({
-        ...prev,
-        USDC: prev.USDC + Number(liqInputs.USDC || 0),
-        EURC: prev.EURC + Number(liqInputs.EURC || 0),
-        SWPRC: prev.SWPRC + Number(liqInputs.SWPRC || 0),
-      }));
-
-      // Only set success if not already set by Circle
-      if (!isCircleMode()) {
+        // Show Done modal immediately; refresh LP data in the background.
         setLiquiditySuccess({
           poolId: activePreset.id,
           type: "add",
           amounts: { ...liqInputs },
+          txHash: tx.hash,
         });
+        setShowAddLiquidity(false);
+        setPoolsView("positions");
+        setLiqInputs({ USDC: "", EURC: "", SWPRC: "", CircBTC: "" });
+        setMyDeposits((prev) => ({
+          ...prev,
+          USDC: prev.USDC + Number(liqInputs.USDC || 0),
+          EURC: prev.EURC + Number(liqInputs.EURC || 0),
+          SWPRC: prev.SWPRC + Number(liqInputs.SWPRC || 0),
+          CircBTC: (prev.CircBTC || 0) + Number(liqInputs.CircBTC || 0),
+        }));
+
+        void refreshUserLiquidityData(walletAddr).catch((e) =>
+          console.warn("[App] Background LP refresh failed:", e)
+        );
       }
-      
-      setPoolsView("positions");
-      setShowAddLiquidity(false);
-      setLiqInputs({ USDC: "", EURC: "", SWPRC: "" });
     } catch (err) {
       console.error("[App] Add liquidity failed:", err);
       alert("Add liquidity failed: " + (err.message || err));
@@ -11242,7 +11815,7 @@ export default function SwaparcApp() {
   function closeAddLiquidity() {
     setShowAddLiquidity(false);
     setActivePreset(null);
-    setLiqInputs({ USDC: "", EURC: "", SWPRC: "" });
+    setLiqInputs({ USDC: "", EURC: "", SWPRC: "", CircBTC: "" });
   }
 
   async function handleRemoveLiquidity() {
@@ -11667,6 +12240,187 @@ export default function SwaparcApp() {
         {activeTab !== "landing" ? (
           <Ticker tokens={tokens} prices={prices} />
         ) : null}
+
+        {profileSendOpen && (
+          <div
+            className="profileSendOverlay"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profileSendTitle"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !profileSendBusy) closeProfileSend();
+            }}
+          >
+            <div className="profileSendModal neon-card">
+              <div className="profileSendModalHeader">
+                <h2 id="profileSendTitle">Send</h2>
+                <button
+                  type="button"
+                  className="profileSendCloseBtn"
+                  onClick={closeProfileSend}
+                  disabled={profileSendBusy}
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+
+              <label className="profileSendLabel" htmlFor="profileSendToken">
+                Token
+              </label>
+              <div className="profileSendTokenRow">
+                {TOKEN_LOGOS[profileSendSymbol] ? (
+                  <img
+                    className="profileTokenLogo"
+                    src={TOKEN_LOGOS[profileSendSymbol]}
+                    alt=""
+                  />
+                ) : (
+                  <span className="token-badge profileTokenLogoFallback">
+                    {String(profileSendSymbol || "?").slice(0, 3)}
+                  </span>
+                )}
+                <select
+                  id="profileSendToken"
+                  className="privpayInput profileSendSelect"
+                  value={profileSendSymbol}
+                  disabled={profileSendBusy}
+                  onChange={(e) => {
+                    const sym = e.target.value;
+                    setProfileSendSymbol(sym);
+                    setProfileSendAmount("");
+                    setProfileSendError("");
+                    setProfileSendAvailable("");
+                    (async () => {
+                      try {
+                        const token =
+                          tokens.find((t) => t.symbol === sym) ||
+                          INITIAL_TOKENS.find((t) => t.symbol === sym);
+                        const walletAddr = getActiveWalletAddress();
+                        if (!token?.address || !walletAddr) return;
+                        const decimals =
+                          token.decimals != null ? Number(token.decimals) : 6;
+                        const raw = await readErc20BalanceBestEffort(
+                          token.address,
+                          walletAddr
+                        );
+                        setProfileSendAvailable(
+                          ethers.formatUnits(raw, decimals)
+                        );
+                      } catch {
+                        const fallback = profileSendTokenBalance(sym);
+                        setProfileSendAvailable(
+                          fallback > 0 ? String(fallback) : "0"
+                        );
+                      }
+                    })();
+                  }}
+                >
+                  {tokens.map((t) => (
+                    <option key={`${t.symbol}-${t.address}`} value={t.symbol}>
+                      {t.symbol}
+                      {t.name && t.name !== t.symbol ? ` — ${t.name}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="muted profileSendAvailable">
+                Available:{" "}
+                {profileSendAvailable !== ""
+                  ? Number(profileSendAvailable).toLocaleString(undefined, {
+                      maximumFractionDigits: 8,
+                    })
+                  : "…"}{" "}
+                {profileSendSymbol}
+              </div>
+
+              <label className="profileSendLabel" htmlFor="profileSendAmount">
+                Amount
+              </label>
+              <div className="profileSendAmountShell">
+                <input
+                  id="profileSendAmount"
+                  className="privpayInput profileSendInput"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0.0"
+                  value={profileSendAmount}
+                  disabled={profileSendBusy}
+                  onChange={(e) => {
+                    setProfileSendAmount(e.target.value);
+                    setProfileSendError("");
+                  }}
+                />
+                <button
+                  type="button"
+                  className="profileSendMaxBtn"
+                  onClick={setProfileSendMax}
+                  disabled={profileSendBusy}
+                >
+                  Max
+                </button>
+              </div>
+
+              <label className="profileSendLabel" htmlFor="profileSendTo">
+                Recipient
+              </label>
+              <input
+                id="profileSendTo"
+                className="privpayInput profileSendInput"
+                type="text"
+                placeholder="0x…"
+                value={profileSendTo}
+                disabled={profileSendBusy}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(e) => {
+                  setProfileSendTo(e.target.value);
+                  setProfileSendError("");
+                }}
+              />
+
+              <p className="muted profileSendFeeNote">
+                {isCircleMode()
+                  ? "Confirm in Circle when prompted. Network gas is paid by your Circle wallet."
+                  : "Confirm in your wallet when prompted. Network gas is paid from your connected account."}
+              </p>
+
+              {profileSendStatus ? (
+                <p className="profileSendStatus" role="status">
+                  {profileSendStatus}
+                </p>
+              ) : null}
+              {profileSendError ? (
+                <p className="profileSendError" role="alert">
+                  {profileSendError}
+                </p>
+              ) : null}
+
+              <div className="profileSendActions">
+                <button
+                  type="button"
+                  className="secondaryBtn profileSendCancelBtn"
+                  onClick={closeProfileSend}
+                  disabled={profileSendBusy}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="primaryBtn profileSendConfirmBtn"
+                  onClick={submitProfileSend}
+                  disabled={
+                    profileSendBusy ||
+                    !String(profileSendAmount || "").trim() ||
+                    !String(profileSendTo || "").trim()
+                  }
+                >
+                  {profileSendBusy ? "Sending…" : "Confirm Send"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {showEmailModal && (
           <div
@@ -12151,7 +12905,11 @@ export default function SwaparcApp() {
                 activeTab === "landing"
                   ? "landingSurface"
                   : `card controls neon-card swapCardCentered ${
-                      activeTab === "privpay" ? "privpayWideCard" : ""
+                      activeTab === "privpay" ||
+                      activeTab === "profile" ||
+                      activeTab === "pools"
+                        ? "privpayWideCard"
+                        : ""
                     }`
               }
             >
@@ -12284,64 +13042,31 @@ export default function SwaparcApp() {
                 </div>
               )}
               {activeTab === "profile" && (
-                <div style={{ textAlign: "center", padding: "40px 20px" }}>
-                  <h2>Profile</h2>
+                <div className="profileTabRoot">
+                  <div className="profileTabHeader">
+                    <h2 className="profileTabTitle">Profile</h2>
+                    <p className="profileTabSubtitle muted">
+                      Identity, activity stats and wallet balances
+                    </p>
+                  </div>
 
                   {!(address || authMode === "email") ? (
-                    <div
-                      className="neonPlaceholder"
-                      style={{
-                        marginTop: 40,
-                        padding: "28px 20px",
-                        borderRadius: 12,
-                        border: "1px solid rgba(0,255,255,0.35)",
-                        background: "rgba(0,0,0,0.25)",
-                        boxShadow: "0 10px 30px rgba(0,255,255,0.12)",
-                        maxWidth: 420,
-                        marginLeft: "auto",
-                        marginRight: "auto",
-                        textAlign: "center",
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: "1.05em",
-                          fontWeight: 700,
-                          color: "#cfffff",
-                          letterSpacing: "0.5px",
-                          marginBottom: 20,
-                        }}
-                      >
+                    <div className="neonPlaceholder profileConnectGate">
+                      <div className="profileConnectGateTitle">
                         CONNECT WALLET or LINK YOUR EMAIL to continue
                       </div>
-                      <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                      <div className="profileConnectGateActions">
                         <button
+                          type="button"
+                          className="profileConnectPrimary"
                           onClick={connectWallet}
-                          style={{
-                            padding: "10px 20px",
-                            borderRadius: 999,
-                            border: "none",
-                            background: "linear-gradient(90deg,#00f0ff,#00ffb7)",
-                            color: "#001018",
-                            fontWeight: 700,
-                            cursor: "pointer",
-                            boxShadow: "0 0 18px rgba(0,255,255,0.6), 0 0 40px rgba(0,255,183,0.4)",
-                          }}
                         >
                           Connect Wallet
                         </button>
                         <button
+                          type="button"
+                          className="profileConnectSecondary"
                           onClick={connectGmail}
-                          style={{
-                            padding: "10px 20px",
-                            borderRadius: 999,
-                            border: "1px solid rgba(0,255,255,0.5)",
-                            background: "rgba(0, 20, 40, 0.6)",
-                            color: "#00f0ff",
-                            fontWeight: 700,
-                            cursor: "pointer",
-                            boxShadow: "0 0 15px rgba(0,255,255,0.2)",
-                          }}
                         >
                           Connect via Gmail
                         </button>
@@ -12349,541 +13074,472 @@ export default function SwaparcApp() {
                     </div>
                   ) : (
                     <>
-                      {/* Profile Card (Identity & Stats) */}
-                      {(address || authMode === "email") && (
-                        <div
-                          className="neon-card"
-                          style={{
-                            padding: 20,
-                            marginBottom: 20,
-                            textAlign: "left",
-                          }}
-                        >
-                          {/* Top Section: Identity */}
-                          {profileStats ? (
-                            <div
-                              style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "flex-start",
-                                marginBottom: 25,
-                              }}
-                            >
-                              <div
-                                style={{
-                                  display: "flex",
-                                  gap: 15,
-                                  alignItems: "center",
-                                }}
-                              >
-                                {/* Avatar */}
-                                <div
-                                  onClick={
-                                    isEditingProfile
-                                      ? () => fileInputRef.current?.click()
-                                      : undefined
-                                  }
-                                  style={{
-                                    width: 64,
-                                    height: 64,
-                                    borderRadius: "50%",
-                                    background: (() => {
-                                      const avatarUrl = isEditingProfile
-                                        ? safeAvatarCssUrl(editForm.avatar)
-                                        : safeAvatarCssUrl(profileStats.avatar);
-                                      return avatarUrl
-                                        ? `url(${avatarUrl}) center/cover`
-                                        : "linear-gradient(135deg, #0096ff, #00ffff)";
-                                    })(),
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    border: "2px solid rgba(255,255,255,0.2)",
-                                    boxShadow: "0 4px 15px rgba(0,255,255,0.2)",
-                                    overflow: "hidden",
-                                    position: "relative",
-                                    cursor: isEditingProfile
-                                      ? "pointer"
-                                      : "default",
-                                  }}
-                                >
-                                  <input
-                                    type="file"
-                                    hidden
-                                    ref={fileInputRef}
-                                    accept="image/*"
-                                    onChange={handleFileChange}
-                                  />
-                                  {isEditingProfile && (
-                                    <div
-                                      style={{
-                                        position: "absolute",
-                                        inset: 0,
-                                        background: "rgba(0,0,0,0.4)",
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                      }}
-                                    >
-                                      <span style={{ fontSize: 20 }}>📷</span>
-                                    </div>
-                                  )}
-                                  {!profileStats.avatar &&
-                                    !editForm.avatar &&
-                                    !isEditingProfile && (
-                                      <span style={{ fontSize: 28 }}>👤</span>
-                                    )}
-                                </div>
-
-                                <div>
+                      <div className="profileWorkspace">
+                        {/* Identity card — same data/actions, wider layout shell */}
+                        {(address || authMode === "email") && (
+                          <div className="neon-card profileIdentityCard">
+                            {profileStats ? (
+                              <div className="profileIdentityTop">
+                                <div className="profileIdentityLeft">
                                   <div
+                                    className="profileAvatar"
+                                    onClick={
+                                      isEditingProfile
+                                        ? () => fileInputRef.current?.click()
+                                        : undefined
+                                    }
                                     style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      gap: 10,
+                                      background: (() => {
+                                        const avatarUrl = isEditingProfile
+                                          ? safeAvatarCssUrl(editForm.avatar)
+                                          : safeAvatarCssUrl(profileStats.avatar);
+                                        return avatarUrl
+                                          ? `url(${avatarUrl}) center/cover`
+                                          : "linear-gradient(135deg, #0096ff, #00ffff)";
+                                      })(),
+                                      cursor: isEditingProfile
+                                        ? "pointer"
+                                        : "default",
                                     }}
                                   >
-                                    {isEditingProfile ? (
-                                      <input
-                                        className="swapInput"
-                                        style={{
-                                          padding: "5px 10px",
-                                          fontSize: "1.1em",
-                                          width: 160,
-                                          marginBottom: 5,
-                                        }}
-                                        value={editForm.username}
-                                        onChange={(e) =>
-                                          setEditForm((p) => ({
-                                            ...p,
-                                            username: e.target.value,
-                                          }))
-                                        }
-                                        placeholder="Username"
-                                      />
-                                    ) : (
-                                      <h3
-                                        style={{
-                                          margin: 0,
-                                          fontSize: "1.4em",
-                                          letterSpacing: "0.5px",
-                                        }}
-                                      >
-                                        {profileStats.username || "Anon User"}
-                                      </h3>
+                                    <input
+                                      type="file"
+                                      hidden
+                                      ref={fileInputRef}
+                                      accept="image/*"
+                                      onChange={handleFileChange}
+                                    />
+                                    {isEditingProfile && (
+                                      <div className="profileAvatarEditOverlay">
+                                        <span>📷</span>
+                                      </div>
                                     )}
+                                    {!profileStats.avatar &&
+                                      !editForm.avatar &&
+                                      !isEditingProfile && (
+                                        <span className="profileAvatarFallback">👤</span>
+                                      )}
+                                  </div>
+
+                                  <div className="profileIdentityMeta">
+                                    <div className="profileNameRow">
+                                      {isEditingProfile ? (
+                                        <input
+                                          className="swapInput profileUsernameInput"
+                                          value={editForm.username}
+                                          onChange={(e) =>
+                                            setEditForm((p) => ({
+                                              ...p,
+                                              username: e.target.value,
+                                            }))
+                                          }
+                                          placeholder="Username"
+                                        />
+                                      ) : (
+                                        <h3 className="profileUsername">
+                                          {profileStats.username || "Anon User"}
+                                        </h3>
+                                      )}
+
+                                      <button
+                                        type="button"
+                                        className={
+                                          isEditingProfile
+                                            ? "primaryBtn profileEditBtn"
+                                            : "secondaryBtn profileEditBtn"
+                                        }
+                                        onClick={
+                                          isEditingProfile
+                                            ? saveProfile
+                                            : startEditing
+                                        }
+                                      >
+                                        {isEditingProfile ? "Save" : "Edit"}
+                                      </button>
+                                    </div>
 
                                     <button
-                                      className={
-                                        isEditingProfile
-                                          ? "primaryBtn"
-                                          : "secondaryBtn"
+                                      type="button"
+                                      className="addressPill"
+                                      onClick={() =>
+                                        copyAddress(getActiveWalletAddress())
                                       }
-                                      style={{
-                                        padding: "4px 10px",
-                                        fontSize: "0.75em",
-                                        minWidth: 50,
-                                        height: 26,
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        borderRadius: 6,
-                                      }}
-                                      onClick={
-                                        isEditingProfile
-                                          ? saveProfile
-                                          : startEditing
-                                      }
+                                      title="Tap to copy"
                                     >
-                                      {isEditingProfile ? "Save" : "Edit"}
+                                      <span className="addressPillText">
+                                        {shortAddr(getActiveWalletAddress())}
+                                      </span>
+                                      <span className="addressPillIcon">📋</span>
                                     </button>
                                   </div>
-
-                                  <button
-                                    type="button"
-                                    className="addressPill"
-                                    onClick={() => copyAddress(getActiveWalletAddress())}
-                                    title="Tap to copy"
-                                  >
-                                    <span className="addressPillText">
-                                      {shortAddr(getActiveWalletAddress())}
-                                    </span>
-                                    <span className="addressPillIcon">📋</span>
-                                  </button>
                                 </div>
                               </div>
-                            </div>
-                          ) : (
-                            <div
-                              style={{
-                                marginBottom: 25,
-                                textAlign: "center",
-                                padding: 20,
-                                background: "rgba(255,255,255,0.02)",
-                                borderRadius: 12,
-                              }}
-                            >
-                              <div className="muted">Loading Profile...</div>
-                            </div>
-                          )}
-
-                          {/* Stats Section */}
-                          {profileStats && (
-                            <div
-                              className="profileStatsGrid"
-                              style={{
-                                marginBottom: 25,
-                                background: "rgba(0,0,0,0.2)",
-                                padding: 24,
-                                borderRadius: 12,
-                                border: "1px solid rgba(255,255,255,0.05)",
-                              }}
-                            >
-                              <div style={{ textAlign: "center" }}>
-                                <div
-                                  className="muted"
-                                  style={{
-                                    fontSize: "0.75em",
-                                    textTransform: "uppercase",
-                                    marginBottom: 6,
-                                  }}
-                                >
-                                  Total Swap Volume
-                                </div>
-                                <div
-                                  style={{
-                                    fontSize: "1.1em",
-                                    fontWeight: "bold",
-                                    color: "gold",
-                                  }}
-                                >
-                                  $
-                                  {Number(
-                                    profileStats.swapVolume || 0
-                                  ).toLocaleString()}
-                                </div>
+                            ) : (
+                              <div className="profileLoadingBlock">
+                                <div className="muted">Loading Profile...</div>
                               </div>
-                              <div style={{ textAlign: "center" }}>
+                            )}
 
-                                <div
-                                  className="muted"
-                                  style={{
-                                    fontSize: "0.75em",
-                                    textTransform: "uppercase",
-                                    marginBottom: 6,
-                                  }}
-                                >
-                                  Total Swap Count
-                                </div>
-                                <div
-                                  style={{
-                                    fontSize: "1.1em",
-                                    fontWeight: "bold",
-                                  }}
-                                >
-                                  {profileStats.swapCount || 0}
-                                </div>
-                              </div>
-                              <div style={{ textAlign: "center" }}>
-                                <div
-                                  className="muted"
-                                  style={{
-                                    fontSize: "0.75em",
-                                    textTransform: "uppercase",
-                                    marginBottom: 6,
-                                  }}
-                                >
-                                  Total LP Provided
-                                </div>
-                                <div
-                                  style={{
-                                    fontSize: "1.1em",
-                                    fontWeight: "bold",
-                                    color: "cyan",
-                                  }}
-                                >
-                                  $
-                                  {Number(
-                                    profileStats.lpProvided || 0
-                                  ).toLocaleString()}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Badges Section */}
-                          {profileStats && (
-                            <div style={{ marginBottom: 25 }}>
-                              <h4
-                                style={{
-                                  margin: "0 0 12px 0",
-                                  fontSize: "0.85em",
-                                  textTransform: "uppercase",
-                                  opacity: 0.7,
-                                  letterSpacing: "1px",
-                                }}
-                              >
-                                Badges
-                              </h4>
-                              <div
-                                style={{
-                                  display: "grid",
-                                  gridTemplateColumns: "140px",
-                                  justifyContent: "start",
-                                  gap: 12,
-                                }}
-                              >
-                                {/* Early Swaparcer Badge - snapshot-only.
-                                    Non-holders see the same tile but greyed out. */}
-                                {(() => {
-                                  const unlocked = badgeState.earlySwaparcer;
-                                  return (
-                                    <div
-                                      className="badgeTile"
-                                      title={
-                                        unlocked
-                                          ? "Early Swaparcer - lifetime status"
-                                          : "Early Swaparcer Badge program is closed."
-                                      }
-                                      style={{
-                                        width: 140,
-                                        height: 160,
-                                        borderRadius: 12,
-                                        background: unlocked
-                                          ? "rgba(0, 255, 255, 0.15)"
-                                          : "rgba(255, 255, 255, 0.03)",
-                                        border: `1px solid ${
-                                          unlocked
-                                            ? "rgba(0, 255, 255, 0.5)"
-                                            : "rgba(255, 255, 255, 0.06)"
-                                        }`,
-                                        opacity: unlocked ? 1 : 0.4,
-                                        filter: unlocked ? "none" : "grayscale(100%)",
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        overflow: "hidden",
-                                        gap: 6,
-                                        transition: "opacity 200ms ease",
-                                      }}
-                                    >
-                                      <img
-                                        src="/badges/early-swaparcer.png"
-                                        alt="Early Swaparcer"
-                                        style={{
-                                          width: "100%",
-                                          height: 112,
-                                          objectFit: "cover",
-                                        }}
-                                      />
-                                      <div
-                                        className="badgeLabel"
-                                        style={{
-                                          fontSize: "0.75em",
-                                          fontWeight: 700,
-                                          color: unlocked ? "cyan" : "inherit",
-                                          textTransform: "uppercase",
-                                        }}
-                                      >
-                                        Early Swaparcer
-                                      </div>
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            </div>
-                          )}
-
-                        </div>
-                      )}
-
-                      {/* Wallet Portfolio Section - Independent Card */}
-                      {address && (
-                        <div
-                          className="neon-card"
-                          style={{
-                            padding: 20,
-                            marginBottom: 20,
-                            textAlign: "left",
-                          }}
-                        >
-                          <h3 style={{ marginTop: 0, marginBottom: 20 }}>
-                            Wallet Portfolio
-                          </h3>
-
-                          {/* Total Value */}
-                          <div
-                            style={{ marginBottom: 20, textAlign: "center" }}
-                          >
-                            <div
-                              className="muted"
-                              style={{ fontSize: "0.8em", marginBottom: 5 }}
-                            >
-                              Total Value
-                            </div>
-                            <div
-                              style={{
-                                fontSize: "1.6em",
-                                fontWeight: "bold",
-                                color: "#4caf50",
-                              }}
-                            >
-                              $
-                              {portfolioValue.toLocaleString(undefined, {
-                                maximumFractionDigits: 2,
-                              })}
-                            </div>
-                          </div>
-
-                          {/* Token Balances */}
-                          <div style={{ marginBottom: 15 }}>
-                            <div
-                              className="muted"
-                              style={{
-                                fontSize: "0.8em",
-                                marginBottom: 8,
-                                paddingLeft: 5,
-                              }}
-                            >
-                              Tokens
-                            </div>
-                            <div
-                              style={{
-                                background: "rgba(0,0,0,0.3)",
-                                borderRadius: 8,
-                                overflow: "hidden",
-                              }}
-                            >
-                              {["USDC", "EURC", "SWPRC"].map((sym) => {
-                                const bal = Number(balances[sym] || 0);
-                                const val = bal * Number(tokenPrices[sym] || 0);
-                                return (
-                                  <div
-                                    key={sym}
-                                    style={{
-                                      display: "flex",
-                                      justifyContent: "space-between",
-                                      padding: "10px 12px",
-                                      borderBottom:
-                                        "1px solid rgba(255,255,255,0.05)",
-                                    }}
-                                  >
-                                    <div
-                                      style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: 8,
-                                      }}
-                                    >
-                                      <img
-                                        src={TOKEN_LOGOS[sym]}
-                                        style={{
-                                          width: 20,
-                                          height: 20,
-                                          borderRadius: "50%",
-                                        }}
-                                        alt={sym}
-                                      />
-                                      <span>{sym}</span>
-                                    </div>
-                                    <div style={{ textAlign: "right" }}>
-                                      <div>{bal.toFixed(4)}</div>
-                                      <div
-                                        className="muted"
-                                        style={{ fontSize: "0.8em" }}
-                                      >
-                                        ${val.toFixed(2)}
-                                      </div>
-                                    </div>
+                            {profileStats && (
+                              <div className="profileStatsGrid profileStatsPanel">
+                                <div className="profileStatCell">
+                                  <div className="muted profileStatLabel">
+                                    Total Swap Volume
                                   </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          {/* LP Positions */}
-                          {Object.keys(lpBalances).some(
-                            (k) => Number(lpBalances[k] || 0) > 0
-                          ) && (
-                            <div>
-                              <div
-                                className="muted"
-                                style={{
-                                  fontSize: "0.8em",
-                                  marginBottom: 8,
-                                  paddingLeft: 5,
-                                }}
-                              >
-                                LP Positions
+                                  <div className="profileStatValue profileStatValueGold">
+                                    $
+                                    {Number(
+                                      profileStats.swapVolume || 0
+                                    ).toLocaleString()}
+                                  </div>
+                                </div>
+                                <div className="profileStatCell">
+                                  <div className="muted profileStatLabel">
+                                    Total Swap Count
+                                  </div>
+                                  <div className="profileStatValue">
+                                    {profileStats.swapCount || 0}
+                                  </div>
+                                </div>
+                                <div className="profileStatCell">
+                                  <div className="muted profileStatLabel">
+                                    Total LP Provided
+                                  </div>
+                                  <div className="profileStatValue profileStatValueCyan">
+                                    $
+                                    {Number(
+                                      calculatedLpTotalValue || 0
+                                    ).toLocaleString(undefined, {
+                                      maximumFractionDigits: 2,
+                                    })}
+                                  </div>
+                                </div>
                               </div>
-                              <div
-                                style={{
-                                  background: "rgba(0,0,0,0.3)",
-                                  borderRadius: 8,
-                                  overflow: "hidden",
-                                }}
+                            )}
+
+                            {profileStats && (
+                              <div className="profileBadgesSection">
+                                <h4 className="profileSectionLabel">Badges</h4>
+                                <div className="profileBadgesGrid">
+                                  {(() => {
+                                    const unlocked = badgeState.earlySwaparcer;
+                                    return (
+                                      <div
+                                        className="badgeTile"
+                                        title={
+                                          unlocked
+                                            ? "Early Swaparcer - lifetime status"
+                                            : "Early Swaparcer Badge program is closed."
+                                        }
+                                        style={{
+                                          width: 148,
+                                          height: 168,
+                                          borderRadius: 14,
+                                          padding: 6,
+                                          background: unlocked
+                                            ? "linear-gradient(165deg, rgba(255, 215, 106, 0.12), rgba(0, 255, 255, 0.1))"
+                                            : "rgba(255, 255, 255, 0.03)",
+                                          border: `1px solid ${
+                                            unlocked
+                                              ? "rgba(255, 215, 106, 0.4)"
+                                              : "rgba(124, 197, 255, 0.12)"
+                                          }`,
+                                          boxShadow: unlocked
+                                            ? "0 10px 28px rgba(0, 0, 0, 0.28), inset 0 0 0 1px rgba(255, 215, 106, 0.08)"
+                                            : "none",
+                                          opacity: unlocked ? 1 : 0.45,
+                                          filter: unlocked
+                                            ? "none"
+                                            : "grayscale(100%)",
+                                          display: "flex",
+                                          flexDirection: "column",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          overflow: "hidden",
+                                          gap: 6,
+                                          transition:
+                                            "opacity 200ms ease, border-color 200ms ease",
+                                        }}
+                                      >
+                                        <img
+                                          src="/badges/early-swaparcer.png"
+                                          alt="Early Swaparcer"
+                                          style={{
+                                            width: "100%",
+                                            height: 112,
+                                            objectFit: "cover",
+                                          }}
+                                        />
+                                        <div
+                                          className="badgeLabel"
+                                          style={{
+                                            fontSize: "0.72em",
+                                            fontWeight: 750,
+                                            letterSpacing: "0.04em",
+                                            color: unlocked
+                                              ? "#ffd76a"
+                                              : "var(--muted)",
+                                            textTransform: "uppercase",
+                                            padding: "0 8px 8px",
+                                            textAlign: "center",
+                                          }}
+                                        >
+                                          Early Swaparcer
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+                                  {(() => {
+                                    const unlocked = badgeState.eliteSwaparcer;
+                                    return (
+                                      <div
+                                        className="badgeTile"
+                                        title={
+                                          unlocked
+                                            ? "Elite Swaparcer - unlocked"
+                                            : "Elite Swaparcer - complete at least 2 of 4 goals"
+                                        }
+                                        style={{
+                                          width: 148,
+                                          height: 168,
+                                          borderRadius: 14,
+                                          padding: 6,
+                                          background: unlocked
+                                            ? "linear-gradient(165deg, rgba(255, 215, 106, 0.12), rgba(0, 255, 255, 0.1))"
+                                            : "rgba(255, 255, 255, 0.03)",
+                                          border: `1px solid ${
+                                            unlocked
+                                              ? "rgba(255, 215, 106, 0.4)"
+                                              : "rgba(124, 197, 255, 0.12)"
+                                          }`,
+                                          boxShadow: unlocked
+                                            ? "0 10px 28px rgba(0, 0, 0, 0.28), inset 0 0 0 1px rgba(255, 215, 106, 0.08)"
+                                            : "none",
+                                          opacity: unlocked ? 1 : 0.45,
+                                          filter: unlocked
+                                            ? "none"
+                                            : "grayscale(100%)",
+                                          display: "flex",
+                                          flexDirection: "column",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          overflow: "hidden",
+                                          gap: 6,
+                                          transition:
+                                            "opacity 200ms ease, border-color 200ms ease",
+                                        }}
+                                      >
+                                        <img
+                                          src="/badges/elite-swaparcer.png"
+                                          alt="Elite Swaparcer"
+                                          style={{
+                                            width: "100%",
+                                            height: 112,
+                                            objectFit: "cover",
+                                          }}
+                                        />
+                                        <div
+                                          className="badgeLabel"
+                                          style={{
+                                            fontSize: "0.72em",
+                                            fontWeight: 750,
+                                            letterSpacing: "0.04em",
+                                            color: unlocked
+                                              ? "#ffd76a"
+                                              : "var(--muted)",
+                                            textTransform: "uppercase",
+                                            padding: "0 8px 8px",
+                                            textAlign: "center",
+                                          }}
+                                        >
+                                          Elite Swaparcer
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Mini-wallet — all known tokens including CircBTC + customs */}
+                        {address && (
+                          <div className="neon-card profileMiniWalletCard">
+                            <div className="profileMiniWalletHeader">
+                              <div className="profileMiniWalletHeaderTop">
+                                <div>
+                                  <h3 className="profileMiniWalletTitle">
+                                    Mini Wallet
+                                  </h3>
+                                  <p className="muted profileMiniWalletHint">
+                                    Balances on Arc Testnet
+                                  </p>
+                                </div>
+                                <div className="profileMiniWalletTotal">
+                                  <div className="muted profileStatLabel">
+                                    Total Portfolio Value
+                                  </div>
+                                  <div className="profileMiniWalletTotalValue">
+                                    $
+                                    {portfolioValue.toLocaleString(undefined, {
+                                      maximumFractionDigits: 2,
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                className="primaryBtn profileSendGlobalBtn"
+                                onClick={() =>
+                                  openProfileSend(tokens[0]?.symbol || "USDC")
+                                }
+                                disabled={!getActiveWalletAddress()}
                               >
-                                {POOLS.map((p) => {
-                                  const bal = lpBalances[p.id];
-                                  if (!bal || bal <= 0) return null;
-                                  const amounts = lpTokenAmounts[p.id] || {};
-                                  const val = Object.entries(amounts).reduce(
-                                    (sum, [sym, amt]) =>
-                                      sum + amt * Number(tokenPrices[sym] || 0),
-                                    0
+                                Send
+                              </button>
+                            </div>
+
+                            <div className="profileMiniWalletSection">
+                              <div className="muted profileSectionLabel">
+                                Tokens
+                              </div>
+                              <div className="profileTokenList">
+                                {tokens.map((t) => {
+                                  const sym = t.symbol;
+                                  const rawBal = balances[sym];
+                                  const balNum =
+                                    rawBal === "n/a" || rawBal == null
+                                      ? NaN
+                                      : Number(rawBal);
+                                  const decimals =
+                                    t.decimals != null ? Number(t.decimals) : 6;
+                                  const balLabel = Number.isFinite(balNum)
+                                    ? formatTokenAmount(balNum, decimals, sym)
+                                    : "n/a";
+                                  const price = Number(
+                                    tokenPrices[sym] ?? prices[sym] ?? 0
                                   );
+                                  const usdVal = Number.isFinite(balNum)
+                                    ? balNum * price
+                                    : 0;
+                                  const logoSrc = TOKEN_LOGOS[sym];
                                   return (
                                     <div
-                                      key={p.id}
-                                      style={{
-                                        padding: "10px 12px",
-                                        borderBottom:
-                                          "1px solid rgba(255,255,255,0.05)",
-                                      }}
+                                      className="profileTokenRow"
+                                      key={`${sym}-${t.address}`}
                                     >
-                                      <div
-                                        style={{
-                                          display: "flex",
-                                          justifyContent: "space-between",
-                                          marginBottom: 5,
-                                        }}
-                                      >
-                                        <span>{p.name}</span>
-                                        <span>{bal.toFixed(4)} LP</span>
+                                      <div className="profileTokenLeft">
+                                        {logoSrc ? (
+                                          <img
+                                            className="profileTokenLogo"
+                                            src={logoSrc}
+                                            alt={sym}
+                                          />
+                                        ) : (
+                                          <span className="token-badge profileTokenLogoFallback">
+                                            {String(sym || "?").slice(0, 3)}
+                                          </span>
+                                        )}
+                                        <div className="profileTokenMeta">
+                                          <span className="profileTokenSymbol">
+                                            {sym}
+                                          </span>
+                                          {t.name && t.name !== sym ? (
+                                            <span className="muted profileTokenName">
+                                              {t.name}
+                                            </span>
+                                          ) : null}
+                                        </div>
                                       </div>
-                                      <div
-                                        style={{
-                                          display: "flex",
-                                          justifyContent: "space-between",
-                                          fontSize: "0.8em",
-                                        }}
-                                      >
-                                        <span className="muted">
-                                          {Object.entries(amounts)
-                                            .map(
-                                              ([sym, amt]) =>
-                                                `${amt.toFixed(2)} ${sym}`
-                                            )
-                                            .join(" + ")}
-                                        </span>
-                                        <span className="muted">
-                                          ${val.toFixed(2)}
-                                        </span>
+                                      <div className="profileTokenRight">
+                                        <div className="profileTokenAmounts">
+                                          <div className="profileTokenBalance">
+                                            {balLabel}
+                                          </div>
+                                          <div className="muted profileTokenUsd">
+                                            $
+                                            {usdVal.toLocaleString(undefined, {
+                                              maximumFractionDigits: 2,
+                                            })}
+                                          </div>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          className="profileTokenSendBtn"
+                                          disabled={
+                                            !Number.isFinite(balNum) || balNum <= 0
+                                          }
+                                          onClick={() => openProfileSend(sym)}
+                                          title={`Send ${sym}`}
+                                        >
+                                          Send
+                                        </button>
                                       </div>
                                     </div>
                                   );
                                 })}
                               </div>
                             </div>
-                          )}
-                        </div>
-                      )}
 
-                      {/* Circle Wallet Placeholder */}
-                      {/* Circle wallet details removed (not user-facing value) */}
+                            {Object.keys(lpBalances).some(
+                              (k) => Number(lpBalances[k] || 0) > 0
+                            ) && (
+                              <div className="profileMiniWalletSection">
+                                <div className="muted profileSectionLabel">
+                                  LP Positions
+                                </div>
+                                <div className="profileTokenList">
+                                  {POOLS.map((p) => {
+                                    const bal = lpBalances[p.id];
+                                    if (!bal || bal <= 0) return null;
+                                    const amounts = lpTokenAmounts[p.id] || {};
+                                    const val = Object.entries(amounts).reduce(
+                                      (sum, [sym, amt]) =>
+                                        sum +
+                                        amt * Number(tokenPrices[sym] || 0),
+                                      0
+                                    );
+                                    return (
+                                      <div
+                                        className="profileTokenRow profileLpRow"
+                                        key={p.id}
+                                      >
+                                        <div className="profileLpRowTop">
+                                          <span className="profileTokenSymbol">
+                                            {p.name}
+                                          </span>
+                                          <span className="profileTokenBalance">
+                                            {Number(bal).toFixed(4)} LP
+                                          </span>
+                                        </div>
+                                        <div className="profileLpRowBottom">
+                                          <span className="muted">
+                                            {Object.entries(amounts)
+                                              .map(
+                                                ([sym, amt]) =>
+                                                  `${formatTokenAmount(amt, tokenDecimalsForSymbol(sym), sym)} ${sym}`
+                                              )
+                                              .join(" + ")}
+                                          </span>
+                                          <span className="muted">
+                                            $
+                                            {val.toLocaleString(undefined, {
+                                              maximumFractionDigits: 2,
+                                            })}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
 
-                      <p className="muted" style={{ marginTop: 20 }}>
+                      <p className="muted profileAuthCaption">
                         {authMode === "wallet"
                           ? "Profile connected via Wallet"
                           : "Profile connected via Gmail"}
@@ -13238,156 +13894,213 @@ export default function SwaparcApp() {
                 </div>
               )}
               {activeTab === "pools" && (
-                <>
-                  <div
-                    className="historyToggleRow"
-                    style={{ marginBottom: 16 }}
-                  >
-                    <button
-                      className={`historyToggleBtn ${
-                        poolsView === "positions" ? "active" : ""
-                      }`}
-                      onClick={() => setPoolsView("positions")}
-                    >
-                      MY POSITIONS
-                    </button>
-
-                    <button
-                      className={`historyToggleBtn ${
-                        poolsView === "all" ? "active" : ""
-                      }`}
-                      onClick={() => setPoolsView("all")}
-                    >
-                      ALL POOLS
-                    </button>
+                <div className="poolsTabRoot">
+                  <div className="privpayModuleSwitchRow poolsModuleSwitchRow">
+                    <div className="privpayPrimaryPills poolsPrimaryPills">
+                      <button
+                        type="button"
+                        className={`privpayModulePill ${
+                          poolsView === "positions" ? "active" : ""
+                        }`}
+                        onClick={() => setPoolsView("positions")}
+                      >
+                        MY POSITIONS
+                      </button>
+                      <button
+                        type="button"
+                        className={`privpayModulePill ${
+                          poolsView === "all" ? "active" : ""
+                        }`}
+                        onClick={() => setPoolsView("all")}
+                      >
+                        ALL POOLS
+                      </button>
+                    </div>
                   </div>
 
-                  <div style={{ width: "100%" }}>
+                  <div className="poolsTabBody">
                     {poolsView === "positions" && (
-                      <div className="neon-card">
-                        <h4
-                          style={{
-                            marginBottom: 12,
-                            textAlign: "center",
-                            color: "cyan",
-                          }}
-                        >
-                          My Positions
-                        </h4>
+                      <div className="poolsPositionsView">
+                        <h3 className="poolsSectionTitle">My Positions</h3>
 
                         {!getActiveWalletAddress() ? (
-                          <p className="muted">
+                          <p className="muted privpayEmptyState">
                             Connect wallet to view positions.
                           </p>
                         ) : lpLoading && !lpCacheHydrated ? (
-                          <p className="muted">Loading your positions...</p>
+                          <p className="muted privpayEmptyState">
+                            Loading your positions...
+                          </p>
                         ) : POOLS.filter((p) => Number(lpBalances[p.id] || 0) > 0).length ===
                           0 ? (
-                          <div className="comingSoon">
-                            <p className="muted">
+                          <div className="poolsEmptyState">
+                            <p className="muted privpayEmptyState">
                               You have no active liquidity positions
                             </p>
                             <button
-                              className="primaryBtn"
+                              type="button"
+                              className="primaryBtn poolsPrimaryAction"
                               onClick={() => setPoolsView("all")}
                             >
                               Add Liquidity
                             </button>
                           </div>
                         ) : (
-                          POOLS.filter((p) => Number(lpBalances[p.id] || 0) > 0).map((p) => (
-                            <div key={p.id} className="positionCard card" style={{ padding: 24 }}>
-                              <div className="poolHeader">
-                                <div className="poolTokens">
-                                  {p.tokens.map((t, i) => (
-                                    <span key={`${p.id}-${t}-${i}`} className="token-badge">
-                                      <img
-                                        src={TOKEN_LOGOS[t]}
-                                        alt={t}
-                                        style={{
-                                          width: "100%",
-                                          height: "100%",
-                                          borderRadius: "50%",
-                                        }}
-                                      />
-                                    </span>
-                                  ))}
-                                </div>
-                                <div className="poolName">{p.name}</div>
-                              </div>
-
-                              <div className="poolLiquidity">
-                                <div className="liquidityTitle">
-                                  MY LIQUIDITY
+                          <div className="poolsGrid poolsPositionsGrid">
+                            {POOLS.filter((p) => Number(lpBalances[p.id] || 0) > 0).map((p) => (
+                              <div key={p.id} className="poolCard neon-card poolsPositionCard">
+                                <div className="poolHeader poolHeaderDivided">
+                                  <div className="poolTokens">
+                                    {p.tokens.map((t, i) => (
+                                      <span
+                                        key={`${p.id}-${t}-${i}`}
+                                        className={`token-badge poolTokenBadge${i > 0 ? " poolTokenBadgeOverlap" : ""}`}
+                                      >
+                                        <img
+                                          className="poolTokenBadgeImg"
+                                          src={TOKEN_LOGOS[t]}
+                                          alt={t}
+                                        />
+                                      </span>
+                                    ))}
+                                  </div>
+                                  <div className="poolName">{p.name}</div>
                                 </div>
 
-                                {lpTokenAmounts[p.id] &&
-                                Object.keys(lpTokenAmounts[p.id]).length > 0 ? (
-                                  Object.entries(lpTokenAmounts[p.id]).map(
-                                    ([sym, amt]) => (
-                                      <div key={sym} className="liquidityRow">
-                                        <span>{sym}</span>
-                                        <strong>
-                                          {Number(amt) >= 0.0001
-                                            ? Number(amt).toFixed(4)
-                                            : Number(amt).toPrecision(4)}
-                                        </strong>
-                                      </div>
+                                <div className="poolLiquidity">
+                                  <div className="liquidityTitle">
+                                    MY LIQUIDITY
+                                  </div>
+
+                                  {lpTokenAmounts[p.id] &&
+                                  Object.keys(lpTokenAmounts[p.id]).length > 0 ? (
+                                    Object.entries(lpTokenAmounts[p.id]).map(
+                                      ([sym, amt]) => (
+                                        <div key={sym} className="liquidityRow">
+                                          <span>{sym}</span>
+                                          <strong>
+                                            {formatTokenAmount(
+                                              amt,
+                                              tokenDecimalsForSymbol(sym),
+                                              sym
+                                            )}
+                                          </strong>
+                                        </div>
+                                      )
                                     )
-                                  )
-                                ) : (
-                                  <span className="muted">
-                                    {lpLoading ? "Loading…" : " - "}
-                                  </span>
-                                )}
-                              </div>
+                                  ) : (
+                                    <span className="muted">
+                                      {lpLoading ? "Loading…" : " - "}
+                                    </span>
+                                  )}
+                                </div>
 
-                              <div className="txActions">
-                                <button
-                                  className="secondaryBtn"
-                                  onClick={() => {
-                                    setActivePreset(p);
-                                    setShowRemoveLiquidity(true);
-                                  }}
-                                >
-                                  Remove
-                                </button>
+                                <div className="poolsTxActions">
+                                  <button
+                                    type="button"
+                                    className="secondaryBtn poolsSecondaryAction"
+                                    onClick={() => {
+                                      setActivePreset(p);
+                                      setShowRemoveLiquidity(true);
+                                    }}
+                                  >
+                                    Remove
+                                  </button>
 
-                                <button
-                                  className="primaryBtn"
-                                  onClick={() => {
-                                    setActivePreset(p);
-                                    setShowAddLiquidity(true);
-                                  }}
-                                >
-                                  Add
-                                </button>
+                                  <button
+                                    type="button"
+                                    className="primaryBtn poolsPrimaryAction"
+                                    onClick={() => {
+                                      setActivePreset(p);
+                                      setShowAddLiquidity(true);
+                                    }}
+                                  >
+                                    Add
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          ))
+                            ))}
+                          </div>
                         )}
                       </div>
                     )}
 
                     {poolsView === "all" && (
-                      <div>
-                        {/* High-end TVL Dashboard */}
-                        <div className="profileStatsGrid" style={{ marginBottom: 32 }}>
-                          <div className="card" style={{ padding: "24px 28px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                            <div className="muted" style={{ fontSize: 13, marginBottom: 10, fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase" }}>Total TVL</div>
-                            <strong style={{ fontSize: 32, color: "white", lineHeight: 1.1 }}>
+                      <div className="poolsAllView">
+                        <div className="profileStatsGrid poolsStatsGrid">
+                          <div className="poolStatCard poolStatCardChart">
+                            <div className="muted poolStatLabel">Total TVL</div>
+                            <strong className="poolStatValue">
                               ${Number(totalPoolTVL()).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                             </strong>
+                            <div className="poolStatSpark" aria-hidden="true">
+                              <ResponsiveContainer width="100%" height={56}>
+                                <AreaChart
+                                  data={poolsTvlSparkChartData}
+                                  margin={{ top: 4, right: 0, left: 0, bottom: 0 }}
+                                >
+                                  <defs>
+                                    <linearGradient id="poolTvlSparkFill" x1="0" y1="0" x2="0" y2="1">
+                                      <stop offset="0%" stopColor="#7cc5ff" stopOpacity={0.35} />
+                                      <stop offset="100%" stopColor="#7cc5ff" stopOpacity={0} />
+                                    </linearGradient>
+                                  </defs>
+                                  <YAxis domain={poolsTvlSparkDomain} hide />
+                                  <Area
+                                    type="monotone"
+                                    dataKey="v"
+                                    stroke="#7cc5ff"
+                                    strokeWidth={2}
+                                    fill="url(#poolTvlSparkFill)"
+                                    isAnimationActive={false}
+                                    dot={false}
+                                    activeDot={false}
+                                  />
+                                </AreaChart>
+                              </ResponsiveContainer>
+                            </div>
                           </div>
-                          <div className="card" style={{ padding: "24px 28px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                            <div className="muted" style={{ fontSize: 13, marginBottom: 10, fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase" }}>Active Pools</div>
-                            <strong style={{ fontSize: 32, color: "white", lineHeight: 1.1 }}>{POOLS.length}</strong>
-                          </div>
-                          <div className="card" style={{ padding: "24px 28px", display: "flex", flexDirection: "column", justifyContent: "center", textAlign: "center" }}>
-                            <div className="muted" style={{ fontSize: 13, marginBottom: 10, fontWeight: 600, letterSpacing: "1px", textTransform: "uppercase" }}>My LP Value</div>
-                            <strong style={{ fontSize: 32, color: "#4caf50", lineHeight: 1.1 }}>
-                              ${lpBalances && Object.keys(lpBalances).length > 0 ? Object.keys(lpBalances).reduce((acc, poolId) => acc + (lpTokenAmounts[poolId] ? Object.entries(lpTokenAmounts[poolId]).reduce((sum, [sym, amt]) => sum + (amt * Number(tokenPrices[sym] || 0)), 0) : 0), 0).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "0.00"}
+                          <div className="poolStatCard">
+                            <div className="muted poolStatLabel">Active Pools</div>
+                            <strong className="poolStatValue">
+                              {POOLS.length}
                             </strong>
+                          </div>
+                          <div className="poolStatCard poolStatCardChart">
+                            <div className="muted poolStatLabel">My LP Value</div>
+                            <strong className="poolStatValue poolStatValueAccent">
+                              $
+                              {Number(calculatedLpTotalValue || 0).toLocaleString(
+                                undefined,
+                                { maximumFractionDigits: 2 }
+                              )}
+                            </strong>
+                            <div className="poolStatSpark" aria-hidden="true">
+                              <ResponsiveContainer width="100%" height={56}>
+                                <AreaChart
+                                  data={poolsLpSparkChartData}
+                                  margin={{ top: 4, right: 0, left: 0, bottom: 0 }}
+                                >
+                                  <defs>
+                                    <linearGradient id="poolLpSparkFill" x1="0" y1="0" x2="0" y2="1">
+                                      <stop offset="0%" stopColor="#3dff9a" stopOpacity={0.28} />
+                                      <stop offset="100%" stopColor="#3dff9a" stopOpacity={0} />
+                                    </linearGradient>
+                                  </defs>
+                                  <YAxis domain={poolsLpSparkDomain} hide />
+                                  <Area
+                                    type="monotone"
+                                    dataKey="v"
+                                    stroke="#5ef0ff"
+                                    strokeWidth={2}
+                                    fill="url(#poolLpSparkFill)"
+                                    isAnimationActive={false}
+                                    dot={false}
+                                    activeDot={false}
+                                  />
+                                </AreaChart>
+                              </ResponsiveContainer>
+                            </div>
                           </div>
                         </div>
 
@@ -13396,37 +14109,46 @@ export default function SwaparcApp() {
                             const tvl = poolBalances[p.id] || 0;
 
                             return (
-                              <div key={p.id} className="poolCard card">
-                                <div className="poolHeader" style={{ paddingBottom: 16, borderBottom: "1px solid rgba(255,255,255,0.06)", marginBottom: 16 }}>
+                              <div key={p.id} className="poolCard neon-card">
+                                <div className="poolHeader poolHeaderDivided">
                                   <div className="poolTokens">
                                     {p.tokens.map((t, i) => (
-                                      <span key={i} className="token-badge" style={{ marginLeft: i > 0 ? -10 : 0, WebkitMaskImage: i > 0 ? "radial-gradient(circle at -4px center, transparent 12px, black 13px)" : "none" }}>
+                                      <span
+                                        key={i}
+                                        className={`token-badge poolTokenBadge${i > 0 ? " poolTokenBadgeOverlap" : ""}`}
+                                      >
                                         <img
+                                          className="poolTokenBadgeImg"
                                           src={TOKEN_LOGOS[t]}
                                           alt={t}
-                                          style={{
-                                            width: 32,
-                                            height: 32,
-                                            borderRadius: "50%",
-                                          }}
                                         />
                                       </span>
                                     ))}
                                   </div>
-                                  <div className="poolName" style={{ fontSize: 18 }}>{p.name}</div>
+                                  <div className="poolName">{p.name}</div>
                                 </div>
 
-                                <div className="poolLiquidity" style={{ marginBottom: 16 }}>
-                                  <div className="liquidityTitle" style={{ fontSize: 12, color: "#8c9bb5", marginBottom: 8 }}>
+                                <div className="poolLiquidity">
+                                  <div className="liquidityTitle">
                                     TOTAL LIQUIDITY
                                   </div>
 
                                   {poolTokenBalances[p.id] ? (
                                     Object.entries(poolTokenBalances[p.id]).map(
                                       ([sym, amt]) => (
-                                        <div key={sym} className="liquidityRow" style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                                          <span style={{ fontSize: 14 }}>{sym}</span>
-                                          <strong style={{ fontSize: 14, color: "#eef8ff" }}>{amt >= 1000 ? amt.toLocaleString(undefined, { maximumFractionDigits: 2 }) : amt.toFixed(2)}</strong>
+                                        <div key={sym} className="liquidityRow">
+                                          <span>{sym}</span>
+                                          <strong>
+                                            {amt >= 1000
+                                              ? amt.toLocaleString(undefined, {
+                                                  maximumFractionDigits: 2,
+                                                })
+                                              : formatTokenAmount(
+                                                  amt,
+                                                  tokenDecimalsForSymbol(sym),
+                                                  sym
+                                                )}
+                                          </strong>
                                         </div>
                                       )
                                     )
@@ -13435,14 +14157,14 @@ export default function SwaparcApp() {
                                   )}
                                 </div>
 
-                                <div className="poolStat" style={{ padding: "12px 0", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                                  <span style={{ color: "#8c9bb5" }}>Fee Tier</span>
-                                  <strong style={{ color: "#eef8ff" }}>0.30%</strong>
+                                <div className="poolStat poolStatFooter">
+                                  <span>Fee Tier</span>
+                                  <strong>0.30%</strong>
                                 </div>
 
                                 <button
-                                  className="primaryBtn"
-                                  style={{ marginTop: 2 }}
+                                  type="button"
+                                  className="primaryBtn poolsPrimaryAction"
                                   onClick={() => {
                                     setActivePreset(p);
                                     setPoolsView("positions");
@@ -13455,21 +14177,14 @@ export default function SwaparcApp() {
                             );
                           })}
                         </div>
-                        <div
-                          className="muted"
-                          style={{
-                            marginTop: 18,
-                            textAlign: "center",
-                            fontStyle: "italic",
-                          }}
-                        >
+                        <p className="muted poolsOnchainNote">
                           Liquidity and TVL are fetched directly from on-chain
                           balances
-                        </div>
+                        </p>
                       </div>
                     )}
                   </div>
-                </>
+                </div>
               )}
               {activeTab === "leaderboard" && (
                 <div className="leaderboardContainer" style={{ width: "100%" }}>
@@ -13881,7 +14596,7 @@ export default function SwaparcApp() {
                             totalCount,
                           } = paginateRows(sortedBills, billsUpcomingPage, 5);
                           return totalCount === 0 ? (
-                            <p className="muted">No bills created yet.</p>
+                            <p className="muted privpayEmptyState">No bills created yet.</p>
                           ) : (
                             <>
                               <div className="billsItems">
@@ -14101,7 +14816,7 @@ export default function SwaparcApp() {
                             totalCount,
                           } = paginateRows(billHistory, billsHistoryPage, 8);
                           return totalCount === 0 ? (
-                            <p className="muted">No payment history yet.</p>
+                            <p className="muted privpayEmptyState">No payment history yet.</p>
                           ) : (
                             <>
                               <ul className="historyList">
@@ -14314,7 +15029,7 @@ export default function SwaparcApp() {
                             </button>
                           </div>
                           {payrollCompanies.length === 0 ? (
-                            <p className="muted">No companies yet.</p>
+                            <p className="muted privpayEmptyState">No companies yet.</p>
                           ) : (
                             <div className="billsItems">
                               {payrollCompanies.map((company) => (
@@ -14367,7 +15082,7 @@ export default function SwaparcApp() {
                             </button>
                           </div>
                           {payrollEmployees.length === 0 ? (
-                            <p className="muted">No employees yet.</p>
+                            <p className="muted privpayEmptyState">No employees yet.</p>
                           ) : (
                             <div className="billsItems">
                               {payrollEmployees.map((emp) => {
@@ -14787,7 +15502,7 @@ export default function SwaparcApp() {
                                 </div>
                               )}
                               {rows.length === 0 ? (
-                                <p className="muted">
+                                <p className="muted privpayEmptyState">
                                   {payrollEmployees.length === 0
                                     ? "No employees yet. Add an employee to see scheduled runs here."
                                     : companyId &&
@@ -15017,7 +15732,7 @@ export default function SwaparcApp() {
                             totalCount,
                           } = paginateRows(payrollHistory, payrollHistoryPage, 8);
                           return totalCount === 0 ? (
-                            <p className="muted">No payroll history yet.</p>
+                            <p className="muted privpayEmptyState">No payroll history yet.</p>
                           ) : (
                             <>
                               <ul className="historyList">
@@ -15331,7 +16046,7 @@ export default function SwaparcApp() {
                             totalCount,
                           } = paginateRows(poolClaimHistory, claimHistoryPage, 8);
                           return totalCount === 0 ? (
-                            <p className="muted">No claims yet.</p>
+                            <p className="muted privpayEmptyState">No claims yet.</p>
                           ) : (
                             <>
                               <ul className="historyList">
@@ -15672,7 +16387,13 @@ export default function SwaparcApp() {
                   Number(amt) > 0 && (
                     <div key={sym} className="txRow">
                       <span>{sym}</span>
-                      <strong>{Number(amt).toFixed(4)}</strong>
+                      <strong>
+                        {formatTokenAmount(
+                          amt,
+                          tokenDecimalsForSymbol(sym),
+                          sym
+                        )}
+                      </strong>
                     </div>
                   )
               )}
@@ -15684,12 +16405,11 @@ export default function SwaparcApp() {
                     <div key={sym} className="txRow">
                       <span>{sym} Removed</span>
                       <strong>
-                        {(() => {
-                          const v = Number(amt || 0);
-                          if (!Number.isFinite(v) || v <= 0) return amt;
-                          if (v < 0.0001) return "<0.0001";
-                          return v.toFixed(4);
-                        })()}
+                        {formatTokenAmount(
+                          amt,
+                          tokenDecimalsForSymbol(sym),
+                          sym
+                        )}
                       </strong>
                     </div>
                   ))
@@ -15856,7 +16576,14 @@ export default function SwaparcApp() {
                       <span style={{ fontSize: 18, fontWeight: 600 }}>{sym}</span>
                     </div>
                     <span className="muted" style={{ fontSize: 14 }}>
-                      Balance: {balances[sym]}
+                      Balance:{" "}
+                      {balances[sym] == null || balances[sym] === "n/a"
+                        ? balances[sym] ?? "—"
+                        : formatTokenAmount(
+                            balances[sym],
+                            tokenDecimalsForSymbol(sym),
+                            sym
+                          )}
                     </span>
                   </div>
 
@@ -15937,14 +16664,20 @@ export default function SwaparcApp() {
                     const lpPos = lpTokenAmounts?.[activePreset?.id]?.[sym];
                     const lpPosStr =
                       lpPos != null && Number.isFinite(Number(lpPos))
-                        ? Number(lpPos) < 0.0001 && Number(lpPos) > 0
-                          ? "<0.0001"
-                          : Number(lpPos).toFixed(4)
+                        ? formatTokenAmount(
+                            lpPos,
+                            tokenDecimalsForSymbol(sym),
+                            sym
+                          )
                         : " - ";
 
                     const displayValue = disabled
                       ? (removeEstimates?.[sym] != null && Number.isFinite(removeEstimates[sym])
-                          ? String(removeEstimates[sym].toFixed(4))
+                          ? formatTokenAmount(
+                              removeEstimates[sym],
+                              tokenDecimalsForSymbol(sym),
+                              sym
+                            )
                           : "")
                       : (removeTokenInputs?.[sym] || "");
 
@@ -15997,9 +16730,11 @@ export default function SwaparcApp() {
                       <span className="muted">Withdraws</span>
                       <strong>
                         {removeEstimates?.[sym] != null && Number.isFinite(removeEstimates[sym])
-                          ? removeEstimates[sym] < 0.0001 && removeEstimates[sym] > 0
-                            ? `<0.0001 ${sym}`
-                            : `${removeEstimates[sym].toFixed(4)} ${sym}`
+                          ? `${formatTokenAmount(
+                              removeEstimates[sym],
+                              tokenDecimalsForSymbol(sym),
+                              sym
+                            )} ${sym}`
                           : ` -  ${sym}`}
                       </strong>
                     </div>

@@ -29,7 +29,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { userId, lpTotalValue } = req.body;
+  const { userId, lpTotalValue, eliteSwaparcer } = req.body;
 
   if (!userId || lpTotalValue == null || isNaN(Number(lpTotalValue))) {
       return res.status(400).json({ error: 'Missing or invalid userId or lpTotalValue' });
@@ -55,6 +55,11 @@ export default async function handler(req, res) {
     const updatedBadges = { ...profile.badges };
     if (earlySwaparcerFlag) updatedBadges.earlySwaparcer = true;
     else delete updatedBadges.earlySwaparcer;
+
+    // Elite Swaparcer is sticky: once true, never cleared.
+    if (updatedBadges.eliteSwaparcer || eliteSwaparcer === true) {
+      updatedBadges.eliteSwaparcer = true;
+    }
 
     const updatedProfile = {
       ...profile,
