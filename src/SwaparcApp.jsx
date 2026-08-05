@@ -13509,12 +13509,9 @@ export default function SwaparcApp() {
                                           <span className="profileTokenSymbol">
                                             {p.name}
                                           </span>
-                                          <span className="profileTokenBalance">
-                                            {Number(bal).toFixed(4)} LP
-                                          </span>
                                         </div>
                                         <div className="profileLpRowBottom">
-                                          <span className="muted">
+                                          <span className="muted profileLpUnderlying">
                                             {Object.entries(amounts)
                                               .map(
                                                 ([sym, amt]) =>
@@ -13522,7 +13519,7 @@ export default function SwaparcApp() {
                                               )
                                               .join(" + ")}
                                           </span>
-                                          <span className="muted">
+                                          <span className="muted profileLpUsd">
                                             $
                                             {val.toLocaleString(undefined, {
                                               maximumFractionDigits: 2,

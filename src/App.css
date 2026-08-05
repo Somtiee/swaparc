@@ -1274,6 +1274,17 @@ body {
   color: var(--muted) !important;
 }
 
+.profileLpUnderlying {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.profileLpUsd {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff !important;
+}
+
 .profileAuthCaption {
   margin-top: 20px;
   text-align: center;
@@ -1593,6 +1604,25 @@ body {
     font-size: 0.8rem !important;
     line-height: 1.1;
   }
+
+  .profileLpRow {
+    gap: 10px;
+  }
+
+  .profileLpRowTop {
+    justify-content: flex-start;
+  }
+
+  .profileLpRowBottom {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .profileLpUsd {
+    font-size: 0.95rem;
+    font-weight: 700;
+  }
 }
 
 @media (max-width: 600px) {
@@ -1657,10 +1687,12 @@ body {
   }
 
   .profileTokenRight {
-    flex-direction: column;
-    align-items: flex-end;
-    justify-content: center;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
     gap: 8px;
+    flex-shrink: 0;
+    min-width: 0;
   }
 
   .profileTokenAmounts {
@@ -1670,9 +1702,10 @@ body {
 
   .profileTokenSendBtn {
     width: auto !important;
+    flex: 0 0 auto;
     min-height: 44px;
-    padding: 10px 16px !important;
-    font-size: 0.8rem !important;
+    padding: 10px 14px !important;
+    font-size: 0.78rem !important;
   }
 
   .profileTokenSymbol,
@@ -4953,18 +4986,57 @@ select.billsInput option,
     width: 100%;
   }
 
-  /* PRIVPAY: full-width CTAs in stacked toolbars; keep Tx/Receipt side-by-side in history */
+  /* PRIVPAY: Upcoming / history action rows stay compact 2-up, not full-width stacks */
+  .billsItemActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+    margin-left: 0;
+  }
+
   .billsItemActions .billsPayBtn,
   .payrollHeaderActions .billsPayBtn {
+    width: auto !important;
+    min-width: 0;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .historyHeaderActions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: stretch;
+    justify-content: stretch;
+    gap: 8px;
     width: 100%;
   }
 
-  .billsWrap .historyRightActions .billsPayBtn,
-  .billsWrap .historyRightActions a.billsPayBtn {
-    width: auto;
+  .historyHeaderActions .billsPayBtn {
+    width: auto !important;
     flex: 1 1 calc(50% - 4px);
+    min-width: 0;
     min-height: 44px;
-    justify-content: center;
+    white-space: normal;
+  }
+
+  .historyExportBtnRow {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .historyExportBtnRow .billsPayBtn {
+    width: auto !important;
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+  }
+
+  .payrollHeaderActions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 8px;
   }
 
   .billsWrap .historyItem {
@@ -4986,6 +5058,15 @@ select.billsInput option,
 
   .billsWrap .historyRightActions {
     justify-content: stretch;
+  }
+
+  .billsWrap .historyRightActions .billsPayBtn,
+  .billsWrap .historyRightActions a.billsPayBtn {
+    width: auto !important;
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+    min-height: 44px;
+    justify-content: center;
   }
 
   .swapCardCentered.privpayWideCard.card {
@@ -5091,11 +5172,6 @@ select.billsInput option,
     grid-template-columns: 1fr 1fr;
   }
 
-  .payrollHeaderActions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
   .payrollWorkspace {
     grid-template-columns: 1fr;
   }
@@ -5139,37 +5215,15 @@ select.billsInput option,
     align-items: stretch;
   }
 
-  .historyHeaderActions {
-    flex-direction: column;
-    align-items: stretch;
-    justify-content: stretch;
-    width: 100%;
-  }
-
-  .historyHeaderActions .billsPayBtn {
-    width: 100%;
-    min-width: 0;
-    white-space: normal;
-  }
-
-  .historyExportBtnRow {
-    width: 100%;
-    flex-direction: column;
-  }
-
-  .historyExportBtnRow .billsPayBtn {
-    width: 100%;
-    flex: 1 1 auto;
-  }
-
   .claimInputModeRow {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
 
   .claimInputModeBtn {
     min-width: 0;
+    width: auto !important;
     min-height: 44px;
     padding: 10px 8px;
     font-size: 13px;
@@ -5267,10 +5321,17 @@ select.billsInput option,
 }
 
 @media (max-width: 480px) {
-  .privpayModuleSwitchRow {
+  /* PrivPay module switcher only — do not stack Pools toggle */
+  .privpayModuleSwitchRow:not(.poolsModuleSwitchRow) {
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
+  }
+
+  .poolsModuleSwitchRow {
+    flex-direction: row !important;
+    align-items: stretch;
+    flex-wrap: nowrap;
   }
 
   .privpayPrimaryPills {
@@ -7351,6 +7412,8 @@ textarea.privpayInput {
   .poolsPrimaryPills .privpayModulePill {
     min-height: 44px;
     width: auto !important;
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .poolStatValue {
@@ -7361,15 +7424,23 @@ textarea.privpayInput {
 @media (max-width: 480px) {
   .poolsModuleSwitchRow {
     padding: 8px;
+    flex-direction: row !important;
+    flex-wrap: nowrap;
   }
 
   .poolsPrimaryPills {
-    flex-direction: column;
+    flex-direction: row !important;
+    width: 100%;
+    gap: 8px;
   }
 
   .poolsPrimaryPills .privpayModulePill {
-    width: 100% !important;
+    flex: 1 1 0 !important;
+    width: auto !important;
+    min-width: 0;
     min-height: 44px;
+    font-size: 12px;
+    padding: 10px 8px;
   }
 
   .poolsPositionCard .poolsTxActions {
