@@ -1252,37 +1252,45 @@ body {
 }
 
 .profileLpRow {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-}
-
-.profileLpRowTop,
-.profileLpRowBottom {
-  display: flex;
+  flex-direction: row;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
+  text-align: left;
 }
 
-.profileLpRowTop .profileTokenSymbol,
-.profileLpRowTop .profileTokenBalance {
+.profileLpMain {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
+  text-align: left;
+}
+
+.profileLpMain .profileTokenSymbol {
   color: #ffffff !important;
-}
-
-.profileLpRowBottom {
-  font-size: 0.8em;
-  color: var(--muted) !important;
 }
 
 .profileLpUnderlying {
   min-width: 0;
   word-break: break-word;
+  font-size: 0.8em;
+  line-height: 1.35;
+  color: var(--muted) !important;
 }
 
 .profileLpUsd {
   flex-shrink: 0;
+  align-self: center;
   font-variant-numeric: tabular-nums;
+  font-weight: 750;
+  font-size: 0.98rem;
   color: #ffffff !important;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .profileAuthCaption {
@@ -1606,22 +1614,22 @@ body {
   }
 
   .profileLpRow {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
     gap: 10px;
+    text-align: left;
   }
 
-  .profileLpRowTop {
-    justify-content: flex-start;
-  }
-
-  .profileLpRowBottom {
-    flex-direction: column;
+  .profileLpMain {
     align-items: flex-start;
-    gap: 6px;
+    text-align: left;
   }
 
   .profileLpUsd {
     font-size: 0.95rem;
-    font-weight: 700;
+    font-weight: 750;
+    align-self: center;
   }
 }
 

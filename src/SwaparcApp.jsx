@@ -13505,12 +13505,10 @@ export default function SwaparcApp() {
                                         className="profileTokenRow profileLpRow"
                                         key={p.id}
                                       >
-                                        <div className="profileLpRowTop">
+                                        <div className="profileLpMain">
                                           <span className="profileTokenSymbol">
                                             {p.name}
                                           </span>
-                                        </div>
-                                        <div className="profileLpRowBottom">
                                           <span className="muted profileLpUnderlying">
                                             {Object.entries(amounts)
                                               .map(
@@ -13519,13 +13517,13 @@ export default function SwaparcApp() {
                                               )
                                               .join(" + ")}
                                           </span>
-                                          <span className="muted profileLpUsd">
-                                            $
-                                            {val.toLocaleString(undefined, {
-                                              maximumFractionDigits: 2,
-                                            })}
-                                          </span>
                                         </div>
+                                        <span className="profileLpUsd">
+                                          $
+                                          {val.toLocaleString(undefined, {
+                                            maximumFractionDigits: 2,
+                                          })}
+                                        </span>
                                       </div>
                                     );
                                   })}
