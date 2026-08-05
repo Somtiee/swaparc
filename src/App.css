@@ -728,9 +728,13 @@ body {
 /* ?? Profile + Send modal (premium dark / Jupiter?Relay craft) ?? */
 .profileTabRoot {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
   text-align: left;
   padding: 12px 8px 28px;
   color: #f0f4ff;
+  box-sizing: border-box;
 }
 
 .profileTabRoot .muted,
@@ -826,6 +830,10 @@ body {
   gap: 20px;
   align-items: start;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 .profileIdentityCard,
@@ -841,6 +849,10 @@ body {
     0 18px 44px rgba(0, 0, 0, 0.28),
     inset 0 0 0 1px rgba(124, 197, 255, 0.07);
   backdrop-filter: blur(14px);
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 .profileIdentityTop {
@@ -1030,19 +1042,38 @@ body {
 
 .profileBadgesGrid {
   display: grid;
-  grid-template-columns: repeat(2, 148px);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   justify-content: start;
   gap: 14px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 @media (max-width: 360px) {
   .profileBadgesGrid {
-    grid-template-columns: 148px;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
 .profileIdentityCard .badgeTile {
+  width: 100%;
+  max-width: 148px;
+  height: auto;
+  min-height: 0;
+  min-width: 0;
+  box-sizing: border-box;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25);
+}
+
+.profileIdentityCard .badgeTileImg {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 112px;
+  object-fit: cover;
+  display: block;
 }
 
 .profileMiniWalletHeader {
@@ -1129,6 +1160,9 @@ body {
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid rgba(124, 197, 255, 0.12);
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .profileTokenRow {
@@ -1139,6 +1173,9 @@ body {
   padding: 14px 16px;
   border-bottom: 1px solid rgba(124, 197, 255, 0.08);
   transition: background 160ms ease;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .profileTokenRow:last-child {

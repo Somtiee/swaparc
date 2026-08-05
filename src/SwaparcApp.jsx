@@ -3595,7 +3595,7 @@ export default function SwaparcApp() {
   }, [address, authMode]);
 
 
-  // Fetch On-Chain Prices Once (Shared Source)
+  // Fetch On-Chain Prices Once (Shared Source) — progressive updates
   useEffect(() => {
     let mounted = true;
     async function fetchOnChainPrices() {
@@ -3605,21 +3605,24 @@ export default function SwaparcApp() {
       // Always use public provider for prices to avoid wallet dependencies
       const provider = getReadProvider();
 
-      try {
-        const prices = {};
-        // Use Promise.all for speed
-        await Promise.all(
-          INITIAL_TOKENS.map(async (t) => {
-            prices[t.symbol] = await getOnchainPriceInUSDC(provider, t.symbol);
-          })
-        );
-
-        if (mounted) {
-          setTokenPrices(prices);
-        }
-      } catch (e) {
-        console.warn("Token price fetch failed", e);
+      // USDC is always $1 — publish immediately so portfolio can update without waiting
+      if (mounted) {
+        setTokenPrices((prev) => ({ ...prev, USDC: 1 }));
       }
+
+      await Promise.all(
+        INITIAL_TOKENS.map(async (t) => {
+          if (t.symbol === "USDC") return;
+          try {
+            const price = await getOnchainPriceInUSDC(provider, t.symbol);
+            if (mounted) {
+              setTokenPrices((prev) => ({ ...prev, [t.symbol]: price }));
+            }
+          } catch (e) {
+            console.warn("Token price fetch failed for", t.symbol, e);
+          }
+        })
+      );
     }
 
     fetchOnChainPrices();
@@ -13232,8 +13235,6 @@ export default function SwaparcApp() {
                                             : "Early Swaparcer Badge program is closed."
                                         }
                                         style={{
-                                          width: 148,
-                                          height: 168,
                                           borderRadius: 14,
                                           padding: 6,
                                           background: unlocked
@@ -13264,11 +13265,7 @@ export default function SwaparcApp() {
                                         <img
                                           src="/badges/early-swaparcer.png"
                                           alt="Early Swaparcer"
-                                          style={{
-                                            width: "100%",
-                                            height: 112,
-                                            objectFit: "cover",
-                                          }}
+                                          className="badgeTileImg"
                                         />
                                         <div
                                           className="badgeLabel"
@@ -13300,8 +13297,6 @@ export default function SwaparcApp() {
                                             : "Elite Swaparcer - complete at least 2 of 4 goals"
                                         }
                                         style={{
-                                          width: 148,
-                                          height: 168,
                                           borderRadius: 14,
                                           padding: 6,
                                           background: unlocked
@@ -13332,11 +13327,7 @@ export default function SwaparcApp() {
                                         <img
                                           src="/badges/elite-swaparcer.png"
                                           alt="Elite Swaparcer"
-                                          style={{
-                                            width: "100%",
-                                            height: 112,
-                                            objectFit: "cover",
-                                          }}
+                                          className="badgeTileImg"
                                         />
                                         <div
                                           className="badgeLabel"
