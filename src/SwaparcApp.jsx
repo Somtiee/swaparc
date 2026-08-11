@@ -1018,7 +1018,7 @@ function formatPriceMock(sym) {
   return Number(base).toFixed(base >= 100 ? 0 : base >= 10 ? 2 : 4);
 }
 
-function TokenSelect({ tokens, value, onChange }) {
+function TokenSelect({ tokens, value, onChange, excludeSymbol }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const ref = useRef();
@@ -1032,9 +1032,10 @@ function TokenSelect({ tokens, value, onChange }) {
     return () => document.removeEventListener("click", docClick);
   }, []);
 
-  const options = tokens.filter((t) =>
-    (t.symbol + " " + t.name).toLowerCase().includes(q.toLowerCase())
-  );
+  const options = tokens.filter((t) => {
+    if (excludeSymbol && t.symbol === excludeSymbol) return false;
+    return (t.symbol + " " + t.name).toLowerCase().includes(q.toLowerCase());
+  });
 
   return (
     <div className="tokenselect" ref={ref}>
@@ -13582,6 +13583,7 @@ export default function SwaparcApp() {
                           tokens={tokens}
                           value={swapFrom}
                           onChange={setSwapFrom}
+                          excludeSymbol={swapTo}
                         />
                         {balances[swapFrom] && balances[swapFrom] !== "n/a" && (
                           <div className="tokenBalanceHint" style={{ fontSize: 13 }}>
@@ -13635,6 +13637,7 @@ export default function SwaparcApp() {
                           tokens={tokens}
                           value={swapTo}
                           onChange={setSwapTo}
+                          excludeSymbol={swapFrom}
                         />
                         {balances[swapTo] && balances[swapTo] !== "n/a" && (
                           <div className="tokenBalanceHint" style={{ fontSize: 13 }}>
