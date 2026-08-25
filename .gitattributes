@@ -1,0 +1,2 @@
+deploy/vps/bootstrap.sh text eol=lf
+deploy/vps/Caddyfile text eol=lf

@@ -1,0 +1,8 @@
+{$VPS_API_DOMAIN:api.swaparc.app} {
+	encode gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+	reverse_proxy app:3005
+}

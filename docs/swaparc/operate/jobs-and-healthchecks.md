@@ -2,6 +2,8 @@
 
 This document is for **developers and operators** under **Security & operations** who run SwapArc in production and need a minimal map of **liveness**, **scheduled work** and **what to watch**. It complements [Relayer operations](relayer-operations.md) for the privacy-pool relay path and [Profile & system API](../build/api-reference-profile-and-system.md) for the **`GET /api/health`** response shape. Remember that **`/api/health`** does not prove Redis, RPC, or relayer health by itself; pair it with the monitors below.
 
+**Production hosting:** run **API + Redis + indexer on one VPS** so Redis never leaves the machine (no Railway egress bill). Follow the click-by-click guide: [VPS deploy](vps-deploy.md). Vercel can keep serving the static website. The Railway Redis + worker layout below is the **legacy** layout.
+
 ## Health endpoint
 
 Use **`GET /api/health`**. Expected response indicates service liveness.
@@ -10,7 +12,7 @@ Call it from your load balancer or orchestrator as a **process-up** check only; 
 
 ## Scheduled jobs
 
-SwapArc uses scheduled payment processing routes, including recurring and payroll runs, plus a **weekly** landing-stats refresh.
+SwapArc uses scheduled payment processing routes, including recurring and payroll runs, plus a **weekly** landing-stats refresh. On a VPS these run inside `scripts/vpsStart.mjs` against localhost. On Vercel (legacy) they are the crons below.
 
 | Route | Schedule (typical) | Purpose |
 |-------|-------------------|---------|
@@ -23,7 +25,7 @@ SwapArc uses scheduled payment processing routes, including recurring and payrol
 - **Homepage** loads network totals from **`VITE_LANDING_STATS_URL`** (public Vercel Blob JSON) — **no Railway Redis** on page load.
 - **TVL** on the landing tab refreshes from on-chain RPC about every 60 seconds.
 - **Swap pool cutover:** legacy pool stats are frozen; **V2 swaps add** to existing `profile:*` totals and weekly highwater (no reset). Run `node scripts/countUniqueSwappers.js` after cutover to merge legacy + V2 Arcscan counts into `stats:countUniqueSwappers:last`.
-- **Real-time profile stats:** run `npm run indexer` (`liveSwapIndexer.js`) on Railway with `REDIS_URL` — tails V2 pool only.
+- **Real-time profile stats:** run `npm run indexer` / `npm run start:vps` with local `REDIS_URL` — tails V2 pool only. Railway is legacy; see [VPS deploy](vps-deploy.md).
 - **Blob store must be Public** at creation (private stores cannot host the browser-facing JSON).
 - Env: `BLOB_READ_WRITE_TOKEN` (server), `VITE_LANDING_STATS_URL` (build-time), optional `SWAP_POOL_ADDRESS` (defaults to V2 in code). Manual publish: `npm run stats:publish-landing`.
 - Legacy APIs `GET /api/profile/landing-stats` and `GET /api/profile/leaderboard` remain scan-free fallbacks with long cache TTL.

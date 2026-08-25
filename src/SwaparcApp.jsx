@@ -2946,7 +2946,8 @@ export default function SwaparcApp() {
   /**
    * Bills + Payroll recurring both execute on the server (relayer), not in the wallet.
    * Payer is always `getActiveWalletAddress()` - same automation for Circle (email) and Wallet Connect (EOA).
-   * While this tab is open we POST recurring/run + payroll/run on an interval so due items pay without Vercel Cron.
+   * Open tabs POST run every ~15s so due items pay quickly while the app is open.
+   * VPS cron (every 5 min) still runs when nobody has a tab open.
    */
   async function runRecurringDueOnServerThrottled(ownerLower) {
     const owner = String(ownerLower || "").trim().toLowerCase();

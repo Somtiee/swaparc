@@ -20,6 +20,7 @@ import secZk from "../docs/swaparc/security-and-privacy/zk-claim-security.md?raw
 import secKeys from "../docs/swaparc/security-and-privacy/key-management-and-backups.md?raw";
 import opsRelayer from "../docs/swaparc/operate/relayer-operations.md?raw";
 import opsJobs from "../docs/swaparc/operate/jobs-and-healthchecks.md?raw";
+import opsVps from "../docs/swaparc/operate/vps-deploy.md?raw";
 import supportFaq from "../docs/swaparc/support/faq.md?raw";
 import supportTroubleshooting from "../docs/swaparc/support/troubleshooting.md?raw";
 
@@ -114,6 +115,7 @@ export const DOCS_PREVIEW_SECTIONS = [
       { id: "key-management-and-backups", title: "Key management & backups", markdown: secKeys },
       { id: "relayer-operations", title: "Relayer operations", markdown: opsRelayer },
       { id: "jobs-and-healthchecks", title: "Jobs & health checks", markdown: opsJobs },
+      { id: "vps-deploy", title: "VPS deploy (cut Railway cost)", markdown: opsVps },
     ],
   },
 ];

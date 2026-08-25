@@ -1,0 +1,49 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "3005"
+      API_HOST: "0.0.0.0"
+      REDIS_URL: redis://redis:6379
+      VPS_SKIP_INDEXER: ${VPS_SKIP_INDEXER:-0}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    expose:
+      - "3005"
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      VPS_API_DOMAIN: ${VPS_API_DOMAIN:-api.swaparc.app}
+    volumes:
+      - ./deploy/vps/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  caddy-data:
+  caddy-config:
