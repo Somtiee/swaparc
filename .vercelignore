@@ -1,7 +1,5 @@
-# Keep Vercel deploys lean - local/Railway/ops only.
-# After VPS cutover (docs/swaparc/operate/vps-deploy.md Step 9), add a line that is only:
-#   api
-# so Vercel stops hosting serverless /api (otherwise Railway Redis egress returns).
+# Keep Vercel deploys lean - API runs on the VPS (api.swaparc.app).
+api
 scripts/backfillSwapVolumeFromChain.mjs
 scripts/exportDuneAllProfiles.mjs
 scripts/exportDuneCsv.mjs

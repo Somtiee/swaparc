@@ -1,26 +1,16 @@
 {
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "https://api.swaparc.app/api/:path*"
+    },
+    {
       "source": "/docs",
       "destination": "/index.html"
     },
     {
       "source": "/docs/:path*",
       "destination": "/index.html"
-    }
-  ],
-  "crons": [
-    {
-      "path": "/api/payments/recurring/run",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/payments/payroll/run",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/profile/refresh-landing-stats",
-      "schedule": "0 0 * * 0"
     }
   ],
   "headers": [
