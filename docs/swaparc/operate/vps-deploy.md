@@ -1,6 +1,6 @@
 # VPS deploy (cut Railway Redis cost)
 
-This is the click-by-click path to run **API + Redis + swap indexer** on one cheap VPS so Railway network egress goes to **$0**. The website stays on Vercel (~$20). Typical VPS cost is **about $4–6 / month**.
+This is the click-by-click path to run **API + Redis + swap indexer** on one cheap VPS so Railway network egress goes to **$0**. The website stays on Vercel (~$20). Typical VPS cost is **about $6–12 / month** on DigitalOcean.
 
 You do **not** need to be a developer. Copy each command exactly. If a step fails, stop and paste the error into chat.
 
@@ -9,7 +9,7 @@ You do **not** need to be a developer. Copy each command exactly. If a step fail
 | Thing | Where it runs | Monthly cost |
 |---|---|---|
 | Website (buttons, pages) | Vercel (unchanged) | ~$20 |
-| `/api` (profiles, PrivPay, bills, payroll) | Your VPS | included |
+| `/api` (profiles, PrivPay, bills, payroll) | Your VPS (DigitalOcean) | ~$12 |
 | Redis (database) | Same VPS, not exposed to the internet | included |
 | Swap indexer | Same VPS | included |
 | Railway | **Deleted** | **$0** |
@@ -18,7 +18,7 @@ Users still open **https://swaparc.app**. Nothing about wallets or swaps changes
 
 ## Before you start — gather these 4 things
 
-1. **Your GitHub repo URL** for SwapArc (the code you push to).
+1. **GitHub:** https://github.com/Somtiee/swaparc.git (already pushed).
 2. **Vercel** login (the project that hosts swaparc.app).
 3. **Railway** login (Redis + the indexer service you will turn off).
 4. **Domain DNS** login (wherever `swaparc.app` is managed: Vercel, Cloudflare, Namecheap, etc.).
@@ -40,31 +40,27 @@ From **Railway → Redis service → Variables**, copy the **public** `REDIS_URL
 
 ## Step 1 — Push this code to GitHub
 
-On your PC, commit and push the VPS files (Docker, scripts, this guide) to GitHub. The VPS will download the repo from GitHub.
-
-If you want this chat to make the git commit for you, say so.
+Already done. The VPS will clone **https://github.com/Somtiee/swaparc.git**.
 
 ---
 
-## Step 2 — Buy the VPS (about $5 / month)
+## Step 2 — Buy the VPS on DigitalOcean (about $12 / month)
 
-Use **Hetzner Cloud** (cheapest) or **DigitalOcean**.
+Use **DigitalOcean**. Close the stuck Hetzner signup tab. You do not need both.
 
-### Hetzner (recommended)
+1. Open [https://www.digitalocean.com](https://www.digitalocean.com) and **Sign up** (Google / GitHub / email is fine).
+2. Add a card when they ask for billing. DigitalOcean’s payment page is the one that usually loads; if it spins, try another browser or turn off ad-block for that tab.
+3. After you are in the dashboard: **Create** → **Droplets**.
+4. **Region:** any (New York, London, Frankfurt, Amsterdam are all fine).
+5. **Image:** **Ubuntu** → **24.04 (LTS) x64**.
+6. **Size:** **Shared CPU** → **Basic** → **Regular** → pick **$12/mo (2 GB RAM / 1 vCPU)**.  
+   Do **not** pick 1 GB ($6) unless you are okay with the box running out of memory. Redis + API + indexer need headroom.
+7. **Authentication:** choose **Password**, set a strong root password, save it in a notepad. (Skip SSH keys if you are unsure.)
+8. **Hostname:** `swaparc-api` (optional, just a label).
+9. Click **Create Droplet**. Wait until it is green / active.
+10. Copy the **IPv4 address** from the droplet card (looks like `164.90.x.x`).
 
-1. Create an account at [https://www.hetzner.com/cloud](https://www.hetzner.com/cloud).
-2. **Add a server**.
-3. Location: pick **Ashburn**, **Hillsboro**, **Falkenstein**, or **Helsinki** (any is fine).
-4. Image: **Ubuntu 24.04**.
-5. Type: **CX22** (x86 / Intel or AMD).  
-   **Do not** pick **CAX** (ARM).
-6. Networking: leave **IPv4** on.
-7. SSH key: skip if you are unsure — Hetzner will email a root password, or use the web console.
-8. Create the server. Copy the **IPv4 address** (looks like `5.161.x.x`).
-
-### DigitalOcean alternative
-
-Create a **Basic Droplet**, Ubuntu 24.04, **$6/mo Regular** (1 GB is tight; **$12 / 2 GB** is safer if Hetzner is not an option). Copy the IPv4.
+You will open this server from the same page later: droplet → **Access** → **Launch Droplet Console** (browser terminal, no extra app).
 
 ---
 
@@ -93,7 +89,7 @@ It should show the VPS IP.
 
 ## Step 4 — Open the VPS and install Docker
 
-On Hetzner: server → **Console**. Log in as `root`.
+DigitalOcean dashboard → your droplet → **Access** → **Launch Droplet Console**. You should already be `root`.
 
 Paste this **entire** block, then Enter:
 
@@ -110,11 +106,9 @@ You should see Docker version numbers. If `docker compose` is missing, stop and 
 
 ## Step 5 — Download SwapArc on the VPS
 
-Replace the URL with **your** GitHub repo:
-
 ```bash
 cd /root
-git clone https://github.com/YOUR_USER/swaparc.git swaparc
+git clone https://github.com/Somtiee/swaparc.git swaparc
 cd /root/swaparc
 cp deploy/vps/env.example .env
 nano .env
