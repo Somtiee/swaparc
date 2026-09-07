@@ -1,4 +1,5 @@
 import { kv } from "../../../lib/server/kv.js";
+import { isProductionEnv } from "../../security/walletAuth.js";
 
 // Intended for webhook/admin usage after offchain payment confirmation.
 export default async function handler(req, res) {
@@ -8,8 +9,8 @@ export default async function handler(req, res) {
 
   try {
     const adminSecret = process.env.SUBSCRIPTION_ADMIN_SECRET || "";
-    const isVercelProduction = process.env.VERCEL_ENV === "production";
-    if (isVercelProduction && !adminSecret) {
+    // Runs on the VPS under NODE_ENV=production (no VERCEL_ENV) — check both.
+    if (isProductionEnv() && !adminSecret) {
       return res.status(503).json({
         ok: false,
         error: "SUBSCRIPTION_ADMIN_SECRET must be set in production (webhook/checkout only).",

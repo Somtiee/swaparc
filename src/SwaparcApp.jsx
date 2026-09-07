@@ -2957,15 +2957,17 @@ export default function SwaparcApp() {
     if (last && now - last < 12000) return;
     recurringServerRunLastAtRef.current = now;
     try {
-      await fetch("/api/payments/recurring/run", {
+      await ownerFetch("/api/payments/recurring/run", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ owner }),
+        action: "payments-recurring-run",
+        owner,
+        body: { owner },
       });
-      const payrollRes = await fetch("/api/payments/payroll/run", {
+      const payrollRes = await ownerFetch("/api/payments/payroll/run", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ owner }),
+        action: "payments-payroll-run",
+        owner,
+        body: { owner },
       });
       const payrollJson = await payrollRes.json().catch(() => ({}));
       const note = String(payrollJson?.note || "").trim();
@@ -2984,8 +2986,9 @@ export default function SwaparcApp() {
     const owner = getActiveWalletAddress();
     if (!owner) return;
     try {
-      const r = await fetch(
-        `/api/payments/payroll/get?owner=${encodeURIComponent(owner)}`
+      const r = await ownerFetch(
+        `/api/payments/payroll/get?owner=${encodeURIComponent(owner)}`,
+        { method: "GET", action: "payments-payroll-get", owner }
       );
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j?.ok || !j?.state) return;
@@ -3025,8 +3028,9 @@ export default function SwaparcApp() {
     if (!owner) return;
     const ownerLower = String(owner).toLowerCase();
     try {
-      const r = await fetch(
-        `/api/privpay/history/get?owner=${encodeURIComponent(ownerLower)}`
+      const r = await ownerFetch(
+        `/api/privpay/history/get?owner=${encodeURIComponent(ownerLower)}`,
+        { method: "GET", action: "privpay-history-get", owner: ownerLower }
       );
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j?.ok || !j?.state) return;
@@ -3133,8 +3137,9 @@ export default function SwaparcApp() {
     if (!owner) return;
     const ownerLower = String(owner).toLowerCase();
     try {
-      const r = await fetch(
-        `/api/payments/bills/get?owner=${encodeURIComponent(ownerLower)}`
+      const r = await ownerFetch(
+        `/api/payments/bills/get?owner=${encodeURIComponent(ownerLower)}`,
+        { method: "GET", action: "payments-bills-get", owner: ownerLower }
       );
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j?.ok || !j?.state) return;
@@ -3163,13 +3168,14 @@ export default function SwaparcApp() {
     if (!owner) return;
     const ownerLower = String(owner).toLowerCase();
     if (billsHydratedOwnerRef.current !== ownerLower) return;
-    await fetch("/api/payments/bills/save", {
+    await ownerFetch("/api/payments/bills/save", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      action: "payments-bills-save",
+      owner: ownerLower,
+      body: {
         owner: ownerLower,
         state: { bills: Array.isArray(nextBills) ? nextBills.slice(0, 500) : [] },
-      }),
+      },
     }).catch(() => {
       // keep local fallback when offline
     });
@@ -3183,10 +3189,11 @@ export default function SwaparcApp() {
     const owner = getActiveWalletAddress();
     if (!owner) return;
     const ownerLower = String(owner).toLowerCase();
-    await fetch("/api/payments/payroll/save", {
+    await ownerFetch("/api/payments/payroll/save", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      action: "payments-payroll-save",
+      owner: ownerLower,
+      body: {
         owner: ownerLower,
         state: {
           companies: (companiesSnapshot || []).map((c) => ({
@@ -3197,7 +3204,7 @@ export default function SwaparcApp() {
           employees: Array.isArray(employeesSnapshot) ? employeesSnapshot : [],
           history: Array.isArray(historySnapshot) ? historySnapshot.slice(0, 500) : [],
         },
-      }),
+      },
     })
       .then(async (r) => {
         const j = await r.json().catch(() => ({}));
@@ -3222,10 +3229,11 @@ export default function SwaparcApp() {
     try {
       const owner = getActiveWalletAddress();
       if (!owner) return;
-      const res = await fetch(
+      const res = await ownerFetch(
         `/api/payments/recurring/list?owner=${encodeURIComponent(
           String(owner).toLowerCase()
-        )}`
+        )}`,
+        { method: "GET", action: "payments-recurring-list", owner }
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) return;
@@ -3557,6 +3565,15 @@ export default function SwaparcApp() {
         const data = await res.json();
         if (!res.ok) {
           console.warn("[App] Session restore failed:", data.error);
+          // Stale/expired token (Circle userTokens live ~60 min). Clear the
+          // token so the app stops pretending a session exists and the user
+          // is asked to log in again (email is kept to prefill the modal).
+          try {
+            window.localStorage.removeItem("circle_user_token");
+            window.localStorage.removeItem("circle_encryption_key");
+          } catch {
+            // ignore storage failures
+          }
           return;
         }
 
@@ -3704,13 +3721,14 @@ export default function SwaparcApp() {
       lpProvided: next,
     }));
 
-    fetch("/api/profile/updateLp", {
+    ownerFetch("/api/profile/updateLp", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      action: "profile-update-lp",
+      owner: getActiveWalletAddress() || userId,
+      body: {
         userId,
         lpTotalValue: next,
-      }),
+      },
     }).catch(console.error);
   }, [calculatedLpTotalValue, userId, profileStats?.lpProvided]);
 
@@ -3880,14 +3898,25 @@ export default function SwaparcApp() {
 
     const uid = userId || owner;
     if (!uid) return;
-    fetch("/api/profile/updateLp", {
+    // LP value sync (session-signed) + badge persistence via profile-save,
+    // which is owner-authenticated server-side.
+    ownerFetch("/api/profile/updateLp", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      action: "profile-update-lp",
+      owner,
+      body: {
         userId: uid,
         lpTotalValue: Number(calculatedLpTotalValue || profileStats?.lpProvided || 0),
+      },
+    }).catch(() => {});
+    ownerFetch("/api/profile/save", {
+      method: "POST",
+      action: "profile-save",
+      owner,
+      body: {
+        userId: uid,
         eliteSwaparcer: true,
-      }),
+      },
     }).catch(() => {});
   }, [
     badgeState.eliteSwaparcer,
@@ -6506,11 +6535,12 @@ export default function SwaparcApp() {
       setBillRuntimeStatus("Relayer gas funded. Autopay will retry on the next tick.");
       const owner = getActiveWalletAddress();
       if (owner) {
-        await fetch("/api/payments/recurring/run", {
+        await ownerFetch("/api/payments/recurring/run", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ owner: String(owner).toLowerCase() }),
-        });
+          action: "payments-recurring-run",
+          owner,
+          body: { owner: String(owner).toLowerCase() },
+        }).catch(() => {});
         await refreshRecurringStateFromBackend();
       }
     } catch (e) {
@@ -6546,13 +6576,15 @@ export default function SwaparcApp() {
     if (!RECURRING_USER_GAS_PREFUND) {
       onStatus("Finalizing autopay — server covers relayer gas…");
       try {
-        await fetch("/api/payments/recurring/run", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            owner: String(getActiveWalletAddress() || "").toLowerCase(),
-          }),
-        });
+        const owner = getActiveWalletAddress();
+        if (owner) {
+          await ownerFetch("/api/payments/recurring/run", {
+            method: "POST",
+            action: "payments-recurring-run",
+            owner,
+            body: { owner: String(owner).toLowerCase() },
+          });
+        }
       } catch {
         // Best-effort; deposit path also tops up before each run.
       }
@@ -10249,7 +10281,7 @@ export default function SwaparcApp() {
                   symbol: "ARC",
                   decimals: 18,
                 },
-                rpcUrls: ["https://rpc.testnet.arc.network"],
+                rpcUrls: [ARC_PUBLIC_RPC, ARC_DRPC_RPC],
                 blockExplorerUrls: ["https://testnet.arcscan.app"],
               },
             ],
@@ -10515,9 +10547,9 @@ export default function SwaparcApp() {
   // Helper to get the correct signer (MetaMask or Circle)
   async function getSigner() {
     if (authMode === "email" && circleWallet) {
-      // Return a custom CircleSigner
-      const provider = new ethers.JsonRpcProvider("https://rpc.testnet.arc.network");
-      const signer = new CircleSigner(circleWallet.walletId, circleSdkRef.current, provider);
+      // Return a custom CircleSigner (read provider picks a healthy RPC
+      // with dRPC/Alchemy fallback instead of a single hardcoded URL).
+      const signer = new CircleSigner(circleWallet.walletId, circleSdkRef.current, getReadProvider());
       signer.setAddress(circleWallet.address);
       return signer;
     }
@@ -11128,14 +11160,15 @@ export default function SwaparcApp() {
           usdValue = 0;
         }
       }
-      await fetch("/api/profile/addSwap", {
+      await ownerFetch("/api/profile/addSwap", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        action: "profile-add-swap",
+        owner: walletAddr,
+        body: {
           userId: walletAddr,
           amount: usdValue,
           txHash,
-        }),
+        },
       })
         .then((r) => r.json().catch(() => ({})))
         .then((j) => {
@@ -11349,14 +11382,15 @@ export default function SwaparcApp() {
       try {
         const userAddr = await signer.getAddress();
         const usdValue = swapFrom === "USDC" ? Number(swapAmount) || 0 : expectedHuman;
-        await fetch("/api/profile/addSwap", {
+        await ownerFetch("/api/profile/addSwap", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+          action: "profile-add-swap",
+          owner: userAddr,
+          body: {
             userId: userAddr,
             amount: usdValue,
             txHash: tx.hash,
-          }),
+          },
         })
           .then((r) => r.json().catch(() => ({})))
           .then((j) => {

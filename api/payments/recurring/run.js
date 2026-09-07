@@ -4,7 +4,7 @@ import {
   recurringScheduleExecutionHandler,
   maintainRecurringRelayerGasBestEffort,
 } from "../../../lib/server/recurringPrivpayExecution.js";
-import { assertCronAuthStrict } from "../../security/walletAuth.js";
+import { assertCronAuthStrict, assertOwnerAuth } from "../../security/walletAuth.js";
 
 function hasAutomationAccess(access) {
   return !!(access?.payrollAutomation || access?.recurringPayments);
@@ -50,16 +50,15 @@ export default async function handler(req, res) {
     const executionEnabled = serverExecutionEnabled();
     const body = req.body || {};
     const owner = String(body?.owner || req.query?.owner || "").trim().toLowerCase();
-    if (executionEnabled) {
-      // Operator MY_PK tops up shared relayer gas before any wallet's due bills run.
-      await maintainRecurringRelayerGasBestEffort();
-    }
     const engine = createRecurringPaymentEngine({
       executionHandler: recurringScheduleExecutionHandler,
     });
     let summary;
 
     if (owner) {
+      // Owner-scoped runs move funds with the server relayer — they must prove
+      // the caller controls `owner` (wallet signature or Circle session).
+      await assertOwnerAuth(req, owner, "payments-recurring-run");
       const access = await getArcpayAccessByAddress(owner);
       if (!hasAutomationAccess(access)) {
         return res.status(402).json({
@@ -68,18 +67,18 @@ export default async function handler(req, res) {
           access,
         });
       }
+      if (executionEnabled) {
+        // Operator MY_PK tops up shared relayer gas before any wallet's due bills run.
+        await maintainRecurringRelayerGasBestEffort();
+      }
       summary = await runSerializedForPayer(owner, async () => {
         const now = new Date();
         const schedules = await engine.listSchedules();
-        const forceIds = new Set(
-          (Array.isArray(body?.forceScheduleIds) ? body.forceScheduleIds : [])
-            .map((id) => String(id || "").trim())
-            .filter(Boolean)
-        );
+        // forceScheduleIds is cron-only: an authenticated owner must not be able
+        // to force-run a schedule that is not due yet.
         const due = schedules.filter((s) => {
           if (String(s?.payerAddress || "").toLowerCase() !== owner) return false;
           if (s?.status !== "active") return false;
-          if (forceIds.has(String(s.id))) return true;
           return new Date(s.nextExecutionAt).getTime() <= now.getTime();
         });
         if (!executionEnabled) {
@@ -112,9 +111,7 @@ export default async function handler(req, res) {
         // caused nonce-too-low / NONCE_EXPIRED collisions across Water/EURC/USDC.
         for (const s of due) {
           try {
-            const v = await engine.executeSchedule(s.id, now, {
-              force: forceIds.has(String(s.id)),
-            });
+            const v = await engine.executeSchedule(s.id, now, { force: false });
             details.push(v);
             if (v?.skipped) skipped += 1;
             else if (v?.log?.status === "success") {
@@ -146,6 +143,9 @@ export default async function handler(req, res) {
       });
     } else {
       assertCronAuthStrict(req);
+      if (executionEnabled) {
+        await maintainRecurringRelayerGasBestEffort();
+      }
       const now = new Date();
       const schedules = await engine.listSchedules();
       const due = schedules.filter(

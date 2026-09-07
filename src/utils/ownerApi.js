@@ -3,6 +3,26 @@ import { ethers } from "ethers";
 export const SWAPARC_AUTH_DOMAIN = "Swaparc Auth";
 export const WALLET_SESSION_ACTION = "wallet-session";
 
+/** Must mirror WALLET_SESSION_ALLOWED_ACTIONS in api/security/walletAuth.js. */
+export const WALLET_SESSION_ALLOWED_ACTIONS = new Set([
+  "payments-bills-get",
+  "payments-bills-save",
+  "payments-payroll-get",
+  "payments-payroll-save",
+  "payments-payroll-run",
+  "payments-recurring-list",
+  "payments-recurring-run",
+  "privpay-history-get",
+  "privpay-history-save",
+  "privpay-list-backups",
+  "profile-save",
+  "profile-add-swap",
+  "profile-update-lp",
+]);
+
+// Server accepts wallet-session signatures for 30 minutes; refresh a bit earlier.
+const SESSION_TTL_MS = 25 * 60 * 1000;
+
 export function buildSwaparcAuthMessage(action, address, timestampMs, nonce) {
   return [
     SWAPARC_AUTH_DOMAIN,
@@ -13,17 +33,60 @@ export function buildSwaparcAuthMessage(action, address, timestampMs, nonce) {
   ].join("\n");
 }
 
+function sessionKey(owner) {
+  return `swaparc_wallet_session_${String(owner || "").toLowerCase()}`;
+}
+
+function loadSessionSignature(owner) {
+  try {
+    const raw = sessionStorage.getItem(sessionKey(owner));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      !parsed?.walletSignature ||
+      !parsed?.nonce ||
+      !Number.isFinite(Number(parsed.timestampMs)) ||
+      Date.now() - Number(parsed.timestampMs) > SESSION_TTL_MS
+    ) {
+      sessionStorage.removeItem(sessionKey(owner));
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function storeSessionSignature(owner, fields) {
+  try {
+    sessionStorage.setItem(sessionKey(owner), JSON.stringify(fields));
+  } catch {
+    // sessionStorage unavailable (private mode) — just don't cache
+  }
+}
+
 export function clearWalletSession(owner) {
   try {
-    sessionStorage.removeItem(`swaparc_wallet_session_${String(owner || "").toLowerCase()}`);
+    sessionStorage.removeItem(sessionKey(owner));
   } catch {
     // ignore
   }
 }
 
+function authHeaders(owner, fields) {
+  return {
+    "X-Wallet-Address": owner.toLowerCase(),
+    "X-Wallet-Signature": fields.walletSignature,
+    "X-Auth-Timestamp": String(fields.timestampMs),
+    "X-Auth-Nonce": fields.nonce,
+  };
+}
+
 /**
  * Owner-scoped API fetch. Circle: attaches X-User-Token when present.
- * Wallet: plain fetch by default; pass walletSign=true only when strict auth is enabled.
+ * Wallet: signs every call — sensitive actions get a fresh per-action
+ * signature (one wallet popup), background/sync actions reuse a cached
+ * wallet-session signature (one popup per ~25 min).
  */
 export async function ownerApiFetch(url, {
   method = "POST",
@@ -32,42 +95,81 @@ export async function ownerApiFetch(url, {
   ownerAddress,
   isCircleMode,
   getSigner,
-  walletSign = false,
+  walletSign = true,
 }) {
   const headers = { "Content-Type": "application/json" };
   const upper = String(method || "POST").toUpperCase();
+  let authFields = null;
 
   if (isCircleMode?.()) {
     const userToken = window.localStorage.getItem("circle_user_token");
     if (userToken) headers["X-User-Token"] = userToken;
   } else if (walletSign && getSigner) {
     const owner = ethers.getAddress(String(ownerAddress || ""));
-    const timestampMs = Date.now();
-    const nonce = crypto.randomUUID();
-    const signer = await getSigner();
-    const message = buildSwaparcAuthMessage(action || "wallet-action", owner, timestampMs, nonce);
-    const walletSignature = await signer.signMessage(message);
-    headers["X-Wallet-Address"] = owner.toLowerCase();
-    headers["X-Wallet-Signature"] = walletSignature;
-    headers["X-Auth-Timestamp"] = String(timestampMs);
-    headers["X-Auth-Nonce"] = nonce;
-    if (upper !== "GET" && upper !== "HEAD") {
-      body = { ...(body && typeof body === "object" ? body : {}), auth: {
+    const actionName = action || "wallet-action";
+    const sessionAllowed = WALLET_SESSION_ALLOWED_ACTIONS.has(actionName);
+
+    if (sessionAllowed) {
+      authFields = loadSessionSignature(owner);
+      if (!authFields) {
+        // One popup per ~25 min: sign a reusable session message.
+        const signer = await getSigner();
+        const timestampMs = Date.now();
+        const nonce = crypto.randomUUID();
+        const message = buildSwaparcAuthMessage(
+          WALLET_SESSION_ACTION,
+          owner,
+          timestampMs,
+          nonce
+        );
+        authFields = {
+          walletSignature: await signer.signMessage(message),
+          timestampMs,
+          nonce,
+          walletAddress: owner.toLowerCase(),
+        };
+        storeSessionSignature(owner, authFields);
+      }
+    } else {
+      // Sensitive action — fresh signature bound to this exact action.
+      const signer = await getSigner();
+      const timestampMs = Date.now();
+      const nonce = crypto.randomUUID();
+      const message = buildSwaparcAuthMessage(actionName, owner, timestampMs, nonce);
+      authFields = {
+        walletSignature: await signer.signMessage(message),
         timestampMs,
         nonce,
-        walletSignature,
         walletAddress: owner.toLowerCase(),
-      }};
+      };
     }
+    Object.assign(headers, authHeaders(owner, authFields));
   }
 
   if (upper === "GET" || upper === "HEAD") {
     return fetch(url, { method: upper, headers });
   }
 
+  const finalBody =
+    authFields || (body && typeof body === "object")
+      ? {
+          ...(body && typeof body === "object" ? body : {}),
+          ...(authFields
+            ? {
+                auth: {
+                  timestampMs: authFields.timestampMs,
+                  nonce: authFields.nonce,
+                  walletSignature: authFields.walletSignature,
+                  walletAddress: authFields.walletAddress,
+                },
+              }
+            : {}),
+        }
+      : {};
+
   return fetch(url, {
     method: upper,
     headers,
-    body: JSON.stringify(body && typeof body === "object" ? body : {}),
+    body: JSON.stringify(finalBody),
   });
 }

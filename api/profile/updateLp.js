@@ -1,6 +1,6 @@
 import { kv } from "../../lib/server/kv.js";
 import { isFrozenEarlySwaparcer } from "../../lib/server/earlySwaparcerFrozen.js";
-import { assertIpRateLimit } from "../security/walletAuth.js";
+import { assertIpRateLimit, assertOwnerAuth } from "../security/walletAuth.js";
 
 function parseBadges(raw) {
   if (!raw) return {};
@@ -29,10 +29,15 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { userId, lpTotalValue, eliteSwaparcer } = req.body;
+  const { userId, lpTotalValue } = req.body;
 
   if (!userId || lpTotalValue == null || isNaN(Number(lpTotalValue))) {
       return res.status(400).json({ error: 'Missing or invalid userId or lpTotalValue' });
+  }
+  // Leaderboard-ranked value — bound what a client can write.
+  const lpValue = Number(lpTotalValue);
+  if (!Number.isFinite(lpValue) || lpValue < 0 || lpValue > 1e12) {
+      return res.status(400).json({ error: 'lpTotalValue out of range' });
   }
 
   try {
@@ -40,9 +45,17 @@ export default async function handler(req, res) {
 
     const profileKey = `profile:${userId}`;
     const profile = (await kv.hgetall(profileKey)) || {};
+
+    // Only the wallet that owns this profile may update its LP stats.
+    const profileOwner = String(profile.walletAddress || userId || "").toLowerCase();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(profileOwner)) {
+      return res.status(400).json({ error: 'Profile has no linked wallet' });
+    }
+    await assertOwnerAuth(req, profileOwner, "profile-update-lp");
+
     profile.badges = sanitizeBadges(profile.badges);
 
-    const newLpProvided = Number(lpTotalValue);
+    const newLpProvided = lpValue;
 
     // STRICT LOCK: snapshot membership is the only source of truth.
     // Existing stored true flags are ignored if wallet is not frozen.
@@ -56,9 +69,10 @@ export default async function handler(req, res) {
     if (earlySwaparcerFlag) updatedBadges.earlySwaparcer = true;
     else delete updatedBadges.earlySwaparcer;
 
-    // Elite Swaparcer is sticky: once true, never cleared.
-    if (updatedBadges.eliteSwaparcer || eliteSwaparcer === true) {
-      updatedBadges.eliteSwaparcer = true;
+    // Elite Swaparcer is sticky once earned, but is no longer client-settable —
+    // the request body used to accept eliteSwaparcer:true from anyone.
+    if (updatedBadges.eliteSwaparcer !== true) {
+      delete updatedBadges.eliteSwaparcer;
     }
 
     const updatedProfile = {

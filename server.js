@@ -31,9 +31,11 @@ const allowOrigins = new Set([
 
 app.use((req, res, next) => {
   const origin = String(req.headers.origin || "").trim();
-  const allowed =
-    origin &&
-    (allowOrigins.has(origin) || /\.vercel\.app$/i.test(origin));
+  // Exact-match allowlist only. The old /\.vercel\.app$/ rule let anyone's
+  // Vercel preview deploy make credentialed cross-origin calls; preview
+  // deployments reach the API through the same Vercel rewrite (same-origin),
+  // so the regex bought nothing. Add extra origins via CORS_ORIGINS.
+  const allowed = origin && allowOrigins.has(origin);
   if (allowed) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
@@ -58,6 +60,24 @@ if (!isProd) {
     console.log(`[API] ${req.method} ${req.path}`);
     next();
   });
+}
+
+// Loud boot-time sanity check: name (never value) critical env vars that are
+// missing in production. The 2026-09-07 outage was exactly this — CIRCLE_API_KEY
+// never made it into the VPS .env and every login 500'd.
+if (isProd) {
+  const required = ["CIRCLE_API_KEY", "CRON_SECRET"];
+  const missing = required.filter((k) => !String(process.env[k] || "").trim());
+  if (missing.length) {
+    console.error(
+      `\n❌ MISSING REQUIRED ENV (login/crons will fail): ${missing.join(", ")}\n`
+    );
+  }
+  if (!String(process.env.SUBSCRIPTION_ADMIN_SECRET || "").trim()) {
+    console.warn(
+      "⚠️  SUBSCRIPTION_ADMIN_SECRET unset — /api/payments/subscription/activate returns 503."
+    );
+  }
 }
 
 async function registerRoutes(dir, basePath = "/api") {

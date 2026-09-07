@@ -8,7 +8,7 @@ import {
   readMergedSwapStats,
   resolveCanonicalProfile,
 } from "../../lib/server/profileKeys.js";
-import { assertIpRateLimit } from "../security/walletAuth.js";
+import { assertIpRateLimit, assertOwnerAuth } from "../security/walletAuth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -20,10 +20,25 @@ export default async function handler(req, res) {
   if (!userId || amount == null) {
     return res.status(400).json({ error: "Missing userId or amount" });
   }
+  if (!/^0x[0-9a-fA-F]{40}$/.test(String(userId))) {
+    return res.status(400).json({ error: "userId must be a wallet address" });
+  }
+
+  // Volume is leaderboard-ranked — reject absurd or negative client numbers.
+  const volume = Number(amount);
+  if (!Number.isFinite(volume) || volume < 0 || volume > 1e12) {
+    return res.status(400).json({ error: "Invalid amount" });
+  }
+  if (txHash != null && !/^0x([A-Fa-f0-9]{64})$/.test(String(txHash))) {
+    return res.status(400).json({ error: "Invalid txHash" });
+  }
 
   let claimed = false;
   try {
     await assertIpRateLimit(req, "profile-add-swap", 60);
+
+    // Only the wallet that swapped may bump its own stats.
+    await assertOwnerAuth(req, String(userId), "profile-add-swap");
 
     const resolved = await resolveCanonicalProfile(kv, userId);
     if (!resolved.profileKey) {

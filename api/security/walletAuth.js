@@ -12,17 +12,21 @@ const AUTH_DOMAIN = "Swaparc Auth";
 const WALLET_SESSION_ACTION = "wallet-session";
 const WALLET_SESSION_MAX_AGE_MS = 30 * 60 * 1000;
 
-/** Endpoints that accept a cached wallet-session signature (background sync / reads). */
+/** Endpoints that accept a cached wallet-session signature (background sync / reads / ticks). */
 export const WALLET_SESSION_ALLOWED_ACTIONS = new Set([
   "payments-bills-get",
   "payments-bills-save",
   "payments-payroll-get",
   "payments-payroll-save",
+  "payments-payroll-run",
   "payments-recurring-list",
+  "payments-recurring-run",
   "privpay-history-get",
   "privpay-history-save",
+  "privpay-list-backups",
   "profile-save",
   "profile-add-swap",
+  "profile-update-lp",
 ]);
 const MEMORY_RL =
   globalThis.__swaparcRateBuckets || (globalThis.__swaparcRateBuckets = new Map());
@@ -35,8 +39,15 @@ export function isProductionEnv() {
 }
 
 export function requireOwnerAuth() {
-  // Off by default — set SWAPARC_REQUIRE_OWNER_AUTH=1 when ready for strict mode.
-  return String(process.env.SWAPARC_REQUIRE_OWNER_AUTH || "").trim() === "1";
+  // Strict by default since 2026-09 (mainnet hardening): owner-scoped endpoints
+  // reject unauthenticated callers. Set SWAPARC_ALLOW_UNAUTHENTICATED_OWNER=1
+  // only for local development.
+  if (
+    String(process.env.SWAPARC_ALLOW_UNAUTHENTICATED_OWNER || "").trim() === "1"
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export function buildSwaparcAuthMessage(action, address, timestampMs, nonce) {
@@ -208,6 +219,7 @@ export async function assertIpRateLimit(req, scope, rpm = 30) {
 export function sanitizeUsername(value) {
   const s = String(value ?? "").trim().slice(0, 64);
   if (!s) return "";
+  // eslint-disable-next-line no-control-regex -- stripping control characters is the point
   return s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
 }
 

@@ -51,13 +51,32 @@ export default async function handler(req, res) {
     }
 
     const normalizedId = userId.startsWith("0x") ? userId.toLowerCase() : userId;
-    const authAddress = String(walletAddress || (normalizedId.startsWith("0x") ? normalizedId : "")).toLowerCase();
-    if (authAddress.startsWith("0x")) {
-      await assertOwnerAuth(req, authAddress, "profile-save");
-    }
-
     const profileKey = `profile:${normalizedId}`;
     const existingProfile = (await kv.hgetall(profileKey)) || {};
+
+    // Authenticate against the wallet LINKED to this profile (stored), not the
+    // wallet the request claims — otherwise anyone could sign with their own
+    // wallet and overwrite a username-keyed profile.
+    const storedWallet = String(existingProfile.walletAddress || "")
+      .trim()
+      .toLowerCase();
+    const claimedWallet = String(
+      walletAddress || (normalizedId.startsWith("0x") ? normalizedId : "")
+    )
+      .trim()
+      .toLowerCase();
+    if (storedWallet && claimedWallet && storedWallet !== claimedWallet) {
+      return res.status(403).json({
+        error: "This profile is linked to a different wallet",
+      });
+    }
+    const authAddress = storedWallet || claimedWallet;
+    if (!authAddress.startsWith("0x")) {
+      return res.status(400).json({
+        error: "Profile has no linked wallet — cannot save unauthenticated",
+      });
+    }
+    await assertOwnerAuth(req, authAddress, "profile-save");
 
     const existingBadges = sanitizeBadges(existingProfile.badges);
 
@@ -77,7 +96,8 @@ export default async function handler(req, res) {
     if (earlySwaparcerFlag) updatedBadges.earlySwaparcer = true;
     else delete updatedBadges.earlySwaparcer;
 
-    // Elite Swaparcer is sticky: once true (stored or requested), never cleared.
+    // Elite Swaparcer is sticky: once true, never cleared. Owner auth above
+    // ensures only the profile owner can award it to themselves.
     if (updatedBadges.eliteSwaparcer || eliteSwaparcer === true) {
       updatedBadges.eliteSwaparcer = true;
     }

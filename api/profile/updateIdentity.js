@@ -28,9 +28,10 @@ export default async function handler(req, res) {
     const authAddress = String(
       existingProfile.walletAddress || (normalizedId.startsWith("0x") ? normalizedId : "")
     ).toLowerCase();
-    if (authAddress.startsWith("0x")) {
-      await assertOwnerAuth(req, authAddress, "profile-update-identity");
+    if (!authAddress.startsWith("0x")) {
+      return res.status(400).json({ error: "Profile has no linked wallet" });
     }
+    await assertOwnerAuth(req, authAddress, "profile-update-identity");
 
     const updatedProfile = {
       ...existingProfile,

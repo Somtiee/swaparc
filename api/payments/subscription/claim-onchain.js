@@ -1,5 +1,6 @@
 import { kv } from "../../../lib/server/kv.js";
 import { ethers } from "ethers";
+import { assertOwnerAuth } from "../../security/walletAuth.js";
 
 const ARC_RPC_URL =
   process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network";
@@ -35,10 +36,24 @@ export default async function handler(req, res) {
       return invalid(res, 400, "Valid txHash required");
     }
 
+    // Only the payer may claim their own payment.
+    await assertOwnerAuth(req, owner, "payments-subscription-claim");
+
+    // Atomic replay lock: racing the same txHash through concurrent requests
+    // must not credit the month more than once.
     const replayKey = `privpay:subscription:tx:${txHash.toLowerCase()}`;
-    const usedBy = await kv.get(replayKey).catch(() => null);
-    if (usedBy) {
-      return invalid(res, 409, "This payment transaction was already used");
+    const locked = await kv
+      .set(replayKey, owner, { nx: true, ex: 90 * 24 * 60 * 60 })
+      .catch(() => null);
+    if (locked !== true && locked !== "OK") {
+      const usedBy = await kv.get(replayKey).catch(() => null);
+      if (usedBy) {
+        return invalid(res, 409, "This payment transaction was already used");
+      }
+      if (locked === null) {
+        // KV unavailable — fail closed rather than risk double-crediting.
+        return invalid(res, 503, "Payment store unavailable, try again shortly");
+      }
     }
 
     const provider = new ethers.JsonRpcProvider(ARC_RPC_URL, undefined, {
@@ -109,7 +124,6 @@ export default async function handler(req, res) {
     };
 
     await kv.set(`privpay:subscription:${owner}`, payload);
-    await kv.set(replayKey, owner);
     return res.status(200).json({ ok: true, subscription: payload });
   } catch (e) {
     return invalid(res, 500, e?.message || String(e));

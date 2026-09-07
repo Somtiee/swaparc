@@ -57,3 +57,6 @@ tools/circom.exe
 # Local key recovery artifacts (never commit)
 recovery/
 recovery/**
+
+# Python cache
+__pycache__/

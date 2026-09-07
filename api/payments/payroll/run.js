@@ -3,7 +3,7 @@ import { kv } from "../../../lib/server/kv.js";
 import { computeNextExecutionDate } from "../recurring-engine.js";
 import { getArcpayAccessByAddress } from "../subscription-eligibility.js";
 import { executeRecurringPrivpayDeposit, maintainRecurringRelayerGasBestEffort } from "../../../lib/server/recurringPrivpayExecution.js";
-import { assertCronAuthStrict } from "../../security/walletAuth.js";
+import { assertCronAuthStrict, assertOwnerAuth } from "../../security/walletAuth.js";
 
 const OWNER_SET = "privpay:payroll:owners";
 const MEMORY = globalThis.__privpayPayrollMemory || (globalThis.__privpayPayrollMemory = {});
@@ -252,14 +252,17 @@ export default async function handler(req, res) {
       });
     }
 
-    await maintainRecurringRelayerGasBestEffort();
-
     if (owner) {
+      // Owner-scoped runs execute with the server relayer — require proof the
+      // caller controls `owner` before anything funds-moving happens.
+      await assertOwnerAuth(req, owner, "payments-payroll-run");
+      await maintainRecurringRelayerGasBestEffort();
       const summary = await runOwnerSerialized(owner);
       return res.status(200).json({ ok: true, summary });
     }
 
     assertCronAuthStrict(req);
+    await maintainRecurringRelayerGasBestEffort();
     const owners = await getOwners();
     const results = [];
     for (const o of owners) {

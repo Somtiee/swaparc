@@ -2,6 +2,7 @@ import { ethers } from "ethers";
 import { kv } from "../../lib/server/kv.js";
 import { PrivacyPoolPoseidonMerkleMirror } from "../../scripts/privacyPoolPoseidonMerkle.mjs";
 import { assertIpRateLimit } from "../security/walletAuth.js";
+import { assertRelayPoolAllowed } from "../../lib/server/privpayRelayCore.js";
 
 const DEPOSITED_IFACE = new ethers.Interface([
   "event Deposited(bytes32 indexed commitment, uint256 amount)",
@@ -187,14 +188,19 @@ export default async function handler(req, res) {
   try {
     await assertIpRateLimit(req, "privpay-claim-context", 12);
     const poolAddress = ethers.getAddress(String(req.query?.poolAddress || ""));
+    // Only known pools may drive server-side scans — an arbitrary address turns
+    // this endpoint into an RPC-billing / Redis-growth amplifier.
+    assertRelayPoolAllowed(poolAddress);
     const commitment = ethers.zeroPadValue(String(req.query?.commitment || ""), 32);
     const merkleHeight = Math.max(16, Math.min(32, Number(req.query?.merkleHeight || 16)));
+    // fromBlock is server-configured only. A client-supplied fromBlock would let
+    // anyone mint unbounded distinct Redis snapshot keys.
     const envFromBlock =
       process.env.PRIVPAY_POOL_FROM_BLOCK ||
       process.env.VITE_PRIVACY_POOL_FROM_BLOCK ||
       process.env.PRIVACY_POOL_FROM_BLOCK ||
       "0";
-    const fromBlock = parseFromBlock(req.query?.fromBlock ?? envFromBlock);
+    const fromBlock = parseFromBlock(envFromBlock);
     const urls = providerUrls();
     const providers = getProviders(urls);
 
@@ -279,12 +285,16 @@ export default async function handler(req, res) {
       if (!reachedLatest) {
         // Persist partial progress so the NEXT poll continues, not restarts.
         await kv
-          .set(snapshotKey, {
-            commitments,
-            lastScannedBlock,
-            updatedAt: new Date().toISOString(),
-            validated: false,
-          })
+          .set(
+            snapshotKey,
+            {
+              commitments,
+              lastScannedBlock,
+              updatedAt: new Date().toISOString(),
+              validated: false,
+            },
+            { ex: 3 * 24 * 60 * 60 }
+          )
           .catch(() => {});
         return res.status(202).json({
           ok: false,
@@ -323,12 +333,16 @@ export default async function handler(req, res) {
         // Final safety: build proof against on-chain currentRoot expectation is impossible.
         // Invalidate the cache by NOT marking validated.
         await kv
-          .set(snapshotKey, {
-            commitments,
-            lastScannedBlock,
-            updatedAt: new Date().toISOString(),
-            validated: false,
-          })
+          .set(
+            snapshotKey,
+            {
+              commitments,
+              lastScannedBlock,
+              updatedAt: new Date().toISOString(),
+              validated: false,
+            },
+            { ex: 3 * 24 * 60 * 60 }
+          )
           .catch(() => {});
         return res.status(503).json({
           ok: false,
@@ -348,12 +362,16 @@ export default async function handler(req, res) {
       const matchesCurrent = bytesEqHex(fullRoot, onchain.currentRoot);
 
       await kv
-        .set(snapshotKey, {
-          commitments,
-          lastScannedBlock,
-          updatedAt: new Date().toISOString(),
-          validated: matchesCurrent,
-        })
+        .set(
+          snapshotKey,
+          {
+            commitments,
+            lastScannedBlock,
+            updatedAt: new Date().toISOString(),
+            validated: matchesCurrent,
+          },
+          { ex: 3 * 24 * 60 * 60 }
+        )
         .catch(() => {});
 
       if (!matchesCurrent) {
@@ -382,12 +400,16 @@ export default async function handler(req, res) {
     if (!known) {
       // Cache might be stale (e.g. after a fresh deposit in between); invalidate and ask client to retry.
       await kv
-        .set(snapshotKey, {
-          commitments,
-          lastScannedBlock,
-          updatedAt: new Date().toISOString(),
-          validated: false,
-        })
+        .set(
+          snapshotKey,
+          {
+            commitments,
+            lastScannedBlock,
+            updatedAt: new Date().toISOString(),
+            validated: false,
+          },
+          { ex: 3 * 24 * 60 * 60 }
+        )
         .catch(() => {});
       return res.status(503).json({
         ok: false,

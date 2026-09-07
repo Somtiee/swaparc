@@ -1,0 +1,37 @@
+{
+  "deployedAt": "2026-08-04T14:19:43.992Z",
+  "chainId": 5042002,
+  "deployer": "0xD4d3E342902766344075D06c94391e61A9bB7e60",
+  "pools": [
+    {
+      "id": "usdc-circbtc",
+      "name": "USDC / CircBTC",
+      "tokens": [
+        "USDC",
+        "CircBTC"
+      ],
+      "poolAddress": "0xa9DcE051b330E79150D0437921C63c498CC1bE91",
+      "lpToken": "0x95BD0bB6a929f75872C1e1176c4B8Cb9B3e633a2"
+    },
+    {
+      "id": "eurc-circbtc",
+      "name": "EURC / CircBTC",
+      "tokens": [
+        "EURC",
+        "CircBTC"
+      ],
+      "poolAddress": "0xB725B7D06dCAeD7F13A9b7bEc63A98978079CeEE",
+      "lpToken": "0x8a44c2Af504B1646a279b959d62FA915D13e0F18"
+    },
+    {
+      "id": "swprc-circbtc",
+      "name": "SWPRC / CircBTC",
+      "tokens": [
+        "SWPRC",
+        "CircBTC"
+      ],
+      "poolAddress": "0x49C7117FB670f387B5BA9e4Ea174Ae60cA384055",
+      "lpToken": "0x089b4F57a841338cfb7EB0aF431F5b872AC31B1b"
+    }
+  ]
+}
