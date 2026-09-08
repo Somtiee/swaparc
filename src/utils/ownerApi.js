@@ -21,8 +21,10 @@ export const WALLET_SESSION_ALLOWED_ACTIONS = new Set([
   "profile-update-lp",
 ]);
 
-// Server accepts wallet-session signatures for 30 minutes; refresh a bit earlier.
-const SESSION_TTL_MS = 25 * 60 * 1000;
+// Server accepts wallet-session signatures for 24 hours; refresh a bit earlier.
+// Cached in localStorage (survives browser restarts) so wallet users sign
+// once a day at most, not once per tab.
+const SESSION_TTL_MS = 23 * 60 * 60 * 1000;
 
 export function buildSwaparcAuthMessage(action, address, timestampMs, nonce) {
   return [
@@ -38,9 +40,21 @@ function sessionKey(owner) {
   return `swaparc_wallet_session_${String(owner || "").toLowerCase()}`;
 }
 
+function sessionStore() {
+  // localStorage keeps the session across tabs and restarts; fall back to
+  // sessionStorage when storage is blocked (private mode).
+  try {
+    window.localStorage.getItem("__probe__");
+    return window.localStorage;
+  } catch {
+    return window.sessionStorage;
+  }
+}
+
 function loadSessionSignature(owner) {
   try {
-    const raw = sessionStorage.getItem(sessionKey(owner));
+    const store = sessionStore();
+    const raw = store.getItem(sessionKey(owner));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (
@@ -49,7 +63,7 @@ function loadSessionSignature(owner) {
       !Number.isFinite(Number(parsed.timestampMs)) ||
       Date.now() - Number(parsed.timestampMs) > SESSION_TTL_MS
     ) {
-      sessionStorage.removeItem(sessionKey(owner));
+      store.removeItem(sessionKey(owner));
       return null;
     }
     return parsed;
@@ -60,9 +74,9 @@ function loadSessionSignature(owner) {
 
 function storeSessionSignature(owner, fields) {
   try {
-    sessionStorage.setItem(sessionKey(owner), JSON.stringify(fields));
+    sessionStore().setItem(sessionKey(owner), JSON.stringify(fields));
   } catch {
-    // sessionStorage unavailable (private mode) — just don't cache
+    // storage unavailable — just don't cache
   }
 }
 
@@ -105,7 +119,8 @@ async function getSessionSignature(owner, getSigner) {
 
 export function clearWalletSession(owner) {
   try {
-    sessionStorage.removeItem(sessionKey(owner));
+    window.localStorage.removeItem(sessionKey(owner));
+    window.sessionStorage.removeItem(sessionKey(owner));
   } catch {
     // ignore
   }
@@ -121,10 +136,15 @@ function authHeaders(owner, fields) {
 }
 
 /**
- * Owner-scoped API fetch. Circle: attaches X-User-Token when present.
- * Wallet: signs every call — sensitive actions get a fresh per-action
- * signature (one wallet popup), background/sync actions reuse a cached
- * wallet-session signature (one popup per ~25 min).
+ * Owner-scoped API fetch. Circle (email login): attaches X-User-Token —
+ * email users are NEVER asked for a wallet signature. Wallet connect:
+ * sensitive actions get a fresh per-action signature (one wallet popup),
+ * background/sync actions reuse a cached wallet-session signature.
+ *
+ * `isEmailAuth` (authMode === "email") is authoritative even when the
+ * Circle wallet object is still loading: during the login race the old
+ * check fell through to MetaMask signing and popped "privpay" signature
+ * requests at gmail users on every login.
  */
 export async function ownerApiFetch(url, {
   method = "POST",
@@ -132,6 +152,7 @@ export async function ownerApiFetch(url, {
   action,
   ownerAddress,
   isCircleMode,
+  isEmailAuth,
   getSigner,
   walletSign = true,
 }) {
@@ -139,9 +160,12 @@ export async function ownerApiFetch(url, {
   const upper = String(method || "POST").toUpperCase();
   let authFields = null;
 
-  if (isCircleMode?.()) {
+  if (isCircleMode?.() || isEmailAuth) {
     const userToken = window.localStorage.getItem("circle_user_token");
     if (userToken) headers["X-User-Token"] = userToken;
+    // No token yet (login still in flight): send unauthenticated — the
+    // server rejects and the caller retries after login settles. Never
+    // fall through to wallet signing for email users.
   } else if (walletSign && getSigner) {
     const owner = ethers.getAddress(String(ownerAddress || ""));
     const actionName = action || "wallet-action";

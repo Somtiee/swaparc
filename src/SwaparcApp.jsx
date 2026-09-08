@@ -1802,56 +1802,67 @@ export default function SwaparcApp() {
 
   const CLAIM_READ_RPC_URLS = READ_RPC_URLS;
 
-  const readProviderRef = useRef({ url: "", provider: null });
-  /** Prefer last healthy *free* RPC (public/dRPC). Never prefer Alchemy — always try free first. */
-  const preferredReadRpcRef = useRef("");
+  const readProviderRef = useRef(null);
 
-  function rememberHealthyRpc(url) {
-    if (!url) return;
-    if (url === ARC_PUBLIC_RPC || url === ARC_DRPC_RPC) {
-      preferredReadRpcRef.current = url;
-    }
-  }
-
-  // Probe once: public → dRPC → Alchemy; stick only to free RPCs when healthy.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      for (const url of READ_RPC_URLS) {
-        try {
-          await withTimeout(
-            getReadProviderForUrl(url).getBlockNumber(),
-            3000,
-            "rpc-probe"
-          );
-          if (!cancelled) {
-            rememberHealthyRpc(url);
-            readProviderRef.current = { url: "", provider: null };
-            console.log("[RPC] using", url);
-          }
-          return;
-        } catch (e) {
-          console.warn("[RPC] probe failed", url, e?.message || e);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [READ_RPC_URLS]);
-
+  /**
+   * Auto-failover JSON-RPC provider: every request goes to the last healthy
+   * URL; on a rate-limit / network error it automatically rotates to the
+   * next URL (public → dRPC → Alchemy) and remembers the winner. The public
+   * Arc RPC rate-limits browsers per-IP (429) under load — single-URL
+   * providers made the whole app (Circle + wallet reads, tx confirmation,
+   * liquidity refreshes) fail while it throttled. Everything that only needs
+   * reads should use getReadProvider(); nothing should pin to one URL.
+   */
   function getReadProvider() {
-    const url =
-      preferredReadRpcRef.current || READ_RPC_URLS[0] || ARC_PUBLIC_RPC;
-    const cached = readProviderRef.current;
-    if (cached.provider && cached.url === url) return cached.provider;
-    const provider = new ethers.JsonRpcProvider(
-      url,
-      { chainId: ARC_CHAIN_ID_DEC, name: "arc-testnet" },
-      { batchMaxCount: 1, staticNetwork: true }
+    if (readProviderRef.current) return readProviderRef.current;
+    const network = { chainId: ARC_CHAIN_ID_DEC, name: "arc-testnet" };
+    const opts = { batchMaxCount: 1, staticNetwork: true };
+    const urls = READ_RPC_URLS.length ? READ_RPC_URLS : [ARC_PUBLIC_RPC];
+    const children = urls.map(
+      (url) => new ethers.JsonRpcProvider(url, network, opts)
     );
-    readProviderRef.current = { url, provider };
-    return provider;
+    let active = 0;
+
+    class ArcFailoverProvider extends ethers.JsonRpcProvider {
+      constructor() {
+        super(urls[0], network, opts);
+      }
+      async send(method, params) {
+        const order = urls.map((_, i) => (active + i) % urls.length);
+        let lastErr = null;
+        for (const idx of order) {
+          try {
+            const result =
+              idx === 0
+                ? await super.send(method, params)
+                : await children[idx].send(method, params);
+            if (idx !== active) {
+              active = idx;
+              console.warn(
+                `[RPC] ${method}: switched to ${new URL(urls[idx]).host} after failure`
+              );
+            }
+            return result;
+          } catch (err) {
+            lastErr = err;
+            const msg = String(err?.message || err || "");
+            // Only fail over on transport/rate-limit errors — genuine
+            // JSON-RPC responses (reverts, "missing revert data") must
+            // surface unchanged.
+            if (
+              !/rate limit|request limit|429|-32005|-32011|-32012|too many requests|timeout|timed out|network error|fetch failed|ECONN|socket hang up|ENOTFOUND|EAI_AGAIN|service unavailable|503|502/i.test(
+                msg
+              )
+            ) {
+              throw err;
+            }
+          }
+        }
+        throw lastErr || new Error(`${method} failed on all RPCs`);
+      }
+    }
+    readProviderRef.current = new ArcFailoverProvider();
+    return readProviderRef.current;
   }
 
   function getReadProviderForUrl(url) {
@@ -1869,8 +1880,6 @@ export default function SwaparcApp() {
       try {
         const provider = getReadProviderForUrl(url);
         const result = await withTimeout(fn(provider, url), 4000, label);
-        rememberHealthyRpc(url);
-        readProviderRef.current = { url, provider };
         return result;
       } catch (e) {
         lastErr = e;
@@ -2118,7 +2127,6 @@ export default function SwaparcApp() {
             return { result, url };
           })
         );
-        rememberHealthyRpc(url);
         return result;
       } catch (agg) {
         const errs = agg?.errors || [];
@@ -3335,6 +3343,7 @@ export default function SwaparcApp() {
       action,
       ownerAddress,
       isCircleMode,
+      isEmailAuth: authMode === "email",
       getSigner,
     });
   }
@@ -3460,13 +3469,23 @@ export default function SwaparcApp() {
     userEmailRef.current = userEmail;
   }, [userEmail]);
 
+  // Register the private-receive key only when the user actually opens the
+  // PrivPay tab (or follows a private-receive invite link — separate effect
+  // below). This used to fire on every login, popping a wallet signature
+  // ("Action: privpay-register-receiver") before the user did anything.
+  const privpayReceiverRegisteredRef = useRef("");
   useEffect(() => {
+    if (activeTab !== "privpay") return;
     const active = getActiveWalletAddress();
     if (!active) return;
+    const key = String(active).toLowerCase();
+    if (privpayReceiverRegisteredRef.current === key) return;
+    privpayReceiverRegisteredRef.current = key;
     registerPrivateReceiverForAddress(active).catch((e) => {
+      privpayReceiverRegisteredRef.current = "";
       console.warn("[PRIVPAY] receiver auto-registration skipped:", e?.message || e);
     });
-  }, [address, authMode, circleWallet?.address]);
+  }, [activeTab, address, authMode, circleWallet?.address]);
 
   useEffect(() => {
     if (privateReceiveDeepLinkHandledRef.current) return;
@@ -3503,6 +3522,9 @@ export default function SwaparcApp() {
   }, [address, authMode, circleWallet?.address]);
 
   useEffect(() => {
+    // Backup list is only used inside the PrivPay tab — load it there, not
+    // on every login (keeps sign-in free of background API churn).
+    if (activeTab !== "privpay") return;
     const active = getActiveWalletAddress();
     if (!active) {
       setPrivateReceiveBackups([]);
@@ -3512,7 +3534,7 @@ export default function SwaparcApp() {
     loadPrivateReceiveBackups().catch(() => {
       // backup list is optional; ignore if unavailable
     });
-  }, [address, authMode, circleWallet?.address]);
+  }, [activeTab, address, authMode, circleWallet?.address]);
 
   useEffect(() => {
     const owner = getActiveWalletAddress();

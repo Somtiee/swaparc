@@ -10,7 +10,11 @@ import { getRelayAllowedPoolSet } from "../../lib/server/privpayRelayCore.js";
 
 const AUTH_DOMAIN = "Swaparc Auth";
 const WALLET_SESSION_ACTION = "wallet-session";
-const WALLET_SESSION_MAX_AGE_MS = 30 * 60 * 1000;
+// Reusable "wallet-session" signature lifetime. Acts like a session cookie:
+// covers read/sync actions and the owner's own recurring schedules, never
+// sensitive per-action operations (those use the short 120s window above).
+// 24h keeps wallet users from re-signing on every visit.
+const WALLET_SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /** Endpoints that accept a cached wallet-session signature (background sync / reads / ticks). */
 export const WALLET_SESSION_ALLOWED_ACTIONS = new Set([
