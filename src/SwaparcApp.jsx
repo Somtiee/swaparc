@@ -10257,11 +10257,49 @@ export default function SwaparcApp() {
     const { ethereum } = window;
     if (!ethereum) return false;
 
+    // Wallet RPC order is NOT the read order: wallets use only the FIRST
+    // rpcUrl (no failover), so it must be the most reliable endpoint —
+    // our own Alchemy key if configured, then dRPC. The shared public RPC
+    // (rpc.testnet.arc.network) is what most wallets stored when they added
+    // Arc, and it rate-limits (429) under load — that broke swaps for
+    // wallet users during the 2026-09-07 outage.
+    const walletRpcUrls = [];
+    const walletAlchemy = String(
+      import.meta.env.VITE_ALCHEMY_ARC_RPC_URL || ""
+    ).trim();
+    if (walletAlchemy) walletRpcUrls.push(walletAlchemy);
+    walletRpcUrls.push(ARC_DRPC_RPC, ARC_PUBLIC_RPC);
+
+    const arcChainParams = {
+      chainId: ARC_CHAIN_ID_HEX,
+      chainName: "Arc Testnet",
+      nativeCurrency: {
+        name: "ARC",
+        symbol: "ARC",
+        decimals: 18,
+      },
+      rpcUrls: walletRpcUrls,
+      blockExplorerUrls: ["https://testnet.arcscan.app"],
+    };
+
     try {
       await ethereum.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: ARC_CHAIN_ID_HEX }],
       });
+
+      // Chain already exists in the wallet: re-send the chain params so
+      // wallets that stored the rate-limited public RPC can update it.
+      // Identical params → silent no-op; changed params → one-time
+      // "update network" prompt. Declining it is non-fatal.
+      try {
+        await ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [arcChainParams],
+        });
+      } catch {
+        // Wallet declined the update or doesn't support it — keep current RPC.
+      }
       return true;
     } catch (err) {
       // 4902: Chain not found. Some wallets might throw generic errors with "Unrecognized chain".
@@ -10272,19 +10310,7 @@ export default function SwaparcApp() {
         try {
           await ethereum.request({
             method: "wallet_addEthereumChain",
-            params: [
-              {
-                chainId: ARC_CHAIN_ID_HEX,
-                chainName: "Arc Testnet",
-                nativeCurrency: {
-                  name: "ARC",
-                  symbol: "ARC",
-                  decimals: 18,
-                },
-                rpcUrls: [ARC_PUBLIC_RPC, ARC_DRPC_RPC],
-                blockExplorerUrls: ["https://testnet.arcscan.app"],
-              },
-            ],
+            params: [arcChainParams],
           });
 
           // Retry switching after adding
@@ -11154,7 +11180,17 @@ export default function SwaparcApp() {
         usdValue = Number(ethers.formatUnits(expectedOut, 6));
       } else if (fromIdx != null) {
         try {
-          const dy = await poolReader.get_dy(fromIdx, usdcIdx, amountIn);
+          // poolReader was never defined here (pre-existing bug) — read the
+          // USDC quote through the RPC-fallback helper instead.
+          const dy = await ethCallWithRpcFallback(
+            (p) =>
+              new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, p).get_dy(
+                fromIdx,
+                usdcIdx,
+                amountIn
+              ),
+            "circle-get_dy"
+          );
           usdValue = Number(ethers.formatUnits(dy, 6));
         } catch {
           usdValue = 0;
@@ -11199,8 +11235,9 @@ export default function SwaparcApp() {
       console.warn("[App] Profile update failed", err);
     }
 
-    // Refresh Balances
-    await fetchBalances(walletAddr, provider);
+    // Refresh Balances (getBalances has built-in RPC fallback; `provider`
+    // was never defined in this function — that broke the post-swap step).
+    await fetchBalances(walletAddr);
   }
 
   async function performSwap() {
