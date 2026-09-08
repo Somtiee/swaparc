@@ -85,9 +85,21 @@ function storeSessionSignature(owner, fields) {
 // first signature landed in the cache. They now share a single popup.
 const sessionSignInFlight = new Map();
 
+// When the user REJECTS the session signature, stop re-asking from the
+// background 15s sync tick — otherwise it re-popped the prompt forever,
+// which read as "PrivPay keeps asking me to sign". Retry after a cooldown
+// or on the next fresh connect.
+const sessionSignRejectedAt = new Map();
+const SESSION_REJECT_COOLDOWN_MS = 5 * 60 * 1000;
+
 async function getSessionSignature(owner, getSigner) {
   const cached = loadSessionSignature(owner);
   if (cached) return cached;
+
+  const rejectedAt = sessionSignRejectedAt.get(owner) || 0;
+  if (Date.now() - rejectedAt < SESSION_REJECT_COOLDOWN_MS) {
+    throw new Error("Wallet session signature declined — will retry later");
+  }
 
   let pending = sessionSignInFlight.get(owner);
   if (!pending) {
@@ -109,9 +121,14 @@ async function getSessionSignature(owner, getSigner) {
       };
       storeSessionSignature(owner, fields);
       return fields;
-    })().finally(() => {
-      sessionSignInFlight.delete(owner);
-    });
+    })()
+      .catch((err) => {
+        sessionSignRejectedAt.set(owner, Date.now());
+        throw err;
+      })
+      .finally(() => {
+        sessionSignInFlight.delete(owner);
+      });
     sessionSignInFlight.set(owner, pending);
   }
   return pending;
@@ -124,6 +141,12 @@ export function clearWalletSession(owner) {
   } catch {
     // ignore
   }
+}
+
+/** Fresh wallet connect: allow the session signature to be re-requested
+ *  immediately even if the user declined it earlier this session. */
+export function resetWalletSessionRetry(owner) {
+  sessionSignRejectedAt.delete(owner);
 }
 
 function authHeaders(owner, fields) {

@@ -31,7 +31,7 @@ export default async function handler(req, res) {
     const schedule = await engine.cancelSchedule(scheduleId);
     return res.status(200).json({ ok: true, schedule });
   } catch (err) {
-    return res.status(500).json({
+    return res.status(err?.status || 500).json({
       ok: false,
       error: err?.message || String(err),
     });

@@ -124,6 +124,6 @@ export default async function handler(req, res) {
       profile
     });
   } catch (error) {
-    return res.status(500).json({ error: "Internal Server Error" });
+    return res.status(error?.status || 500).json({ error: "Internal Server Error" });
   }
 }

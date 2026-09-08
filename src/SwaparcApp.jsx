@@ -11,7 +11,7 @@ import circbtcLogo from "./assets/circbtc.png";
 import "./App.css";
 import { getPrices } from "./priceFetcher";
 import { CircleSigner } from "./utils/CircleSigner";
-import { ownerApiFetch, clearWalletSession } from "./utils/ownerApi.js";
+import { ownerApiFetch, clearWalletSession, resetWalletSessionRetry } from "./utils/ownerApi.js";
 import {
   deriveStealthPayment,
   deriveStealthPrivateKey,
@@ -10387,6 +10387,7 @@ export default function SwaparcApp() {
       }
 
       const userAddress = accounts[0];
+      resetWalletSessionRetry(userAddress);
       const provider = new ethers.BrowserProvider(ethereum);
       const net = await provider.getNetwork();
 

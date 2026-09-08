@@ -25,7 +25,7 @@ export default async function handler(req, res) {
     const schedule = await engine.createSchedule(req.body || {});
     return res.status(200).json({ ok: true, schedule });
   } catch (err) {
-    return res.status(400).json({
+    return res.status(err?.status || 400).json({
       ok: false,
       error: err?.message || String(err),
     });

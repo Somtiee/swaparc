@@ -92,7 +92,7 @@ export default async function handler(req, res) {
       })),
     });
   } catch (e) {
-    return res.status(400).json({
+    return res.status(e?.status || 400).json({
       ok: false,
       error: e?.message || String(e),
     });

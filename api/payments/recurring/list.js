@@ -34,7 +34,7 @@ export default async function handler(req, res) {
       paymentLogs: filteredLogs,
     });
   } catch (err) {
-    return res.status(500).json({
+    return res.status(err?.status || 500).json({
       ok: false,
       error: err?.message || String(err),
     });

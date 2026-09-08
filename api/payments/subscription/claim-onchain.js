@@ -126,6 +126,6 @@ export default async function handler(req, res) {
     await kv.set(`privpay:subscription:${owner}`, payload);
     return res.status(200).json({ ok: true, subscription: payload });
   } catch (e) {
-    return invalid(res, 500, e?.message || String(e));
+    return invalid(res, e?.status || 500, e?.message || String(e));
   }
 }
