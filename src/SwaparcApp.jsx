@@ -46,31 +46,21 @@ import {
   signPrivpayRelayDeposit,
   signPrivpayRelayWithdraw,
 } from "./utils/privpayRelayAuth";
-const ARC_CHAIN_ID_DEC = (() => {
-  const n = Number(import.meta.env.VITE_ARC_CHAIN_ID || "");
-  return Number.isFinite(n) && n > 0 ? n : 5042002;
-})();
+import {
+  ARC_PUBLIC_RPC,
+  ARC_DRPC_RPC,
+  ARC_CHAIN_ID_DEC,
+  ARC_READ_RPC_URLS,
+  getReadProvider,
+  getReadProviderForUrl,
+  withReadProviders,
+  withTimeout,
+  ethCallWithRpcFallback,
+} from "./utils/arcRpc.js";
+
 const ARC_CHAIN_ID_HEX = `0x${ARC_CHAIN_ID_DEC.toString(16)}`;
 const CIRCLE_APP_ID = import.meta.env.VITE_CIRCLE_APP_ID || "";
-/** Default read RPC for ARC Testnet (no API key). Override with VITE_ARC_RPC_URL. */
-const ARC_PUBLIC_RPC = "https://rpc.testnet.arc.network";
-/** Free community fallback (no Alchemy credits). */
-const ARC_DRPC_RPC = "https://arc-testnet.drpc.org";
 
-function withTimeout(promise, ms = 4000, label = "rpc") {
-  let timer;
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      timer = setTimeout(
-        () => reject(new Error(`${label} timed out after ${ms}ms`)),
-        ms
-      );
-    }),
-  ]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
-}
 /** Weekly static landing stats (Sunday cron); TVL via RPC once/day on landing. */
 /** localStorage fallback TTL only when CDN fetch fails (offline). */
 const LANDING_STATS_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1791,112 +1781,18 @@ export default function SwaparcApp() {
   // userEmailRef, circleExecResolverRef moved up
 
   // --- HELPER FUNCTIONS (Safe to use state now) ---
-  // Ordered fallback for Swap / Pools / PrivPay / Profile reads:
-  // 1) public Arc RPC  2) free dRPC  3) Alchemy (last resort — free-tier credits)
-  const READ_RPC_URLS = useMemo(() => {
-    const urls = [ARC_PUBLIC_RPC, ARC_DRPC_RPC];
-    const alchemy = import.meta.env.VITE_ALCHEMY_ARC_RPC_URL?.trim();
-    if (alchemy && !urls.includes(alchemy)) urls.push(alchemy);
-    return urls;
-  }, []);
-
-  const CLAIM_READ_RPC_URLS = READ_RPC_URLS;
-
-  const readProviderRef = useRef(null);
-
-  /**
-   * Auto-failover JSON-RPC provider: every request goes to the last healthy
-   * URL; on a rate-limit / network error it automatically rotates to the
-   * next URL (public → dRPC → Alchemy) and remembers the winner. The public
-   * Arc RPC rate-limits browsers per-IP (429) under load — single-URL
-   * providers made the whole app (Circle + wallet reads, tx confirmation,
-   * liquidity refreshes) fail while it throttled. Everything that only needs
-   * reads should use getReadProvider(); nothing should pin to one URL.
-   */
-  function getReadProvider() {
-    if (readProviderRef.current) return readProviderRef.current;
-    const network = { chainId: ARC_CHAIN_ID_DEC, name: "arc-testnet" };
-    const opts = { batchMaxCount: 1, staticNetwork: true };
-    const urls = READ_RPC_URLS.length ? READ_RPC_URLS : [ARC_PUBLIC_RPC];
-    const children = urls.map(
-      (url) => new ethers.JsonRpcProvider(url, network, opts)
-    );
-    let active = 0;
-
-    class ArcFailoverProvider extends ethers.JsonRpcProvider {
-      constructor() {
-        super(urls[0], network, opts);
-      }
-      async send(method, params) {
-        const order = urls.map((_, i) => (active + i) % urls.length);
-        let lastErr = null;
-        for (const idx of order) {
-          try {
-            const result =
-              idx === 0
-                ? await super.send(method, params)
-                : await children[idx].send(method, params);
-            if (idx !== active) {
-              active = idx;
-              console.warn(
-                `[RPC] ${method}: switched to ${new URL(urls[idx]).host} after failure`
-              );
-            }
-            return result;
-          } catch (err) {
-            lastErr = err;
-            const msg = String(err?.message || err || "");
-            // Only fail over on transport/rate-limit errors — genuine
-            // JSON-RPC responses (reverts, "missing revert data") must
-            // surface unchanged.
-            if (
-              !/rate limit|request limit|429|-32005|-32011|-32012|too many requests|timeout|timed out|network error|fetch failed|ECONN|socket hang up|ENOTFOUND|EAI_AGAIN|service unavailable|503|502/i.test(
-                msg
-              )
-            ) {
-              throw err;
-            }
-          }
-        }
-        throw lastErr || new Error(`${method} failed on all RPCs`);
-      }
-    }
-    readProviderRef.current = new ArcFailoverProvider();
-    return readProviderRef.current;
-  }
-
-  function getReadProviderForUrl(url) {
-    return new ethers.JsonRpcProvider(
-      url,
-      { chainId: ARC_CHAIN_ID_DEC, name: "arc-testnet" },
-      { batchMaxCount: 1, staticNetwork: true }
-    );
-  }
-
-  async function withReadProviders(fn, label = "read") {
-    let lastErr = null;
-    // Always public → dRPC → Alchemy (never prioritize Alchemy).
-    for (const url of READ_RPC_URLS) {
-      try {
-        const provider = getReadProviderForUrl(url);
-        const result = await withTimeout(fn(provider, url), 4000, label);
-        return result;
-      } catch (e) {
-        lastErr = e;
-        console.warn(`[RPC] ${label} failed on ${url}`, e?.message || e);
-      }
-    }
-    throw lastErr || new Error(`${label} failed`);
-  }
+  // All read-RPC plumbing (failover provider, per-URL providers, racing
+  // reads, timeouts) lives in ./utils/arcRpc.js — single home, dRPC-first,
+  // every request hard-capped at 3.5s so nothing can hang.
 
   async function waitForTxBestEffort(txHash, timeoutMs = 45000) {
     if (!txHash || txHash === "SUBMITTED") return null;
     const perProviderTimeout = Math.max(
       8000,
-      Math.floor(timeoutMs / Math.max(1, READ_RPC_URLS.length))
+      Math.floor(timeoutMs / Math.max(1, ARC_READ_RPC_URLS.length))
     );
     try {
-      const waiters = READ_RPC_URLS.map(async (url) => {
+      const waiters = ARC_READ_RPC_URLS.map(async (url) => {
         try {
           const provider = getReadProviderForUrl(url);
           const mined = await Promise.race([
@@ -1925,7 +1821,7 @@ export default function SwaparcApp() {
   async function getTxReceiptBestEffort(txHash) {
     if (!txHash || txHash === "SUBMITTED") return null;
     try {
-      const lookups = READ_RPC_URLS.map(async (url) => {
+      const lookups = ARC_READ_RPC_URLS.map(async (url) => {
         try {
           const provider = getReadProviderForUrl(url);
           return (await provider.getTransactionReceipt(txHash)) || null;
@@ -2108,57 +2004,6 @@ export default function SwaparcApp() {
     }
   }
 
-  async function ethCallWithRpcFallback(fn, label = "read") {
-    let lastErr = null;
-    const alchemy = String(import.meta.env.VITE_ALCHEMY_ARC_RPC_URL || "").trim();
-    const freeUrls = READ_RPC_URLS.filter((u) => u && u !== alchemy);
-    const paidUrls = alchemy ? [alchemy] : [];
-
-    // Race free RPCs first (public + dRPC) — first healthy answer wins.
-    if (freeUrls.length > 0) {
-      try {
-        const { result, url } = await Promise.any(
-          freeUrls.map(async (url) => {
-            const result = await withTimeout(
-              fn(getReadProviderForUrl(url), url),
-              url === ARC_PUBLIC_RPC ? 2500 : 4500,
-              label
-            );
-            return { result, url };
-          })
-        );
-        return result;
-      } catch (agg) {
-        const errs = agg?.errors || [];
-        lastErr = errs[errs.length - 1] || agg;
-        console.warn(
-          `[RPC] ${label} failed on free RPCs, trying Alchemy:`,
-          String(lastErr?.message || lastErr).slice(0, 120)
-        );
-      }
-    }
-
-    // Alchemy last resort only.
-    for (const url of paidUrls) {
-      try {
-        const result = await withTimeout(
-          fn(getReadProviderForUrl(url), url),
-          6000,
-          label
-        );
-        return result;
-      } catch (e) {
-        lastErr = e;
-        console.warn(
-          `[RPC] ${label} failed on Alchemy:`,
-          String(e?.message || e).slice(0, 120)
-        );
-      }
-    }
-
-    throw lastErr || new Error(`${label} failed`);
-  }
-
   /** Arc USDC / wrappers often flake on wallet-RPC allowance(); never block Pay Now on that. */
   async function readErc20AllowanceBestEffort(tokenAddr, owner, spender) {
     return ethCallWithRpcFallback(
@@ -2229,38 +2074,41 @@ export default function SwaparcApp() {
     // runs through the fallback read RPCs above.
   }) {
     const signerProvider = signer.provider ?? getReadProvider();
-    await assertNoWalletNonceGap(signer, signerProvider);
+    const userAddr = await signer.getAddress();
 
-    // Fee sensing + gas estimation run through the app's fallback read RPCs
-    // (public → dRPC → Alchemy), NEVER through the wallet's own RPC. The
-    // public Arc RPC rate-limits (429) under load, and when the wallet has
-    // it configured MetaMask's internal eth_estimateGas fails with
-    // "missing revert data" — which broke swaps and LP adds during the
-    // 2026-09 outage. Attaching an explicit gasLimit also makes MetaMask
-    // skip its own estimation entirely.
-    let activeFeeOverrides = {};
-    try {
-      activeFeeOverrides = await computeFastClaimOverrides(getReadProvider());
-    } catch {
-      activeFeeOverrides = {};
-    }
-    const sendOverrides = { ...activeFeeOverrides };
-
-    try {
-      const userAddr = await signer.getAddress();
-      const sim = { from: userAddr, ...activeFeeOverrides };
-      const est = await ethCallWithRpcFallback(
+    // PREFLIGHT — the window between the user clicking and the signature
+    // popup. All three checks run IN PARALLEL through the app's fallback
+    // read RPCs (never the wallet's own RPC, which is what MetaMask has
+    // configured — the public Arc RPC rate-limits browsers with 429 and its
+    // failed eth_estimateGas surfaced as "missing revert data"). Every call
+    // is timeout-capped by arcRpc.js, so the popup appears in <= ~4.5s even
+    // when an RPC is degraded — this used to run sequentially (3x slower)
+    // and, before timeouts existed, could hang for minutes.
+    const preflight = await Promise.allSettled([
+      assertNoWalletNonceGap(signer, signerProvider),
+      computeFastClaimOverrides(getReadProvider()),
+      ethCallWithRpcFallback(
         (p) =>
           new ethers.Contract(contract.target, contract.interface, p)[
             method
-          ].estimateGas(...args, sim),
+          ].estimateGas(...args, { from: userAddr }),
         `${txLabel} simulate`
-      );
-      if (est) sendOverrides.gasLimit = (est * 13n) / 10n;
-    } catch {
-      // Simulation unavailable (all RPCs busy or call would revert) — let
-      // the wallet estimate as before. A revert caught here is surfaced by
-      // the actual send below, not swallowed silently.
+      ),
+    ]);
+
+    // A genuinely stuck wallet nonce queue aborts; everything else degrades
+    // gracefully (wallet fills in fees / estimates gas itself).
+    if (preflight[0].status === "rejected") throw preflight[0].reason;
+
+    // Attach explicit gasLimit when simulation succeeded — makes MetaMask
+    // skip its own estimation entirely (the main 429 trigger).
+    let activeFeeOverrides =
+      preflight[1].status === "fulfilled" && preflight[1].value
+        ? preflight[1].value
+        : {};
+    const sendOverrides = { ...activeFeeOverrides };
+    if (preflight[2].status === "fulfilled" && preflight[2].value) {
+      sendOverrides.gasLimit = (preflight[2].value * 13n) / 10n;
     }
 
     let tx;
@@ -2280,7 +2128,7 @@ export default function SwaparcApp() {
       txLabel,
       replaceTx: async ({ attempt }) => {
         if (initialNonce == null) return null;
-        const fresh = await computeFastClaimOverrides(signerProvider);
+        const fresh = await computeFastClaimOverrides(getReadProvider());
         const bumpedFees = buildReplacementFeeOverrides(
           activeFeeOverrides,
           fresh,
@@ -2331,7 +2179,9 @@ export default function SwaparcApp() {
   }) {
     const signerProvider = signer.provider ?? getReadProvider();
     await assertNoWalletNonceGap(signer, signerProvider);
-    let activeFeeOverrides = await computeFastClaimOverrides(signerProvider);
+    // Fee sensing goes through OUR failover read RPC — never the wallet's
+    // own (rate-limited) RPC via signer.provider.
+    let activeFeeOverrides = await computeFastClaimOverrides(getReadProvider());
     const req = { ...txRequest, ...activeFeeOverrides };
 
     let tx;
@@ -2350,7 +2200,7 @@ export default function SwaparcApp() {
       txLabel,
       replaceTx: async ({ attempt }) => {
         if (initialNonce == null) return null;
-        const fresh = await computeFastClaimOverrides(signerProvider);
+        const fresh = await computeFastClaimOverrides(getReadProvider());
         const bumpedFees = buildReplacementFeeOverrides(
           activeFeeOverrides,
           fresh,
@@ -4768,7 +4618,9 @@ export default function SwaparcApp() {
     }
 
     try {
-      const provider = isCircleMode() ? getReadProvider() : (await getSigner()).provider || new ethers.BrowserProvider(window.ethereum);
+      // Post-tx balance refreshes are reads — always through our failover
+      // provider, never the wallet's (rate-limited) RPC.
+      const provider = getReadProvider();
 
       if (isCircleMode()) {
         const claimTx = buildClaimRewardsCall(poolPreset.poolAddress);
@@ -6912,40 +6764,25 @@ export default function SwaparcApp() {
     const signer = await getSigner();
     const signerProvider = signer.provider ?? getReadProvider();
     const signerAddr = await signer.getAddress();
-    // Avoid piling up more pending txs when the wallet already has a nonce gap.
-    try {
-      const [latestN, pendingN] = await Promise.all([
-        signerProvider.getTransactionCount(signerAddr, "latest").catch(() => null),
-        signerProvider.getTransactionCount(signerAddr, "pending").catch(() => null),
-      ]);
-      if (
-        Number.isFinite(latestN) &&
-        Number.isFinite(pendingN) &&
-        pendingN - latestN > 1
-      ) {
-        throw new Error(
-          `Wallet pending queue is stuck (nonce gap ${pendingN - latestN}). Clear/speed-up pending txs in wallet activity, then retry.`
-        );
-      }
-    } catch (nonceErr) {
-      const msg = String(nonceErr?.message || nonceErr || "");
-      if (/nonce gap|pending queue is stuck/i.test(msg)) throw nonceErr;
-    }
+    // Avoid piling up more pending txs when the wallet already has a nonce
+    // gap — via our failover read RPCs, never the wallet's own RPC.
+    await assertNoWalletNonceGap(signer, signerProvider);
 
     const usdc = new ethers.Contract(PRIVPAY_USDC_ADDRESS, ERC20_ABI, signer);
-    const feeOverrides = await computeFastClaimOverrides(signerProvider);
+    const feeOverrides = await computeFastClaimOverrides(getReadProvider());
     const sendOverrides = { ...feeOverrides };
     try {
-      const est = await usdc.transfer.estimateGas(treasury, feeUnits, feeOverrides);
+      // Simulate on OUR read RPCs (from = signer) — estimating through the
+      // wallet's own RPC is what 429'd and stalled this flow.
+      const est = await ethCallWithRpcFallback(
+        (p) =>
+          new ethers.Contract(PRIVPAY_USDC_ADDRESS, ERC20_ABI, p).transfer
+            .estimateGas(treasury, feeUnits, { from: signerAddr }),
+        "privpay-fee simulate"
+      );
       if (est) sendOverrides.gasLimit = (est * 12n) / 10n;
     } catch {
-      // Some wallets/RPCs reject estimate with fee overrides. Retry estimate plain.
-      try {
-        const est = await usdc.transfer.estimateGas(treasury, feeUnits);
-        if (est) sendOverrides.gasLimit = (est * 12n) / 10n;
-      } catch {
-        // Let wallet/provider choose gas limit.
-      }
+      // Let wallet/provider choose gas limit.
     }
     const tx = await usdc.transfer(treasury, feeUnits, sendOverrides);
     const mined =
@@ -8096,13 +7933,16 @@ export default function SwaparcApp() {
     const HARD_CEILING = ethers.parseUnits("220", "gwei");
     const overrides = {};
     try {
+      // feeHistory and latest block are independent — fetch both at once so
+      // fee sensing costs one round-trip, not two.
+      const [feeHistory, block] = await Promise.all([
+        provider
+          .send("eth_feeHistory", ["0x5", "latest", [25, 50, 75]])
+          .catch(() => null),
+        provider.getBlock("latest").catch(() => null),
+      ]);
       let priorityFeeWei = null;
       try {
-        const feeHistory = await provider.send("eth_feeHistory", [
-          "0x5",
-          "latest",
-          [25, 50, 75],
-        ]);
         if (feeHistory && Array.isArray(feeHistory.reward)) {
           const p75 = feeHistory.reward
             .map((r) => (r && r[2] ? BigInt(r[2]) : 0n))
@@ -8118,7 +7958,6 @@ export default function SwaparcApp() {
       if (priorityFeeWei == null || priorityFeeWei < MIN_TIP) priorityFeeWei = MIN_TIP;
       if (priorityFeeWei > MAX_TIP) priorityFeeWei = MAX_TIP;
 
-      const block = await provider.getBlock("latest").catch(() => null);
       const baseFee = block?.baseFeePerGas ? BigInt(block.baseFeePerGas) : null;
       if (baseFee != null) {
         let maxFeePerGas = baseFee * 3n + priorityFeeWei;
@@ -8216,9 +8055,7 @@ export default function SwaparcApp() {
         const addr = await signer.getAddress();
         const [latestN, pendingN] = await Promise.all([
           readProvider.getTransactionCount(addr, "latest").catch(() => null),
-          signer.provider
-            ? signer.provider.getTransactionCount(addr, "pending").catch(() => null)
-            : Promise.resolve(null),
+          readProvider.getTransactionCount(addr, "pending").catch(() => null),
         ]);
         if (
           Number.isFinite(latestN) &&
@@ -8238,13 +8075,19 @@ export default function SwaparcApp() {
 
       const overrides = await computeFastClaimOverrides(readProvider);
       try {
-        const est = await poolWrite
+        // Simulate on OUR read RPCs (from = signer) — never the wallet's.
+        const est = await new ethers.Contract(
+          wfn,
+          PRIVACY_POOL_ABI,
+          readProvider
+        )
           .getFunction("withdraw(bytes,bytes32,address,uint256)")
           .estimateGas(
             fullProofBytes,
             parsed.nullifierHash,
             parsed.recipient,
-            parsed.amount
+            parsed.amount,
+            { from: await signer.getAddress() }
           );
         if (est) overrides.gasLimit = (est * 12n) / 10n;
       } catch {
@@ -8272,8 +8115,8 @@ export default function SwaparcApp() {
       // hasn't seen it yet. If ANY of our RPCs sees the tx, it's fine.
       const verifyBroadcast = async () => {
         const verifyUrls =
-          Array.isArray(CLAIM_READ_RPC_URLS) && CLAIM_READ_RPC_URLS.length
-            ? CLAIM_READ_RPC_URLS
+          Array.isArray(ARC_READ_RPC_URLS) && ARC_READ_RPC_URLS.length
+            ? ARC_READ_RPC_URLS
             : [ARC_PUBLIC_RPC];
         const verifyProviders = [];
         for (const url of verifyUrls) {
@@ -8510,8 +8353,8 @@ export default function SwaparcApp() {
     statusPrefix = "Preparing Merkle proof inputs...",
   }) {
     const urls =
-      Array.isArray(CLAIM_READ_RPC_URLS) && CLAIM_READ_RPC_URLS.length
-        ? CLAIM_READ_RPC_URLS
+      Array.isArray(ARC_READ_RPC_URLS) && ARC_READ_RPC_URLS.length
+        ? ARC_READ_RPC_URLS
         : [ARC_PUBLIC_RPC];
     const primaryUrl = urls[0];
 
@@ -8706,8 +8549,8 @@ export default function SwaparcApp() {
     );
     if (pendings.length === 0) return;
 
-    const providerUrls = (Array.isArray(CLAIM_READ_RPC_URLS) && CLAIM_READ_RPC_URLS.length
-      ? CLAIM_READ_RPC_URLS
+    const providerUrls = (Array.isArray(ARC_READ_RPC_URLS) && ARC_READ_RPC_URLS.length
+      ? ARC_READ_RPC_URLS
       : [ARC_PUBLIC_RPC]);
     const providers = [];
     try {
@@ -8840,8 +8683,8 @@ export default function SwaparcApp() {
         return;
       }
       try {
-        const providerUrls = (Array.isArray(CLAIM_READ_RPC_URLS) && CLAIM_READ_RPC_URLS.length
-          ? CLAIM_READ_RPC_URLS
+        const providerUrls = (Array.isArray(ARC_READ_RPC_URLS) && ARC_READ_RPC_URLS.length
+          ? ARC_READ_RPC_URLS
           : [ARC_PUBLIC_RPC]);
         for (const url of providerUrls) {
           const provider = getReadProviderForUrl(url);
