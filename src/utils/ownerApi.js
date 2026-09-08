@@ -15,6 +15,7 @@ export const WALLET_SESSION_ALLOWED_ACTIONS = new Set([
   "privpay-history-get",
   "privpay-history-save",
   "privpay-list-backups",
+  "privpay-register-receiver",
   "profile-save",
   "profile-add-swap",
   "profile-update-lp",
@@ -65,6 +66,43 @@ function storeSessionSignature(owner, fields) {
   }
 }
 
+// One in-flight signature per owner: sign-in fires several session-allowed
+// calls in parallel and each used to pop its own wallet prompt before the
+// first signature landed in the cache. They now share a single popup.
+const sessionSignInFlight = new Map();
+
+async function getSessionSignature(owner, getSigner) {
+  const cached = loadSessionSignature(owner);
+  if (cached) return cached;
+
+  let pending = sessionSignInFlight.get(owner);
+  if (!pending) {
+    pending = (async () => {
+      const signer = await getSigner();
+      const timestampMs = Date.now();
+      const nonce = crypto.randomUUID();
+      const message = buildSwaparcAuthMessage(
+        WALLET_SESSION_ACTION,
+        owner,
+        timestampMs,
+        nonce
+      );
+      const fields = {
+        walletSignature: await signer.signMessage(message),
+        timestampMs,
+        nonce,
+        walletAddress: owner.toLowerCase(),
+      };
+      storeSessionSignature(owner, fields);
+      return fields;
+    })().finally(() => {
+      sessionSignInFlight.delete(owner);
+    });
+    sessionSignInFlight.set(owner, pending);
+  }
+  return pending;
+}
+
 export function clearWalletSession(owner) {
   try {
     sessionStorage.removeItem(sessionKey(owner));
@@ -110,26 +148,9 @@ export async function ownerApiFetch(url, {
     const sessionAllowed = WALLET_SESSION_ALLOWED_ACTIONS.has(actionName);
 
     if (sessionAllowed) {
-      authFields = loadSessionSignature(owner);
-      if (!authFields) {
-        // One popup per ~25 min: sign a reusable session message.
-        const signer = await getSigner();
-        const timestampMs = Date.now();
-        const nonce = crypto.randomUUID();
-        const message = buildSwaparcAuthMessage(
-          WALLET_SESSION_ACTION,
-          owner,
-          timestampMs,
-          nonce
-        );
-        authFields = {
-          walletSignature: await signer.signMessage(message),
-          timestampMs,
-          nonce,
-          walletAddress: owner.toLowerCase(),
-        };
-        storeSessionSignature(owner, authFields);
-      }
+      // One popup per ~25 min: sign a reusable session message (shared
+      // across parallel calls).
+      authFields = await getSessionSignature(owner, getSigner);
     } else {
       // Sensitive action — fresh signature bound to this exact action.
       const signer = await getSigner();

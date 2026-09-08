@@ -24,6 +24,7 @@ export const WALLET_SESSION_ALLOWED_ACTIONS = new Set([
   "privpay-history-get",
   "privpay-history-save",
   "privpay-list-backups",
+  "privpay-register-receiver",
   "profile-save",
   "profile-add-swap",
   "profile-update-lp",
