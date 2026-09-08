@@ -2217,33 +2217,42 @@ export default function SwaparcApp() {
     args = [],
     timeoutMs = 90000,
     txLabel = "Transaction",
-    estimateGas = true,
+    // `estimateGas` (legacy) is accepted and ignored: estimation now always
+    // runs through the fallback read RPCs above.
   }) {
     const signerProvider = signer.provider ?? getReadProvider();
     await assertNoWalletNonceGap(signer, signerProvider);
 
-    let activeFeeOverrides = await computeFastClaimOverrides(signerProvider);
+    // Fee sensing + gas estimation run through the app's fallback read RPCs
+    // (public → dRPC → Alchemy), NEVER through the wallet's own RPC. The
+    // public Arc RPC rate-limits (429) under load, and when the wallet has
+    // it configured MetaMask's internal eth_estimateGas fails with
+    // "missing revert data" — which broke swaps and LP adds during the
+    // 2026-09 outage. Attaching an explicit gasLimit also makes MetaMask
+    // skip its own estimation entirely.
+    let activeFeeOverrides = {};
+    try {
+      activeFeeOverrides = await computeFastClaimOverrides(getReadProvider());
+    } catch {
+      activeFeeOverrides = {};
+    }
     const sendOverrides = { ...activeFeeOverrides };
-    if (estimateGas) {
-      try {
-        const est = await withTimeout(
-          contract[method].estimateGas(...args, activeFeeOverrides),
-          6000,
-          `${txLabel} estimateGas`
-        );
-        if (est) sendOverrides.gasLimit = (est * 12n) / 10n;
-      } catch {
-        try {
-          const est = await withTimeout(
-            contract[method].estimateGas(...args),
-            5000,
-            `${txLabel} estimateGas-plain`
-          );
-          if (est) sendOverrides.gasLimit = (est * 12n) / 10n;
-        } catch {
-          // let wallet/provider estimate if both attempts fail / time out
-        }
-      }
+
+    try {
+      const userAddr = await signer.getAddress();
+      const sim = { from: userAddr, ...activeFeeOverrides };
+      const est = await ethCallWithRpcFallback(
+        (p) =>
+          new ethers.Contract(contract.target, contract.interface, p)[
+            method
+          ].estimateGas(...args, sim),
+        `${txLabel} simulate`
+      );
+      if (est) sendOverrides.gasLimit = (est * 13n) / 10n;
+    } catch {
+      // Simulation unavailable (all RPCs busy or call would revert) — let
+      // the wallet estimate as before. A revert caught here is surfaced by
+      // the actual send below, not swallowed silently.
     }
 
     let tx;
@@ -11461,7 +11470,18 @@ export default function SwaparcApp() {
       await fetchBalances(await signer.getAddress());
     } catch (err) {
       console.error(err);
-      const m = err?.shortMessage || err?.reason || err?.message || String(err);
+      let m = err?.shortMessage || err?.reason || err?.message || String(err);
+      // "missing revert data" on an estimateGas action is the wallet's RPC
+      // rate-limiting (429), not an on-chain revert — tell the user the fix.
+      if (
+        /missing revert data|could not coalesce|request limit|rate limit|-32011/i.test(
+          m
+        ) &&
+        /estimateGas|CALL_EXCEPTION/i.test(String(err?.message || err) + m)
+      ) {
+        m =
+          "Your wallet's Arc RPC is rate-limited. In your wallet's Arc Testnet network settings, change the RPC URL to https://arc-testnet.drpc.org, then retry.";
+      }
       setQuote("Swap failed: " + m);
       setTxModal({
         status: "failed",
