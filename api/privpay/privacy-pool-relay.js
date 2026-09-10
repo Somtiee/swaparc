@@ -1,4 +1,5 @@
 import { ethers } from "ethers";
+import { getHealthyArcProvider, withArcRpc } from "../../lib/server/arcRpc.js";
 import {
   assertOptionalRelayServerSecret,
   assertRelayPoolAllowed,
@@ -17,7 +18,11 @@ const MAX_PROOF_BYTES = 24 * 1024;
  *
  * Env:
  * - PRIVACY_POOL_RELAYER_PRIVATE_KEY — relayer EOA
- * - ARC_RPC_URL — required when VERCEL_ENV=production or NODE_ENV=production
+ * - ARC_RPC_URL — optional extra Arc RPC; the relay binds to the first healthy
+ *   endpoint (public Arc → dRPC → Alchemy last) via lib/server/arcRpc.js, the
+ *   same failover chain used by swaps/LP/recurring. A single hard-coded
+ *   ARC_RPC_URL binding made every pay-now deposit and claim fail whenever
+ *   that one endpoint was rate-limited or down.
  * - PRIVPAY_ALLOWED_POOL_ADDRESSES, or PRIVACY_POOL_ADDRESS, or VITE_PRIVACY_POOL_ADDRESS — allowlist (required)
  * - ARC_CHAIN_ID — default 5042002
  * - PRIVPAY_RELAY_RPM — per-IP requests per minute per action (default 30)
@@ -72,14 +77,10 @@ export default async function handler(req, res) {
     await assertRelayRateLimit(ip, action);
 
     const chainId = relayChainId();
-    const rpcRaw = String(process.env.ARC_RPC_URL || "").trim();
-    const isProd =
-      process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
-    if (!rpcRaw && isProd) {
-      return res.status(503).json({ error: "ARC_RPC_URL not configured" });
-    }
-    const rpc = rpcRaw || "https://rpc.testnet.arc.network";
-    const provider = new ethers.JsonRpcProvider(rpc);
+    // Bind the relayer to the first healthy Arc RPC (public + dRPC raced,
+    // Alchemy last resort) instead of a single ARC_RPC_URL that takes the
+    // whole pay-now/claim flow down when it 429s.
+    const provider = await getHealthyArcProvider("privpay-relay");
     const relayer = new ethers.Wallet(key, provider);
 
     if (action === "withdraw") {
@@ -157,7 +158,17 @@ export default async function handler(req, res) {
         abi,
         relayer
       );
-      const spent = await pool.nullifierSpent(nh).catch(() => false);
+      // Race the duplicate-claim check across the failover chain so a flaky
+      // primary RPC cannot silently turn into `false` (which would push a
+      // guaranteed-revert tx on-chain and waste relayer gas).
+      const spent = await withArcRpc(
+        async (p) => {
+          const ro = new ethers.Contract(ethers.getAddress(poolAddress), abi, p);
+          return ro.nullifierSpent(nh);
+        },
+        "relay-nullifierSpent",
+        5000
+      ).catch(() => false);
       if (spent) {
         return res.status(409).json({
           ok: false,
