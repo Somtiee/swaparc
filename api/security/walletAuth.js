@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { ethers } from "ethers";
 import { kv } from "../../lib/server/kv.js";
-import { assertNotExpired } from "./hardening.js";
 import { circleUserRequest } from "../circle/_circleUserApi.js";
 import {
   swapPoolAllowlistAddresses,
@@ -102,18 +101,16 @@ async function circleTokenOwnsAddress(userToken, ownerLower) {
 }
 
 function verifyWalletAuthMessage(fields, owner, signedAction, maxAgeMs) {
-  assertNotExpired({ requestTimestampMs: fields.timestampMs, maxAgeMs });
-  if (!fields.nonce) throw unauthorized("Missing auth nonce");
+  const ts = Number(fields.timestampMs || 0);
+  if (!Number.isFinite(ts) || ts <= 0) {
+    throw unauthorized("Missing or invalid auth timestamp");
+  }
   const claimed = fields.walletAddress
     ? ethers.getAddress(fields.walletAddress).toLowerCase()
     : owner;
   if (claimed !== owner) throw unauthorized("Wallet address mismatch");
-  const message = buildSwaparcAuthMessage(
-    signedAction,
-    owner,
-    fields.timestampMs,
-    fields.nonce
-  );
+  const message = buildSwaparcAuthMessage(signedAction, owner, ts, fields.nonce);
+  if (!fields.nonce) throw unauthorized("Missing auth nonce");
   let recovered;
   try {
     recovered = ethers.verifyMessage(message, fields.walletSignature).toLowerCase();
@@ -121,6 +118,15 @@ function verifyWalletAuthMessage(fields, owner, signedAction, maxAgeMs) {
     throw unauthorized("Invalid wallet signature");
   }
   if (recovered !== owner) throw unauthorized("Wallet signature mismatch");
+  // Expiry is checked AFTER signature verification: a cached wallet-session
+  // signature legitimately carries an hours-old timestamp. It must fail the
+  // exact-action check with a signature MISMATCH (401) so the session
+  // fallback below can run — checking expiry first made every session
+  // signature older than 120s return 500 "Request expired" instead.
+  const age = Math.abs(Date.now() - ts);
+  if (age > Number(maxAgeMs || 120000)) {
+    throw unauthorized("Request expired");
+  }
 }
 
 export async function assertOwnerAuth(req, ownerAddress, action) {
