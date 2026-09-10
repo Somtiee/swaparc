@@ -9,8 +9,14 @@
 
 import { ethers } from "ethers";
 
+// Session-level artifact cache: the wasm (2.4MB) + zkey (4.5MB) used to be
+// re-downloaded on EVERY prove attempt (cache-busted with Date.now()), which
+// multiplied load time across claim retries and read as a hang.
+const artifactCache = new Map();
+
 /**
- * Fetch proving artifact as bytes in browser with cache bypass to avoid stale wasm/zkey.
+ * Fetch proving artifact as bytes in browser; cached in memory for the
+ * session so claim retries don't re-download ~7MB each time.
  * Pass through Uint8Array and node-local paths unchanged.
  * @param {string | Uint8Array} src
  * @returns {Promise<string | Uint8Array>}
@@ -19,13 +25,15 @@ async function resolveProvingArtifact(src) {
   if (!(typeof src === "string")) return src;
   // Node/local filesystem paths should be passed directly to snarkjs.
   if (!src.startsWith("/") && !/^https?:\/\//i.test(src)) return src;
-  const sep = src.includes("?") ? "&" : "?";
-  const bustUrl = `${src}${sep}v=${Date.now()}`;
-  const res = await fetch(bustUrl, { cache: "no-store" });
+  const cached = artifactCache.get(src);
+  if (cached) return cached;
+  const res = await fetch(src);
   if (!res.ok) {
     throw new Error(`Failed to load proving artifact: ${src} (${res.status})`);
   }
-  return new Uint8Array(await res.arrayBuffer());
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  artifactCache.set(src, bytes);
+  return bytes;
 }
 
 /** Same directory as zkey — used to load verification_key.json for a post-prove sanity check. */
@@ -35,10 +43,13 @@ async function loadPrivpayVerificationKey(zkeyPathStr) {
   if (zkeyPathStr.startsWith("/") || /^https?:\/\//i.test(zkeyPathStr)) {
     const base = zkeyPathStr.split("?")[0];
     const vkUrl = base.replace(/[^/]+$/, "verification_key.json");
-    const sep = vkUrl.includes("?") ? "&" : "?";
-    const res = await fetch(`${vkUrl}${sep}v=${Date.now()}`, { cache: "no-store" });
-    if (!res.ok) return null;
-    return await res.json();
+    try {
+      const res = await fetch(vkUrl);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
   }
 
   if (globalThis.window === undefined) {

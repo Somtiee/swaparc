@@ -1,6 +1,10 @@
 import { ethers } from "ethers";
 import { getHealthyArcProvider, withArcRpc } from "../../lib/server/arcRpc.js";
 import {
+  sendRelayerContractTx,
+  withRelayerTxLock,
+} from "../../lib/server/recurringPrivpayExecution.js";
+import {
   assertOptionalRelayServerSecret,
   assertRelayPoolAllowed,
   assertRelayRateLimit,
@@ -12,6 +16,25 @@ import {
 } from "../../lib/server/privpayRelayCore.js";
 
 const MAX_PROOF_BYTES = 24 * 1024;
+/**
+ * How long to wait for the tx receipt before answering. The API sits behind
+ * proxies that cut connections around 30s; an unbounded `await tx.wait()`
+ * died at the proxy while the tx kept flying — the client then retried into
+ * "already claimed". On timeout we answer `pending: true` with the txHash and
+ * let the client's receipt watcher confirm it.
+ */
+const RECEIPT_TIMEOUT_MS = Math.max(
+  5000,
+  Math.min(25000, Number(process.env.PRIVPAY_RELAY_RECEIPT_TIMEOUT_MS || 20000))
+);
+
+/** Wait for a receipt with a hard cap; resolves null on timeout. */
+function waitReceiptCapped(tx) {
+  return Promise.race([
+    tx.wait().catch(() => null),
+    new Promise((resolve) => setTimeout(() => resolve(null), RECEIPT_TIMEOUT_MS)),
+  ]);
+}
 
 /**
  * PrivPay pool relayer: only `deposit` (via depositFor + depositor EIP-712) and `withdraw` (recipient EIP-712).
@@ -177,15 +200,38 @@ export default async function handler(req, res) {
           code: "NULLIFIER_SPENT",
         });
       }
-      const tx = await pool.getFunction(
-        "withdraw(bytes,bytes32,address,uint256)"
-      )(proofBytes, nh, ethers.getAddress(recipient), amountWei);
-      const rcpt = await tx.wait();
+      // Serialize with the autopay cron (same relayer EOA, same nonce space)
+      // and send with a fresh pending nonce — a claim racing a payroll run
+      // used to collide on the nonce and hard-fail.
+      const tx = await withRelayerTxLock(() =>
+        sendRelayerContractTx(relayer, (overrides) =>
+          pool.getFunction("withdraw(bytes,bytes32,address,uint256)")(
+            proofBytes,
+            nh,
+            ethers.getAddress(recipient),
+            amountWei,
+            overrides
+          )
+        )
+      );
+      const rcpt = await waitReceiptCapped(tx);
+
+      if (rcpt && rcpt.status === 0) {
+        // Reverted: the nullifier was NOT spent, so the recipient can retry.
+        return res.status(502).json({
+          ok: false,
+          error:
+            "Claim transaction reverted on-chain. The payment was not spent — please retry the claim.",
+          txHash: tx.hash,
+          relayer: relayer.address,
+        });
+      }
 
       return res.status(200).json({
         ok: true,
         txHash: tx.hash,
         status: rcpt?.status ?? null,
+        pending: !rcpt,
         relayer: relayer.address,
       });
     }
@@ -243,24 +289,36 @@ export default async function handler(req, res) {
       abi,
       relayer
     );
-    const tx = await pool.depositFor(
-      ethers.getAddress(depositor),
-      comm,
-      amountWei
+    const tx = await withRelayerTxLock(() =>
+      sendRelayerContractTx(relayer, (overrides) =>
+        pool.depositFor(ethers.getAddress(depositor), comm, amountWei, overrides)
+      )
     );
-    const rcpt = await tx.wait();
+    const rcpt = await waitReceiptCapped(tx);
+
+    if (rcpt && rcpt.status === 0) {
+      return res.status(502).json({
+        ok: false,
+        error:
+          "Deposit transaction reverted on-chain. The deposit was not spent — please retry.",
+        txHash: tx.hash,
+        relayer: relayer.address,
+      });
+    }
 
     return res.status(200).json({
       ok: true,
       txHash: tx.hash,
       status: rcpt?.status ?? null,
+      pending: !rcpt,
       relayer: relayer.address,
     });
   } catch (e) {
     const status = Number(e?.status || 500);
     const hint = relayLogHint(action || "?", poolHint || "0x0");
-    if (status >= 500 && process.env.PRIVPAY_RELAY_DEBUG === "1") {
-      // eslint-disable-next-line no-console
+    // Always log 5xx (message only) — a silent 500 left no trace of why
+    // claims were failing in production.
+    if (status >= 500) {
       console.error("[privpay-relay]", hint, e?.message || e);
     }
     return res.status(status >= 400 && status < 600 ? status : 500).json({

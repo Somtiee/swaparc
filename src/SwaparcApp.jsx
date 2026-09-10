@@ -1348,6 +1348,13 @@ export default function SwaparcApp() {
   const [poolClaimError, setPoolClaimError] = useState("");
   const [poolClaimStatus, setPoolClaimStatus] = useState("");
   const [poolClaimHistory, setPoolClaimHistory] = useState(() => []);
+  /**
+   * Live mirror of poolClaimHistory for interval/visibility callbacks. The
+   * 30s reconcile timer captured the first-render state (`[]`) in a stale
+   * closure, so pending claims were never reconciled until reload.
+   */
+  const poolClaimHistoryRef = useRef([]);
+  poolClaimHistoryRef.current = poolClaimHistory;
   const [poolZkPassphrase, setPoolZkPassphrase] = useState("");
   const [poolZkClaimBusyId, setPoolZkClaimBusyId] = useState("");
   const [poolZkNotesTick, setPoolZkNotesTick] = useState(0);
@@ -8071,7 +8078,9 @@ export default function SwaparcApp() {
         contractAddress: wfn,
         callData,
         title: "Confirm privacy pool claim",
-        allowSubmittedFallback: false,
+        // Circle may broadcast the withdraw before its indexer surfaces the
+        // hash; erroring there made users retry into "already claimed".
+        allowSubmittedFallback: true,
       });
       setPoolZkStatus(
         hash === "SUBMITTED" ? "Circle claim submitted." : `Circle claim confirmed. Tx ${hash}`
@@ -8095,6 +8104,9 @@ export default function SwaparcApp() {
       const res = await fetch("/api/privpay/privacy-pool-relay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // Server caps its receipt wait at ~20s; a 35s cap here means a stuck
+        // proxy surfaces as an error instead of an eternal "Proving...".
+        signal: AbortSignal.timeout(35000),
         body: JSON.stringify({
           action: "withdraw",
           poolAddress: wfn,
@@ -8112,6 +8124,13 @@ export default function SwaparcApp() {
           j?.error ||
             "Privacy pool relay failed. Claim was not broadcast from this device; retry once or check relay config."
         );
+      }
+      if (j.pending) {
+        // Broadcast but not yet mined — the receipt watcher confirms it.
+        setPoolZkStatus(
+          `Relay claim broadcast. Tx ${j.txHash} - confirming...`
+        );
+        return { txHash: j.txHash, viaRelay: true, pending: true };
       }
       setPoolZkStatus(`Relay claim submitted. Tx ${j.txHash}`);
       return { txHash: j.txHash, viaRelay: true };
@@ -8526,12 +8545,22 @@ export default function SwaparcApp() {
       commitment: String(commitment),
       merkleHeight: String(merkleHeight || PRIVPAY_CIRCUIT_LEVELS),
     });
-    const maxAttempts = 90;
+    const maxAttempts = 60;
     let staleRetries = 0;
+    let pollDelayMs = 1200;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const res = await fetch(`/api/privpay/claim-context?${q.toString()}`);
-      const body = await res.json().catch(() => ({}));
-      if (res.ok && body?.ok && body?.context) {
+      let res = null;
+      let body = null;
+      try {
+        // Per-request cap: a stalled/proxied request must not freeze the claim.
+        res = await fetch(`/api/privpay/claim-context?${q.toString()}`, {
+          signal: AbortSignal.timeout(25000),
+        });
+        body = await res.json().catch(() => ({}));
+      } catch {
+        body = null;
+      }
+      if (res && res.ok && body?.ok && body?.context) {
         return body.context;
       }
       if (body?.pending) {
@@ -8547,11 +8576,20 @@ export default function SwaparcApp() {
             "Claim/Proof in progress. Estimated processing time: 30-120 seconds."
           );
         }
-        await new Promise((resolve) => setTimeout(resolve, 800));
+        // Back off to stay under the server's per-IP rate limit — polling at
+        // 800ms burned the budget in ~10s and fell into the slow browser scan.
+        await new Promise((resolve) => setTimeout(resolve, pollDelayMs));
+        pollDelayMs = Math.min(3000, pollDelayMs + 200);
         continue;
       }
-      // 503: providers temporarily out of sync - retry a few times with backoff.
-      if (res.status === 503 && staleRetries < 10) {
+      // 429/503/aborted requests: transient — retry with backoff instead of
+      // failing over to the very slow in-browser log scan.
+      const transient =
+        !res ||
+        res.status === 429 ||
+        res.status === 503 ||
+        /rate limit/i.test(String(body?.error || ""));
+      if (transient && staleRetries < 15) {
         staleRetries += 1;
         setPoolClaimStatus(
           "Syncing pool history with the network... retrying."
@@ -8609,7 +8647,7 @@ export default function SwaparcApp() {
     //     it as failed with `failureReason: "not_broadcast"` so the
     //     UI can show a retry-friendly message instead of leaving the
     //     user stuck on "pending" forever.
-    const current = poolClaimHistory;
+    const current = poolClaimHistoryRef.current;
     if (!Array.isArray(current) || current.length === 0) return;
     const pendings = current.filter(
       (h) =>
@@ -10799,7 +10837,32 @@ export default function SwaparcApp() {
     circlePromptInFlightRef.current = true;
     setCircleExecPrompt({ title: title || "Confirm in Circle", challengeId });
     return await new Promise((resolve, reject) => {
-      circleExecResolverRef.current = { resolve, reject };
+      // Safety net: if the prompt is dismissed by anything other than the
+      // confirm/cancel buttons (route change, re-render, error boundary),
+      // the dangling promise kept poolClaimBusy stuck forever and blocked
+      // every later Circle action.
+      const safety = setTimeout(() => {
+        if (circleExecResolverRef.current?.reject) {
+          circleExecResolverRef.current.reject(
+            new Error("Circle confirmation window timed out. Please retry.")
+          );
+        }
+        circleExecResolverRef.current = null;
+        setCircleExecPrompt(null);
+        setCircleExecLoading(false);
+        circlePromptInFlightRef.current = false;
+      }, 10 * 60 * 1000);
+      const wrapped = { resolve, reject };
+      circleExecResolverRef.current = {
+        resolve: (v) => {
+          clearTimeout(safety);
+          wrapped.resolve(v);
+        },
+        reject: (e) => {
+          clearTimeout(safety);
+          wrapped.reject(e);
+        },
+      };
     });
   }
 
@@ -15996,15 +16059,18 @@ export default function SwaparcApp() {
                                   const rawCode = String(poolClaimCodeInput || "").trim();
                                   const payload = decodeZkPoolClaimPayload(rawCode);
                                   const r = await claimPrivacyPoolFromClaimCode(rawCode);
-                                  const isPending = r.pending === true && !r.viaRelay;
+                                  const isPending =
+                                    r.pending === true || r.txHash === "SUBMITTED";
                                   setPoolClaimStatus(
-                                    r.viaRelay
-                                      ? `Relay submitted. Tx ${r.txHash}`
-                                      : r.txHash === "SUBMITTED"
-                                        ? "Claim submitted. Circle accepted the transaction and hash is still indexing."
-                                        : isPending
-                                          ? `Claim submitted. Tx ${r.txHash}. Waiting for on-chain confirmation - the network is slower than usual. You can safely close this page; Claim History will update when it confirms.`
-                                          : `Claim confirmed. Tx ${r.txHash}`
+                                    r.viaRelay && r.pending
+                                      ? `Relay broadcast. Tx ${r.txHash}. Waiting for on-chain confirmation - you can safely close this page; Claim History will update when it confirms.`
+                                      : r.viaRelay
+                                        ? `Relay submitted. Tx ${r.txHash}`
+                                        : r.txHash === "SUBMITTED"
+                                          ? "Claim submitted. Circle accepted the transaction and hash is still indexing."
+                                          : isPending
+                                            ? `Claim submitted. Tx ${r.txHash}. Waiting for on-chain confirmation - the network is slower than usual. You can safely close this page; Claim History will update when it confirms.`
+                                            : `Claim confirmed. Tx ${r.txHash}`
                                   );
                                   const claimTxHash =
                                     r.txHash && r.txHash !== "SUBMITTED" ? r.txHash : null;
