@@ -3,6 +3,8 @@ import { getArcpayAccessByAddress } from "../subscription-eligibility.js";
 import {
   recurringScheduleExecutionHandler,
   maintainRecurringRelayerGasBestEffort,
+  isAutopayPauseError,
+  probeRecurringAutopayReadiness,
 } from "../../../lib/server/recurringPrivpayExecution.js";
 import { assertCronAuthStrict, assertOwnerAuth } from "../../security/walletAuth.js";
 
@@ -41,6 +43,58 @@ async function runSerializedForPayer(payerLower, fn) {
   }
 }
 
+function tallyExecutionResult(v, counters) {
+  if (v?.skipped) {
+    counters.skipped += 1;
+  } else if (v?.log?.status === "success") {
+    counters.success += 1;
+    counters.executed += Number(v?.catchupExecutions || 1);
+  } else if (v?.log?.status === "retry") {
+    counters.retry += 1;
+    counters.executed += Number(v?.catchupExecutions || 0);
+  } else if (v?.log?.status === "paused") {
+    counters.paused += 1;
+  } else if (v?.log?.status === "failed") {
+    counters.failed += 1;
+    counters.executed += Number(v?.catchupExecutions || 0);
+  }
+}
+
+/**
+ * Recovery pass over PAUSED schedules that are due: probe on-chain readiness
+ * (payer balance + allowances). When the payer can pay again, resume the
+ * schedule and execute (catch-up pays missed periods). Otherwise report the
+ * paused row without counting a failure — it is re-checked on the next run.
+ */
+async function runPausedRecoveryPass(engine, pausedSchedules, counters, details) {
+  for (const s of pausedSchedules) {
+    try {
+      const probe = await probeRecurringAutopayReadiness(s);
+      if (!probe?.ready) {
+        counters.paused += 1;
+        details.push({
+          scheduleId: s.id,
+          paused: true,
+          reasonCode: probe?.reasonCode || null,
+          reason: probe?.reason || "Autopay paused — waiting to recover.",
+        });
+        continue;
+      }
+      await engine.resumeSchedule(s.id);
+      const v = await engine.executeSchedule(s.id, new Date(), { force: false });
+      details.push(v);
+      tallyExecutionResult(v, counters);
+    } catch (e) {
+      counters.errors += 1;
+      details.push({
+        scheduleId: s.id,
+        status: "error",
+        error: e?.message || String(e),
+      });
+    }
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST" && req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -52,6 +106,7 @@ export default async function handler(req, res) {
     const owner = String(body?.owner || req.query?.owner || "").trim().toLowerCase();
     const engine = createRecurringPaymentEngine({
       executionHandler: recurringScheduleExecutionHandler,
+      isPauseError: isAutopayPauseError,
     });
     let summary;
 
@@ -81,6 +136,11 @@ export default async function handler(req, res) {
           if (s?.status !== "active") return false;
           return new Date(s.nextExecutionAt).getTime() <= now.getTime();
         });
+        const pausedDue = schedules.filter((s) => {
+          if (String(s?.payerAddress || "").toLowerCase() !== owner) return false;
+          if (s?.status !== "paused") return false;
+          return new Date(s.nextExecutionAt).getTime() <= now.getTime();
+        });
         if (!executionEnabled) {
           return {
             checked: schedules.length,
@@ -89,6 +149,7 @@ export default async function handler(req, res) {
             success: 0,
             retry: 0,
             failed: 0,
+            paused: 0,
             skipped: due.length,
             errors: 0,
             details: due.map((s) => ({
@@ -101,43 +162,39 @@ export default async function handler(req, res) {
           };
         }
         const details = [];
-        let success = 0;
-        let retry = 0;
-        let failed = 0;
-        let skipped = 0;
-        let errors = 0;
-        let executed = 0;
+        const counters = {
+          success: 0,
+          retry: 0,
+          failed: 0,
+          paused: 0,
+          skipped: 0,
+          errors: 0,
+          executed: 0,
+        };
         // Sequential: same relayer signs every bill; parallel Promise.allSettled
         // caused nonce-too-low / NONCE_EXPIRED collisions across Water/EURC/USDC.
         for (const s of due) {
           try {
             const v = await engine.executeSchedule(s.id, now, { force: false });
             details.push(v);
-            if (v?.skipped) skipped += 1;
-            else if (v?.log?.status === "success") {
-              success += 1;
-              executed += Number(v?.catchupExecutions || 1);
-            } else if (v?.log?.status === "retry") {
-              retry += 1;
-              executed += Number(v?.catchupExecutions || 0);
-            } else if (v?.log?.status === "failed") {
-              failed += 1;
-              executed += Number(v?.catchupExecutions || 0);
-            }
+            tallyExecutionResult(v, counters);
           } catch (e) {
-            errors += 1;
+            counters.errors += 1;
             details.push({ status: "error", error: e?.message || String(e) });
           }
         }
+        // Paused rows: resume + pay when the wallet recovered, else report paused.
+        await runPausedRecoveryPass(engine, pausedDue, counters, details);
         return {
           checked: schedules.length,
           due: due.length,
-          executed,
-          success,
-          retry,
-          failed,
-          skipped,
-          errors,
+          executed: counters.executed,
+          success: counters.success,
+          retry: counters.retry,
+          failed: counters.failed,
+          paused: counters.paused,
+          skipped: counters.skipped,
+          errors: counters.errors,
           details,
         };
       });
@@ -154,6 +211,12 @@ export default async function handler(req, res) {
           s?.payerAddress &&
           new Date(s.nextExecutionAt).getTime() <= now.getTime()
       );
+      const pausedDue = schedules.filter(
+        (s) =>
+          s?.status === "paused" &&
+          s?.payerAddress &&
+          new Date(s.nextExecutionAt).getTime() <= now.getTime()
+      );
       if (!executionEnabled) {
         summary = {
           checked: schedules.length,
@@ -162,6 +225,7 @@ export default async function handler(req, res) {
           success: 0,
           retry: 0,
           failed: 0,
+          paused: 0,
           skipped: due.length,
           errors: 0,
           details: due.map((s) => ({
@@ -176,12 +240,15 @@ export default async function handler(req, res) {
       }
 
       const details = [];
-      let success = 0;
-      let retry = 0;
-      let failed = 0;
-      let skipped = 0;
-      let errors = 0;
-      let executed = 0;
+      const counters = {
+        success: 0,
+        retry: 0,
+        failed: 0,
+        paused: 0,
+        skipped: 0,
+        errors: 0,
+        executed: 0,
+      };
 
       for (const schedule of due) {
         const payerKey = String(schedule.payerAddress || "").trim().toLowerCase();
@@ -189,7 +256,7 @@ export default async function handler(req, res) {
           try {
             const access = await getArcpayAccessByAddress(payerKey);
             if (!hasAutomationAccess(access)) {
-              skipped += 1;
+              counters.skipped += 1;
               details.push({
                 scheduleId: schedule.id,
                 skipped: true,
@@ -200,19 +267,37 @@ export default async function handler(req, res) {
             }
             const result = await engine.executeSchedule(schedule.id, now);
             details.push(result);
-            if (result?.skipped) skipped += 1;
-            else if (result?.log?.status === "success") {
-              success += 1;
-              executed += Number(result?.catchupExecutions || 1);
-            } else if (result?.log?.status === "retry") {
-              retry += 1;
-              executed += Number(result?.catchupExecutions || 0);
-            } else if (result?.log?.status === "failed") {
-              failed += 1;
-              executed += Number(result?.catchupExecutions || 0);
-            }
+            tallyExecutionResult(result, counters);
           } catch (e) {
-            errors += 1;
+            counters.errors += 1;
+            details.push({
+              scheduleId: schedule.id,
+              status: "error",
+              error: e?.message || String(e),
+            });
+          }
+        });
+      }
+
+      // Paused rows: resume + pay when the wallet recovered, else report paused.
+      for (const schedule of pausedDue) {
+        const payerKey = String(schedule.payerAddress || "").trim().toLowerCase();
+        await runSerializedForPayer(payerKey, async () => {
+          try {
+            const access = await getArcpayAccessByAddress(payerKey);
+            if (!hasAutomationAccess(access)) {
+              counters.skipped += 1;
+              details.push({
+                scheduleId: schedule.id,
+                skipped: true,
+                reason: "subscription-locked",
+                owner: schedule.payerAddress,
+              });
+              return;
+            }
+            await runPausedRecoveryPass(engine, [schedule], counters, details);
+          } catch (e) {
+            counters.errors += 1;
             details.push({
               scheduleId: schedule.id,
               status: "error",
@@ -225,12 +310,13 @@ export default async function handler(req, res) {
       summary = {
         checked: schedules.length,
         due: due.length,
-        executed,
-        success,
-        retry,
-        failed,
-        skipped,
-        errors,
+        executed: counters.executed,
+        success: counters.success,
+        retry: counters.retry,
+        failed: counters.failed,
+        paused: counters.paused,
+        skipped: counters.skipped,
+        errors: counters.errors,
         details,
       };
     }

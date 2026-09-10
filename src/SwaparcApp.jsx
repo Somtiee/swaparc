@@ -1243,6 +1243,8 @@ export default function SwaparcApp() {
   const [billBusyId, setBillBusyId] = useState(null);
   const billsRef = useRef([]);
   const recurringServerRunLastAtRef = useRef(0);
+  /** One auto re-approval attempt per session per paused bill/employee. */
+  const recurringAuthHealAttemptedRef = useRef(new Set());
   const billsHydratedOwnerRef = useRef("");
   const privpayHistoryHydratedOwnerRef = useRef("");
   /** Prevents forcing "first company" whenever selectedCompanyId is "" so "All companies" can stay selected. */
@@ -2824,12 +2826,13 @@ export default function SwaparcApp() {
     if (last && now - last < 12000) return;
     recurringServerRunLastAtRef.current = now;
     try {
-      await ownerFetch("/api/payments/recurring/run", {
+      const recurringRes = await ownerFetch("/api/payments/recurring/run", {
         method: "POST",
         action: "payments-recurring-run",
         owner,
         body: { owner },
       });
+      const recurringJson = await recurringRes.json().catch(() => ({}));
       const payrollRes = await ownerFetch("/api/payments/payroll/run", {
         method: "POST",
         action: "payments-payroll-run",
@@ -2843,8 +2846,69 @@ export default function SwaparcApp() {
       } else {
         setPayrollAutopayServerHint("");
       }
+      await healPausedRecurringApprovals(recurringJson, payrollJson);
     } catch {
       // non-fatal; next tick retries
+    }
+  }
+
+  /**
+   * Auto-heal paused autopay rows that only need a fresh token approval.
+   * The server reports them with reasonCode AUTOPAY_PAUSED_NEEDS_APPROVAL;
+   * while the app is open we re-run the authorization flow (one wallet
+   * signature, MaxUint256) once per session per bill/employee. Rows paused
+   * for insufficient funds have nothing to sign — they resume server-side
+   * automatically once the wallet is funded.
+   */
+  async function healPausedRecurringApprovals(recurringJson, payrollJson) {
+    if (!getActiveWalletAddress()) return;
+    const attempted = recurringAuthHealAttemptedRef.current;
+    const needsApproval = (d) =>
+      !!d?.paused && d?.reasonCode === "AUTOPAY_PAUSED_NEEDS_APPROVAL";
+
+    const billIds = (recurringJson?.summary?.details || [])
+      .filter(needsApproval)
+      .map((d) => d.scheduleId)
+      .filter(Boolean);
+    for (const id of billIds) {
+      if (attempted.has(`bill:${id}`)) continue;
+      const bill = (bills || []).find((b) => b.id === id);
+      if (!bill?.recurring || !bill?.token) continue;
+      attempted.add(`bill:${id}`);
+      try {
+        setBillRuntimeStatus(
+          `Re-approving autopay for ${bill.name || "bill"} — confirm in your wallet…`
+        );
+        await ensureRecurringOnchainAuthorization(bill);
+        setBillRuntimeStatus("Autopay re-approved. It resumes on the next tick.");
+      } catch {
+        setBillRuntimeStatus("");
+        // One attempt per session; the paused card explains what to do.
+      }
+    }
+
+    const empIds = (payrollJson?.summary?.details || [])
+      .filter(needsApproval)
+      .map((d) => d.employeeId)
+      .filter(Boolean);
+    for (const id of empIds) {
+      if (attempted.has(`employee:${id}`)) continue;
+      const emp = (payrollEmployees || []).find((e) => e.id === id);
+      if (!emp?.recurring) continue;
+      const company = (payrollCompanies || []).find((c) => c.id === emp.companyId);
+      if (!company) continue;
+      attempted.add(`employee:${id}`);
+      try {
+        setBillRuntimeStatus(
+          `Re-approving autopay for ${emp.name || "employee"} — confirm in your wallet…`
+        );
+        await ensureRecurringOnchainAuthorization(
+          payrollEmployeeAuthBillShape(emp, company)
+        );
+        setBillRuntimeStatus("Autopay re-approved. It resumes on the next tick.");
+      } catch {
+        setBillRuntimeStatus("");
+      }
     }
   }
 
@@ -3155,7 +3219,7 @@ export default function SwaparcApp() {
               schedule?.customIntervalSeconds ?? local?.customIntervalSeconds ?? null,
             customRepeatCadence:
               local?.customRepeatCadence || schedule?.metadata?.customRepeatCadence || null,
-            recurring: schedule?.status === "active",
+            recurring: schedule?.status === "active" || schedule?.status === "paused",
             schedulerFailureReason: schedule?.failureReason || null,
             lastSchedulerStatus: schedule?.status || null,
             nextExecutionAt: schedule?.nextExecutionAt || local?.nextExecutionAt || null,
@@ -6312,6 +6376,9 @@ export default function SwaparcApp() {
     if (state === "failed") {
       return "Autopay paused: the scheduler reached max retries. Toggle Recurring off → on to re-enable.";
     }
+    if (state === "paused") {
+      return "Autopay paused: it stays set and resumes automatically once your wallet can pay again.";
+    }
     if (state === "retry") {
       return "Autopay retrying after a temporary failure.";
     }
@@ -6332,7 +6399,7 @@ export default function SwaparcApp() {
 
   function isSoftRecurringRetry(reason) {
     const msg = String(reason || "");
-    return /queue conflict|temporary network|request limit|rate limit|will retry|timed out|coalesce|backup rpc|retrying automatically|topping up relayer/i.test(
+    return /queue conflict|temporary network|request limit|rate limit|will retry|timed out|coalesce|backup rpc|retrying automatically|topping up relayer|autopay paused/i.test(
       msg
     );
   }
@@ -6343,6 +6410,8 @@ export default function SwaparcApp() {
     if (!bill?.recurring) return false;
     const reason = bill?.schedulerFailureReason;
     if (!reason) return false;
+    // Paused rows keep explaining themselves until the schedule recovers.
+    if (/^autopay paused/i.test(String(reason))) return true;
     if (!isSoftRecurringRetry(reason)) return true;
     const nextMs = new Date(bill?.nextExecutionAt || 0).getTime();
     if (!Number.isFinite(nextMs)) return true;
@@ -6381,6 +6450,12 @@ export default function SwaparcApp() {
 
   function formatRecurringAutomationIssue(reason) {
     const msg = String(reason || "");
+    if (/^autopay paused/i.test(msg)) {
+      if (/re-approve|allowance/i.test(msg)) {
+        return "Paused — one re-approval needed. Confirm in your wallet to resume autopay.";
+      }
+      return "Paused — waiting for funds. Autopay resumes automatically once your wallet can pay.";
+    }
     if (/nonce has already been used|nonce too low|NONCE_EXPIRED|network queue conflict|queue conflict/i.test(msg)) {
       return "Retrying automatically…";
     }
@@ -14554,6 +14629,9 @@ export default function SwaparcApp() {
                                       <strong>{bill.name}</strong>
                                       <div className="muted billsMeta">
                                         {bill.amount} {bill.token}
+                                        {String(bill.lastSchedulerStatus || "").toLowerCase() === "paused"
+                                          ? " - paused"
+                                          : ""}
                                       </div>
                                       <div className="muted billsMeta">
                                         {recurringStatusCopy(bill)}
@@ -15484,9 +15562,17 @@ export default function SwaparcApp() {
                                             {e.status === "paused" ? " - paused" : ""}
                                           </div>
                                           {e.failureReason && (
-                                            <div className="muted billsMeta" style={{ color: "#ff9c9c" }}>
-                                              Automation issue:{" "}
-                                              {formatRecurringAutomationIssue(e.failureReason)}
+                                            <div
+                                              className="muted billsMeta"
+                                              style={{
+                                                color: isSoftRecurringRetry(e.failureReason)
+                                                  ? "#fbbf24"
+                                                  : "#ff9c9c",
+                                              }}
+                                            >
+                                              {isSoftRecurringRetry(e.failureReason)
+                                                ? formatRecurringAutomationIssue(e.failureReason)
+                                                : `Automation issue: ${formatRecurringAutomationIssue(e.failureReason)}`}
                                             </div>
                                           )}
                                         </div>

@@ -251,10 +251,18 @@ function buildRetryDate(now, attempts, backoffSeconds) {
 export class RecurringPaymentEngine {
   constructor({
     executionHandler,
+    isPauseError,
     maxBatchSize = 50,
     maxCatchupPerRun = Number(process.env.RECURRING_MAX_CATCHUP_PER_RUN || 3),
   } = {}) {
     this.executionHandler = executionHandler || this.defaultExecutionHandler.bind(this);
+    /**
+     * Optional predicate (err) => bool marking payer-side shortfalls that must
+     * PAUSE the schedule instead of burning retries. The engine stays rail-
+     * agnostic; callers inject the PrivPay pause-code check.
+     */
+    this.isPauseError =
+      typeof isPauseError === "function" ? isPauseError : () => false;
     this.maxBatchSize = maxBatchSize;
     this.maxCatchupPerRun = Math.max(
       1,
@@ -318,6 +326,26 @@ export class RecurringPaymentEngine {
     const updated = {
       ...current,
       status: "cancelled",
+      updatedAt: new Date().toISOString(),
+    };
+    await putSchedule(updated);
+    return updated;
+  }
+
+  /**
+   * Flip a paused schedule back to active WITHOUT touching nextExecutionAt,
+   * so missed periods are caught up by the next executeSchedule run.
+   */
+  async resumeSchedule(scheduleId) {
+    const current = await getSchedule(scheduleId);
+    if (!current) return null;
+    if (current.status !== "paused") return current;
+    const updated = {
+      ...current,
+      status: "active",
+      retryCount: 0,
+      lastFailureAt: null,
+      failureReason: null,
       updatedAt: new Date().toISOString(),
     };
     await putSchedule(updated);
@@ -411,6 +439,42 @@ export class RecurringPaymentEngine {
           catchupLimited,
         };
       } catch (err) {
+        // Payer-side shortfall (funds/allowance): PAUSE instead of burning
+        // retries. nextExecutionAt is preserved so missed periods catch up
+        // once the schedule is resumed (resumeSchedule / recovery probe).
+        if (this.isPauseError(err)) {
+          const nowIso = now.toISOString();
+          const updated = {
+            ...working,
+            retryCount: 0,
+            lastFailureAt: nowIso,
+            failureReason: err?.message || String(err),
+            status: "paused",
+            updatedAt: nowIso,
+          };
+          await putSchedule(updated);
+
+          const logEntry = {
+            id: `log_${crypto.randomUUID()}`,
+            scheduleId: working.id,
+            payerAddress: working.payerAddress,
+            tokenAddress: working.tokenAddress,
+            amount: working.amount,
+            status: "paused",
+            executedAt: nowIso,
+            error: updated.failureReason,
+            catchupExecutions: logs.length,
+          };
+          await appendPaymentLog(logEntry);
+          return {
+            schedule: updated,
+            log: logEntry,
+            logs: logs.length ? [...logs, logEntry] : [logEntry],
+            catchupExecutions: logs.length,
+            paused: true,
+          };
+        }
+
         const retryCount = Number(working.retryCount || 0) + 1;
         const maxRetries = Number(working.maxRetries || 5);
         const hardFailed = retryCount > maxRetries;
@@ -496,6 +560,7 @@ export class RecurringPaymentEngine {
       success: 0,
       retry: 0,
       failed: 0,
+      paused: 0,
       skipped: 0,
       errors: 0,
       details: [],
@@ -517,6 +582,9 @@ export class RecurringPaymentEngine {
       } else if (v?.log?.status === "retry") {
         summary.retry += 1;
         summary.executed += Number(v?.catchupExecutions || 0);
+        summary.details.push(v);
+      } else if (v?.log?.status === "paused") {
+        summary.paused += 1;
         summary.details.push(v);
       } else if (v?.log?.status === "failed") {
         summary.failed += 1;

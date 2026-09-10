@@ -2,7 +2,12 @@ import { ethers } from "ethers";
 import { kv } from "../../../lib/server/kv.js";
 import { computeNextExecutionDate } from "../recurring-engine.js";
 import { getArcpayAccessByAddress } from "../subscription-eligibility.js";
-import { executeRecurringPrivpayDeposit, maintainRecurringRelayerGasBestEffort } from "../../../lib/server/recurringPrivpayExecution.js";
+import {
+  executeRecurringPrivpayDeposit,
+  maintainRecurringRelayerGasBestEffort,
+  isAutopayPauseError,
+  probeRecurringAutopayReadiness,
+} from "../../../lib/server/recurringPrivpayExecution.js";
 import { assertCronAuthStrict, assertOwnerAuth } from "../../security/walletAuth.js";
 
 const OWNER_SET = "privpay:payroll:owners";
@@ -92,7 +97,7 @@ function hasAutomationAccess(access) {
 async function runOwner(owner, now) {
   const access = await getArcpayAccessByAddress(owner);
   if (!hasAutomationAccess(access)) {
-    return { owner, checked: 0, due: 0, success: 0, failed: 0, skipped: 0, details: [] };
+    return { owner, checked: 0, due: 0, success: 0, failed: 0, paused: 0, skipped: 0, details: [] };
   }
 
   const rawState = await getState(owner);
@@ -108,14 +113,66 @@ async function runOwner(owner, now) {
       Number.isFinite(new Date(e.nextRunAt).getTime()) &&
       new Date(e.nextRunAt).getTime() <= now.getTime()
   );
+  const pausedDue = employees.filter(
+    (e) =>
+      e?.status === "paused" &&
+      !!e?.recurring &&
+      !!e?.nextRunAt &&
+      Number.isFinite(new Date(e.nextRunAt).getTime()) &&
+      new Date(e.nextRunAt).getTime() <= now.getTime()
+  );
 
   let success = 0;
   let failed = 0;
   let skipped = 0;
+  let pausedCount = 0;
   const details = [];
   const logs = [];
 
-  for (const emp of due) {
+  /**
+   * Recovery pass: probe paused employees for on-chain readiness (payer
+   * balance + allowances). Ready → treat as due again (catch-up pays the
+   * missed run). Not ready → report paused; no retry spam, schedule stays set.
+   */
+  const resumed = [];
+  for (const emp of pausedDue) {
+    const company = companyById.get(emp.companyId);
+    const tokenAddress = tokenAddressForCompany(company);
+    if (!tokenAddress || !String(tokenAddress).startsWith("0x")) {
+      continue;
+    }
+    try {
+      const probe = await probeRecurringAutopayReadiness({
+        payerAddress: owner,
+        tokenAddress,
+        amount: Number(emp.salary || 0),
+      });
+      if (probe?.ready) {
+        resumed.push(emp);
+        continue;
+      }
+      pausedCount += 1;
+      details.push({
+        employeeId: emp.id,
+        paused: true,
+        reasonCode: probe?.reasonCode || null,
+        reason: probe?.reason || "Autopay paused — waiting to recover.",
+      });
+    } catch (e) {
+      pausedCount += 1;
+      details.push({
+        employeeId: emp.id,
+        paused: true,
+        reasonCode: null,
+        reason: e?.message || String(e),
+      });
+    }
+  }
+
+  const processList = [...due, ...resumed];
+  const processedIds = new Set(processList.map((e) => e.id));
+
+  for (const emp of processList) {
     const company = companyById.get(emp.companyId);
     const tokenAddress = tokenAddressForCompany(company);
     if (!tokenAddress || !String(tokenAddress).startsWith("0x")) {
@@ -170,9 +227,20 @@ async function runOwner(owner, now) {
         payrollExecution: "recurring",
       });
     } catch (e) {
-      failed += 1;
       const msg = e?.message || String(e);
-      details.push({ employeeId: emp.id, ok: false, error: msg });
+      const pauseShortfall = isAutopayPauseError(e);
+      if (pauseShortfall) {
+        pausedCount += 1;
+      } else {
+        failed += 1;
+      }
+      details.push({
+        employeeId: emp.id,
+        ok: false,
+        paused: pauseShortfall,
+        reasonCode: e?.code || null,
+        error: msg,
+      });
       logs.push({
         id: `pr_${crypto.randomUUID()}`,
         runId: `run_${crypto.randomUUID()}`,
@@ -183,7 +251,7 @@ async function runOwner(owner, now) {
         role: emp.role || "",
         token: company?.token || "USDC",
         amount: emp.salary,
-        status: "failed",
+        status: pauseShortfall ? "paused" : "failed",
         error: msg,
         createdAt: now.toISOString(),
         payrollExecution: "recurring",
@@ -192,18 +260,28 @@ async function runOwner(owner, now) {
   }
 
   const updatedEmployees = employees.map((emp) => {
-    if (!due.some((d) => d.id === emp.id)) return emp;
+    if (!processedIds.has(emp.id)) return emp;
     const hit = details.find((d) => d.employeeId === emp.id);
     if (!hit || hit.skipped) return emp;
     if (!hit.ok) {
+      // Pause: keep nextRunAt so the missed run catches up on resume.
+      if (hit.paused) {
+        return {
+          ...emp,
+          status: "paused",
+          failureReason: hit.error || "Autopay paused",
+        };
+      }
       return {
         ...emp,
+        status: "active",
         nextRunAt: new Date(now.getTime() + 90 * 1000).toISOString(),
         failureReason: hit.error || "Recurring payroll run failed",
       };
     }
     return {
       ...emp,
+      status: "active",
       lastPaidAt: now.toISOString(),
       failureReason: null,
       nextRunAt: computeNextExecutionDate({
@@ -229,6 +307,7 @@ async function runOwner(owner, now) {
     due: due.length,
     success,
     failed,
+    paused: pausedCount,
     skipped,
     details,
   };
@@ -242,12 +321,11 @@ export default async function handler(req, res) {
   try {
     const body = req.body || {};
     const owner = String(body?.owner || req.query?.owner || "").trim().toLowerCase();
-    const now = new Date();
 
     if (!serverExecutionEnabled()) {
       return res.status(200).json({
         ok: true,
-        summary: { checked: 0, due: 0, success: 0, failed: 0, skipped: 0, details: [] },
+        summary: { checked: 0, due: 0, success: 0, failed: 0, paused: 0, skipped: 0, details: [] },
         note: "Server-side recurring execution disabled (set RECURRING_SERVER_EXECUTION_ENABLED=true).",
       });
     }
@@ -277,6 +355,7 @@ export default async function handler(req, res) {
         due: results.reduce((n, r) => n + (r.due || 0), 0),
         success: results.reduce((n, r) => n + (r.success || 0), 0),
         failed: results.reduce((n, r) => n + (r.failed || 0), 0),
+        paused: results.reduce((n, r) => n + (r.paused || 0), 0),
         skipped: results.reduce((n, r) => n + (r.skipped || 0), 0),
         results,
       },
