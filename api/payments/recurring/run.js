@@ -7,6 +7,7 @@ import {
   probeRecurringAutopayReadiness,
 } from "../../../lib/server/recurringPrivpayExecution.js";
 import { assertCronAuthStrict, assertOwnerAuth } from "../../security/walletAuth.js";
+import { warmPrivacyPoolSnapshots } from "../../privpay/claim-context.js";
 
 function hasAutomationAccess(access) {
   return !!(access?.payrollAutomation || access?.recurringPayments);
@@ -99,6 +100,10 @@ export default async function handler(req, res) {
   if (req.method !== "POST" && req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
   }
+
+  // Keep privacy-pool claim snapshots warm (self-throttled to 1/min, never
+  // blocks the response) so claims never hit a cold 20M-block scan.
+  warmPrivacyPoolSnapshots().catch(() => {});
 
   try {
     const executionEnabled = serverExecutionEnabled();

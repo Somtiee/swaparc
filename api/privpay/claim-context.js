@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 import { kv } from "../../lib/server/kv.js";
 import { PrivacyPoolPoseidonMerkleMirror } from "../../scripts/privacyPoolPoseidonMerkle.mjs";
 import { assertIpRateLimit } from "../security/walletAuth.js";
-import { assertRelayPoolAllowed } from "../../lib/server/privpayRelayCore.js";
+import { assertRelayPoolAllowed, getRelayAllowedPoolSet } from "../../lib/server/privpayRelayCore.js";
 
 const DEPOSITED_IFACE = new ethers.Interface([
   "event Deposited(bytes32 indexed commitment, uint256 amount)",
@@ -28,7 +28,7 @@ const MAX_CHUNKS_PER_REQUEST = Math.max(
 );
 const SCAN_CONCURRENCY = Math.max(
   1,
-  Math.min(16, Number(process.env.PRIVPAY_CLAIM_CONTEXT_CONCURRENCY || 4))
+  Math.min(16, Number(process.env.PRIVPAY_CLAIM_CONTEXT_CONCURRENCY || 8))
 );
 const REQUEST_DEADLINE_MS = Math.max(
   5000,
@@ -43,6 +43,9 @@ const RPC_TIMEOUT_MS = Math.max(
   2000,
   Math.min(60000, Number(process.env.PRIVPAY_CLAIM_CONTEXT_RPC_TIMEOUT_MS || 8000))
 );
+
+/** Snapshot TTL — long enough that a full 20M-block rescan is rare. */
+const SNAPSHOT_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 /** Hard-cap any promise; ethers' built-in retry can outlive FetchRequest.timeout. */
 function withTimeout(promise, ms, label = "rpc") {
@@ -126,17 +129,29 @@ const WARM_ITERATION_MS = Math.max(
  * Per-pool scan mutex. Two concurrent scans on the same snapshot would
  * interleave writes and lose/reorder deposits (leafIndex depends on order), so
  * every scan — user request or background warmer — serializes through here.
+ * `lockHeld` lets user requests SKIP instead of queueing behind a warmer bite
+ * (a queued poll could exceed the proxy window even with a bounded scan).
  */
 const scanLocks = new Map();
+const lockDepth = new Map();
 function withScanLock(key, fn) {
+  lockDepth.set(key, (lockDepth.get(key) || 0) + 1);
   const prev = scanLocks.get(key) || Promise.resolve();
   const run = prev.then(fn, fn);
-  scanLocks.set(key, run.then(
-    () => {},
-    () => {}
-  ));
+  scanLocks.set(
+    key,
+    run.then(
+      () => {},
+      () => {}
+    ).finally(() => {
+      const d = (lockDepth.get(key) || 1) - 1;
+      if (d <= 0) lockDepth.delete(key);
+      else lockDepth.set(key, d);
+    })
+  );
   return run;
 }
+const lockHeld = (key) => (lockDepth.get(key) || 0) > 0;
 
 function snapshotKeyFor(poolAddress, merkleHeight, fromBlock) {
   return `privpay:pool:index:v4:${poolAddress.toLowerCase()}:${merkleHeight}:${fromBlock}`;
@@ -151,69 +166,77 @@ function sortLogs(logs) {
   });
 }
 
+/**
+ * First successful provider response wins. Waiting for ALL providers
+ * (allSettled) meant one throttled endpoint made every window burn its full
+ * timeout even when a healthy RPC answered in ~300ms — that single straggler
+ * cut scan throughput ~10x in production. A provider returning an incomplete
+ * result is caught later by the count-mismatch ladder + on-chain root check.
+ */
 async function getLogsUnion(providers, params) {
-  const settled = await Promise.allSettled(
-    providers.map(({ provider }) =>
-      withTimeout(provider.getLogs(params), RPC_TIMEOUT_MS, "getLogs")
-    )
-  );
-  const seen = new Map();
-  let anyOk = false;
-  for (const r of settled) {
-    if (r.status === "fulfilled" && Array.isArray(r.value)) {
-      anyOk = true;
-      for (const log of r.value) seen.set(logKey(log), log);
-    }
+  try {
+    const logs = await Promise.any(
+      providers.map(({ provider }) =>
+        withTimeout(provider.getLogs(params), RPC_TIMEOUT_MS, "getLogs")
+      )
+    );
+    return sortLogs(Array.isArray(logs) ? logs : []);
+  } catch {
+    throw new Error("All RPC providers failed for getLogs window.");
   }
-  if (!anyOk) throw new Error("All RPC providers failed for getLogs window.");
-  return sortLogs(Array.from(seen.values()));
 }
 
-async function getLatestBlockQuorum(providers) {
-  const settled = await Promise.allSettled(
-    providers.map(({ provider }) =>
-      withTimeout(provider.getBlockNumber(), RPC_TIMEOUT_MS, "blockNumber")
-    )
-  );
-  const nums = settled
-    .filter((r) => r.status === "fulfilled" && Number.isFinite(Number(r.value)))
-    .map((r) => Number(r.value));
-  if (!nums.length) throw new Error("Failed to fetch latest block from providers.");
-  return Math.max(...nums);
+async function getLatestBlock(providers) {
+  try {
+    const n = await Promise.any(
+      providers.map(({ provider }) =>
+        withTimeout(provider.getBlockNumber(), RPC_TIMEOUT_MS, "blockNumber")
+      )
+    );
+    if (!Number.isFinite(Number(n))) throw new Error("bad blockNumber");
+    return Number(n);
+  } catch {
+    throw new Error("Failed to fetch latest block from providers.");
+  }
 }
 
 async function getOnchainState(providers, poolAddress) {
-  // Race all providers in parallel — a sequential loop let one throttled
-  // endpoint (10s+) serialize the whole state-read phase before the request
-  // deadline even started, which was the bulk of the observed response time.
-  const settled = await Promise.allSettled(
-    providers.map(({ provider }) => {
-      const contract = new ethers.Contract(poolAddress, POOL_IFACE, provider);
-      return Promise.all([
-        withTimeout(contract.nextIndex(), RPC_TIMEOUT_MS, "nextIndex"),
-        withTimeout(contract.currentRoot(), RPC_TIMEOUT_MS, "currentRoot"),
-      ]);
-    })
-  );
-  for (const r of settled) {
-    if (r.status === "fulfilled") {
-      return {
-        nextIndex: Number(r.value[0]),
-        currentRoot: ethers.hexlify(r.value[1]),
-      };
-    }
+  try {
+    return await Promise.any(
+      providers.map(async ({ provider }) => {
+        const contract = new ethers.Contract(poolAddress, POOL_IFACE, provider);
+        const [nextIndex, currentRoot] = await Promise.all([
+          withTimeout(contract.nextIndex(), RPC_TIMEOUT_MS, "nextIndex"),
+          withTimeout(contract.currentRoot(), RPC_TIMEOUT_MS, "currentRoot"),
+        ]);
+        return {
+          nextIndex: Number(nextIndex),
+          currentRoot: ethers.hexlify(currentRoot),
+        };
+      })
+    );
+  } catch {
+    throw new Error("Failed to read on-chain nextIndex/currentRoot from any provider.");
   }
-  throw new Error("Failed to read on-chain nextIndex/currentRoot from any provider.");
 }
 
 async function isKnownRootMulti(providers, poolAddress, root) {
-  const settled = await Promise.allSettled(
-    providers.map(({ provider }) => {
-      const contract = new ethers.Contract(poolAddress, POOL_IFACE, provider);
-      return withTimeout(contract.isKnownRoot(root), RPC_TIMEOUT_MS, "isKnownRoot");
-    })
-  );
-  return settled.some((r) => r.status === "fulfilled" && r.value === true);
+  try {
+    return await Promise.any(
+      providers.map(async ({ provider }) => {
+        const contract = new ethers.Contract(poolAddress, POOL_IFACE, provider);
+        const known = await withTimeout(
+          contract.isKnownRoot(root),
+          RPC_TIMEOUT_MS,
+          "isKnownRoot"
+        );
+        if (!known) throw new Error("root unknown at provider");
+        return true;
+      })
+    );
+  } catch {
+    return false;
+  }
 }
 
 function bytesEqHex(a, b) {
@@ -261,11 +284,14 @@ async function computeProof(commitments, merkleHeight, leafIndex) {
   return mirror.getMerkleProof(leafIndex, leafIndex + 1);
 }
 
+const STATE_CACHE_MS = 20000;
+
 /**
  * One bounded scan step: read on-chain state, continue the incremental scan up
  * to `budgetMs`, persist the snapshot, and report whether the canonical
  * history is complete+validated. Shared by the request path (short budget)
- * and the background warmer (small repeated bites).
+ * and the background warmer (small repeated bites, state cached between
+ * bites and force-refreshed before the final validation).
  */
 async function advanceSnapshot({
   providers,
@@ -274,12 +300,10 @@ async function advanceSnapshot({
   merkleHeight,
   fromBlock,
   budgetMs,
+  stateCache = null,
 }) {
   const snapshotKey = snapshotKeyFor(poolAddress, merkleHeight, fromBlock);
   const deadline = Date.now() + budgetMs;
-
-  const onchain = await getOnchainState(providers, poolAddress);
-  const latest = await getLatestBlockQuorum(providers);
 
   const snap = (await kv.get(snapshotKey).catch(() => null)) || {};
   let commitments = Array.isArray(snap?.commitments) ? snap.commitments.slice() : [];
@@ -287,6 +311,26 @@ async function advanceSnapshot({
     ? Number(snap.lastScannedBlock)
     : fromBlock - 1;
   const cachedValidated = Boolean(snap?.validated);
+
+  let onchain = null;
+  let latest = null;
+  if (
+    stateCache &&
+    stateCache.onchain &&
+    stateCache.latest != null &&
+    Date.now() - (stateCache.at || 0) < STATE_CACHE_MS
+  ) {
+    onchain = stateCache.onchain;
+    latest = stateCache.latest;
+  } else {
+    onchain = await getOnchainState(providers, poolAddress);
+    latest = await getLatestBlock(providers);
+    if (stateCache) {
+      stateCache.onchain = onchain;
+      stateCache.latest = latest;
+      stateCache.at = Date.now();
+    }
+  }
 
   // If cache is valid & complete for current nextIndex, use it.
   if (
@@ -379,8 +423,12 @@ async function advanceSnapshot({
           lastScannedBlock,
           updatedAt: new Date().toISOString(),
           validated: false,
+          // Stored so a poll that skips the scan (lock held by the warmer)
+          // can report progress without any RPC calls.
+          expectedDeposits: onchain.nextIndex,
+          latestBlock: latest,
         },
-        { ex: 3 * 24 * 60 * 60 }
+        { ex: SNAPSHOT_TTL_SECONDS }
       )
       .catch(() => {});
     return {
@@ -393,6 +441,22 @@ async function advanceSnapshot({
         expectedDeposits: onchain.nextIndex,
       },
     };
+  }
+
+  // Reached latest — force-refresh state before the final count/root check so
+  // a warmer's cached nextIndex (up to STATE_CACHE_MS old) can't validate
+  // against a stale view of the pool.
+  if (stateCache) {
+    stateCache.onchain = null;
+    stateCache.latest = null;
+    stateCache.at = 0;
+  }
+  onchain = await getOnchainState(providers, poolAddress);
+  latest = await getLatestBlock(providers);
+  if (stateCache) {
+    stateCache.onchain = onchain;
+    stateCache.latest = latest;
+    stateCache.at = Date.now();
   }
 
   // Reached latest. If count still doesn't match nextIndex, do a full
@@ -427,7 +491,7 @@ async function advanceSnapshot({
           updatedAt: new Date().toISOString(),
           validated: false,
         },
-        { ex: 3 * 24 * 60 * 60 }
+        { ex: SNAPSHOT_TTL_SECONDS }
       )
       .catch(() => {});
     return {
@@ -455,7 +519,7 @@ async function advanceSnapshot({
         updatedAt: new Date().toISOString(),
         validated: matchesCurrent,
       },
-      { ex: 3 * 24 * 60 * 60 }
+      { ex: SNAPSHOT_TTL_SECONDS }
     )
     .catch(() => {});
 
@@ -476,20 +540,26 @@ const warmingPools = new Set();
  * Fire-and-forget continuation: after a pending response, keep scanning in
  * small lock-bounded bites until the snapshot is complete (or the budget
  * runs out). The client's next poll then finds a validated cache and gets
- * its proof context immediately.
+ * its proof context immediately. On-chain state is cached between bites and
+ * force-refreshed before the final validation (inside advanceSnapshot).
  */
 function kickSnapshotWarmer(ctx) {
   const key = `${ctx.poolAddress.toLowerCase()}:${ctx.merkleHeight}:${ctx.fromBlock}`;
   if (warmingPools.has(key)) return;
   warmingPools.add(key);
   const startedAt = Date.now();
+  const stateCache = { onchain: null, latest: null, at: 0 };
   (async () => {
     while (Date.now() - startedAt < WARM_BUDGET_MS) {
       const remaining = WARM_BUDGET_MS - (Date.now() - startedAt);
       let step;
       try {
         step = await withScanLock(key, () =>
-          advanceSnapshot({ ...ctx, budgetMs: Math.min(WARM_ITERATION_MS, remaining) })
+          advanceSnapshot({
+            ...ctx,
+            budgetMs: Math.min(WARM_ITERATION_MS, remaining),
+            stateCache,
+          })
         );
       } catch {
         return; // RPC-level failure — user polls will retry the scan
@@ -500,6 +570,50 @@ function kickSnapshotWarmer(ctx) {
   })()
     .catch(() => {})
     .finally(() => warmingPools.delete(key));
+}
+
+/**
+ * Keep-warm hook for the recurring/payroll run endpoints (which the cron hits
+ * every 5 min and the open app ticks every ~15s). Kicks the background warmer
+ * for every allowlisted pool at most once a minute, so pool snapshots stay
+ * complete+validated and user claims never trigger a cold 20M-block scan.
+ * Fire-and-forget: never blocks or fails the caller.
+ */
+const globalWarmState =
+  globalThis.__privpayPoolWarmState || (globalThis.__privpayPoolWarmState = { at: 0 });
+export async function warmPrivacyPoolSnapshots() {
+  try {
+    if (Date.now() - globalWarmState.at < 60000) return;
+    globalWarmState.at = Date.now();
+    const merkleHeight = 16;
+    const envFromBlock =
+      process.env.PRIVPAY_POOL_FROM_BLOCK ||
+      process.env.VITE_PRIVACY_POOL_FROM_BLOCK ||
+      process.env.PRIVACY_POOL_FROM_BLOCK ||
+      "0";
+    const fromBlock = parseFromBlock(envFromBlock);
+    const pools = Array.from(getRelayAllowedPoolSet());
+    if (!pools.length) return;
+    const providers = getProviders(providerUrls());
+    const scanProviders = getProviders(scanProviderUrls());
+    for (const pool of pools) {
+      let poolAddress;
+      try {
+        poolAddress = ethers.getAddress(pool);
+      } catch {
+        continue;
+      }
+      kickSnapshotWarmer({
+        providers,
+        scanProviders,
+        poolAddress,
+        merkleHeight,
+        fromBlock,
+      });
+    }
+  } catch {
+    /* never throw from a warm kick */
+  }
 }
 
 export default async function handler(req, res) {
@@ -523,32 +637,64 @@ export default async function handler(req, res) {
       process.env.PRIVACY_POOL_FROM_BLOCK ||
       "0";
     const fromBlock = parseFromBlock(envFromBlock);
-    const providers = getProviders(providerUrls());
-    const scanProviders = getProviders(scanProviderUrls());
     const lockKey = `${poolAddress.toLowerCase()}:${merkleHeight}:${fromBlock}`;
 
-    const advanced = await withScanLock(lockKey, () =>
-      advanceSnapshot({
-        providers,
-        scanProviders,
-        poolAddress,
-        merkleHeight,
-        fromBlock,
-        budgetMs: REQUEST_DEADLINE_MS,
-      })
-    );
+    const providers = getProviders(providerUrls());
+    const scanProviders = getProviders(scanProviderUrls());
 
-    if (advanced.pending) {
-      // Scan is incomplete — respond fast with progress and keep warming
-      // server-side between the client's polls.
-      kickSnapshotWarmer({
-        providers,
-        scanProviders,
-        poolAddress,
-        merkleHeight,
-        fromBlock,
-      });
-      return res.status(202).json({ ok: false, pending: true, progress: advanced.progress });
+    let advanced;
+    if (lockHeld(lockKey)) {
+      // A background warmer (or another poll) is mid-scan: report the stored
+      // progress instantly instead of queueing behind the lock — a queued poll
+      // could blow the proxy window even with a deadline-bounded scan.
+      const snap =
+        (await kv
+          .get(snapshotKeyFor(poolAddress, merkleHeight, fromBlock))
+          .catch(() => null)) || {};
+      if (!snap?.validated) {
+        return res.status(202).json({
+          ok: false,
+          pending: true,
+          progress: {
+            scannedToBlock: Number(snap?.lastScannedBlock ?? fromBlock - 1),
+            latestBlock: Number(snap?.latestBlock ?? 0),
+            knownDeposits: Array.isArray(snap?.commitments) ? snap.commitments.length : 0,
+            expectedDeposits: Number(snap?.expectedDeposits ?? 0),
+          },
+        });
+      }
+      // Snapshot is validated — fall through and serve the proof from it.
+      advanced = {
+        complete: true,
+        commitments: snap.commitments.slice(),
+        lastScannedBlock: Number(snap.lastScannedBlock || fromBlock),
+      };
+    } else {
+      advanced = await withScanLock(lockKey, () =>
+        advanceSnapshot({
+          providers,
+          scanProviders,
+          poolAddress,
+          merkleHeight,
+          fromBlock,
+          budgetMs: REQUEST_DEADLINE_MS,
+        })
+      );
+
+      if (advanced.pending) {
+        // Scan is incomplete — respond fast with progress and keep warming
+        // server-side between the client's polls.
+        kickSnapshotWarmer({
+          providers,
+          scanProviders,
+          poolAddress,
+          merkleHeight,
+          fromBlock,
+        });
+        return res
+          .status(202)
+          .json({ ok: false, pending: true, progress: advanced.progress });
+      }
     }
     if (advanced.error) {
       return res.status(advanced.status || 503).json({ ok: false, error: advanced.error });
@@ -580,7 +726,7 @@ export default async function handler(req, res) {
             updatedAt: new Date().toISOString(),
             validated: false,
           },
-          { ex: 3 * 24 * 60 * 60 }
+          { ex: SNAPSHOT_TTL_SECONDS }
         )
         .catch(() => {});
       return res.status(503).json({
