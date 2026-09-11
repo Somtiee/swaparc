@@ -18,5 +18,8 @@ lib/dune
 data/dune-export
 data/stats/volume-shards
 recovery
-circuits
+# Anchored: excludes only the circom sources at the repo root.
+# A bare "circuits" would also strip public/circuits/ (claim wasm + zkey) from
+# the build output and break PrivPay claims with a 404 on privpay_claim.wasm.
+/circuits
 tools
