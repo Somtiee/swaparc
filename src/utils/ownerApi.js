@@ -21,10 +21,12 @@ export const WALLET_SESSION_ALLOWED_ACTIONS = new Set([
   "profile-update-lp",
 ]);
 
-// Server accepts wallet-session signatures for 24 hours; refresh a bit earlier.
-// Cached in localStorage (survives browser restarts) so wallet users sign
-// once a day at most, not once per tab.
-const SESSION_TTL_MS = 23 * 60 * 60 * 1000;
+// Server accepts wallet-session signatures for 1 year (365d — "sign once,
+// until disconnect", product decision 2026-09); refresh a bit earlier so a
+// cached signature never hits the server past its expiry. Cached in
+// localStorage (survives browser restarts) so wallet users sign once a
+// year at most, not once per visit.
+const SESSION_TTL_MS = 364 * 24 * 60 * 60 * 1000;
 
 export function buildSwaparcAuthMessage(action, address, timestampMs, nonce) {
   return [
@@ -136,8 +138,9 @@ async function getSessionSignature(owner, getSigner) {
 
 export function clearWalletSession(owner) {
   try {
-    window.localStorage.removeItem(sessionKey(owner));
-    window.sessionStorage.removeItem(sessionKey(owner));
+    const o = String(owner || "").toLowerCase();
+    window.localStorage.removeItem(sessionKey(o));
+    window.sessionStorage.removeItem(sessionKey(o));
   } catch {
     // ignore
   }
@@ -162,7 +165,8 @@ function authHeaders(owner, fields) {
  * Owner-scoped API fetch. Circle (email login): attaches X-User-Token —
  * email users are NEVER asked for a wallet signature. Wallet connect:
  * sensitive actions get a fresh per-action signature (one wallet popup),
- * background/sync actions reuse a cached wallet-session signature.
+ * background/sync actions reuse a cached wallet-session signature valid
+ * for ~1 year ("sign once, until disconnect").
  *
  * `isEmailAuth` (authMode === "email") is authoritative even when the
  * Circle wallet object is still loading: during the login race the old
@@ -195,7 +199,7 @@ export async function ownerApiFetch(url, {
     const sessionAllowed = WALLET_SESSION_ALLOWED_ACTIONS.has(actionName);
 
     if (sessionAllowed) {
-      // One popup per ~25 min: sign a reusable session message (shared
+      // One popup per year: sign a reusable session message (shared
       // across parallel calls).
       authFields = await getSessionSignature(owner, getSigner);
     } else {
