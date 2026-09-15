@@ -4,6 +4,10 @@ import { kv } from "../lib/server/kv.js";
 import { claimSwapTxForIndexing } from "../lib/server/swapIndexDedup.js";
 import { resolveCanonicalProfile } from "../lib/server/profileKeys.js";
 import {
+  ARC_CHAIN_ID_DEC,
+  ARC_PUBLIC_RPC,
+} from "../lib/arcNetwork.js";
+import {
   SWAP_INDEXER_V2_STATE_KEY,
   SWAP_POOL_INDEX_TO_SYMBOL,
   SWAP_POOL_TOKEN_DECIMALS,
@@ -12,7 +16,7 @@ import {
 } from "../lib/swapPoolStatsConfig.js";
 
 const PRIMARY_RPC_URL =
-  process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network";
+  process.env.ARC_RPC_URL || ARC_PUBLIC_RPC;
 const FALLBACK_RPC_URL = process.env.ARC_RPC_URL_FALLBACK || null;
 const TERTIARY_RPC_URL = process.env.ARC_RPC_URL_TERTIARY || null;
 const GET_DY_MIN_INTERVAL_MS = Number(
@@ -28,8 +32,8 @@ const POOL_ABI = [
 ];
 
 const network = ethers.Network.from({
-  name: "arc-testnet",
-  chainId: 5042002,
+  name: "arc",
+  chainId: ARC_CHAIN_ID_DEC,
 });
 
 function createProvider(url) {

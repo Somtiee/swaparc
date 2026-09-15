@@ -18,11 +18,14 @@ import "dotenv/config";
 import fs from "node:fs/promises";
 import { ethers } from "ethers";
 import {
+  ARC_PUBLIC_RPC,
+} from "../lib/arcNetwork.js";
+import {
   SWAP_POOL_OWNER_ADDRESS,
   SWAP_POOL_TOKENS,
 } from "../lib/swapPoolConfig.js";
 
-const RPC = process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network";
+const RPC = process.env.ARC_RPC_URL || ARC_PUBLIC_RPC;
 const PRIVATE_KEY = String(process.env.MY_PK || "").trim();
 const DRY_RUN = process.env.SEED_DRY_RUN === "1" || process.argv.includes("--dry-run");
 

@@ -1,4 +1,9 @@
 import { ethers } from "ethers";
+import {
+  ARC_CHAIN_ID_DEC,
+  ARC_DRPC_RPC,
+  ARC_PUBLIC_RPC,
+} from "../config/arcNetwork.js";
 
 /**
  * Single home for ALL Arc read-RPC plumbing.
@@ -17,15 +22,13 @@ import { ethers } from "ethers";
  *     unchanged.
  *  4. Alchemy (paid) is strictly last-resort, and only when
  *     VITE_ALCHEMY_ARC_RPC_URL is set.
+ *
+ * Chain identity + endpoint URLs live in ../config/arcNetwork.js (env
+ * overridable for mainnet); they are re-exported here so existing imports
+ * keep working.
  */
 
-export const ARC_PUBLIC_RPC = "https://rpc.testnet.arc.network";
-export const ARC_DRPC_RPC = "https://arc-testnet.drpc.org";
-
-export const ARC_CHAIN_ID_DEC = (() => {
-  const n = Number(import.meta.env.VITE_ARC_CHAIN_ID || "");
-  return Number.isFinite(n) && n > 0 ? n : 5042002;
-})();
+export { ARC_PUBLIC_RPC, ARC_DRPC_RPC, ARC_CHAIN_ID_DEC };
 
 const ALCHEMY_RPC_URL = String(
   import.meta.env.VITE_ALCHEMY_ARC_RPC_URL || ""
@@ -43,7 +46,7 @@ export const ARC_READ_RPC_URLS = [
 /** Hard per-request timeout for every Arc read. */
 const REQUEST_TIMEOUT_MS = 3500;
 
-const ARC_NETWORK = { chainId: ARC_CHAIN_ID_DEC, name: "arc-testnet" };
+const ARC_NETWORK = { chainId: ARC_CHAIN_ID_DEC, name: "arc" };
 const PROVIDER_OPTS = { batchMaxCount: 1, staticNetwork: true };
 
 /** Cached per-URL providers so connections are reused across calls. */

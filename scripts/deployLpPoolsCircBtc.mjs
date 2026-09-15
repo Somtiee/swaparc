@@ -1,27 +1,31 @@
 /**
- * Deploy three CircBTC pairwise LP pools (same SwaparcPoolV2 + SwaparcLP as existing Pools tab).
+ * Deploy pairwise LP pools (same SwaparcPoolV2 + SwaparcLP as existing Pools tab).
  *
- * Pairs:
- *   1. USDC / CircBTC
- *   2. EURC / CircBTC
- *   3. SWPRC / CircBTC
+ * Default on Arc TESTNET: the three CircBTC pairs (the original run — the
+ * USDC/EURC, USDC/SWPRC, EURC/SWPRC pools predate this script).
+ * On any other chain (e.g. mainnet): deploys ALL SIX pairs, since a fresh
+ * network needs every pool.
  *
- * Constructor: SwaparcPoolV2(address[] _tokens) — deploys SwaparcLP internally.
+ * Override with ARC_LP_DEPLOY_PAIRS=all or a comma list, e.g.
+ *   ARC_LP_DEPLOY_PAIRS=usdc-eurc,usdc-swprc
  *
  * Env:
  *   MY_PK or ARC_DEPLOYER_PRIVATE_KEY
- *   ARC_RPC_URL — default https://rpc.testnet.arc.network
+ *   ARC_RPC_URL — mainnet RPC when deploying there
  *
- * Writes data/deployments/lp-pools-circbtc.latest.json
+ * Writes data/deployments/lp-pools-circbtc.latest.json and prints the
+ * ARC_LP_POOLS_JSON value to paste into the VPS .env / Vercel (server +
+ * browser pool list).
  */
 import "dotenv/config";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ethers } from "ethers";
+import { ARC_TESTNET_CHAIN_ID, ARC_PUBLIC_RPC } from "../lib/arcNetwork.js";
 import { ARC_TOKEN_ADDRESSES } from "../lib/lpPoolsConfig.js";
 import { compileSolidity, getArtifact } from "./lib/compileSolidity.mjs";
 
-const RPC_URL = process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network";
+const RPC_URL = process.env.ARC_RPC_URL || ARC_PUBLIC_RPC;
 const PRIVATE_KEY = String(
   process.env.MY_PK || process.env.ARC_DEPLOYER_PRIVATE_KEY || ""
 ).trim();
@@ -63,7 +67,22 @@ if (balance === 0n) {
   throw new Error("Deployer has zero ARC for gas");
 }
 
-const PAIRS = [
+const ALL_PAIRS = [
+  {
+    id: "usdc-eurc",
+    name: "USDC / EURC",
+    tokens: ["USDC", "EURC"],
+  },
+  {
+    id: "usdc-swprc",
+    name: "USDC / SWPRC",
+    tokens: ["USDC", "SWPRC"],
+  },
+  {
+    id: "eurc-swprc",
+    name: "EURC / SWPRC",
+    tokens: ["EURC", "SWPRC"],
+  },
   {
     id: "usdc-circbtc",
     name: "USDC / CircBTC",
@@ -80,6 +99,27 @@ const PAIRS = [
     tokens: ["SWPRC", "CircBTC"],
   },
 ];
+
+const TESTNET_DEFAULT_PAIR_IDS = ["usdc-circbtc", "eurc-circbtc", "swprc-circbtc"];
+
+const pairsOverride = String(process.env.ARC_LP_DEPLOY_PAIRS || "").trim();
+let PAIRS;
+if (pairsOverride === "all") {
+  PAIRS = ALL_PAIRS;
+} else if (pairsOverride) {
+  const wanted = pairsOverride.split(",").map((s) => s.trim()).filter(Boolean);
+  PAIRS = ALL_PAIRS.filter((p) => wanted.includes(p.id));
+  if (PAIRS.length !== wanted.length) {
+    throw new Error(`Unknown pair id(s) in ARC_LP_DEPLOY_PAIRS: ${pairsOverride}`);
+  }
+} else {
+  // Testnet keeps the historical 3 CircBTC pairs; any fresh network (mainnet) gets all six.
+  PAIRS =
+    Number(network.chainId) === ARC_TESTNET_CHAIN_ID
+      ? ALL_PAIRS.filter((p) => TESTNET_DEFAULT_PAIR_IDS.includes(p.id))
+      : ALL_PAIRS;
+}
+console.log(`Pairs to deploy: ${PAIRS.map((p) => p.id).join(", ")}`);
 
 const poolFactory = new ethers.ContractFactory(
   poolArtifact.abi,
@@ -151,3 +191,9 @@ await fs.writeFile(
   )
 );
 console.log(`\nWrote ${outPath}`);
+
+console.log("\n========== NEXT STEP: paste this into your env ==========");
+console.log(
+  "Set ARC_LP_POOLS_JSON (VPS .env AND Vercel) to the single line below:"
+);
+console.log(JSON.stringify(deployed));

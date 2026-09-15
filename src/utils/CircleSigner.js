@@ -1,5 +1,6 @@
 
 import { ethers } from "ethers";
+import { ARC_CHAIN_ID_DEC } from "../config/arcNetwork.js";
 
 /**
  * Custom Ethers.js Signer for Circle User-Controlled Wallets
@@ -166,7 +167,7 @@ export class CircleSigner extends ethers.AbstractSigner {
       gasPrice: BigInt(0), // Unknown
       data: txRequest.data,
       value: BigInt(valueStr),
-      chainId: BigInt(5042002) // Arc Testnet
+      chainId: BigInt(ARC_CHAIN_ID_DEC) // Arc (config: src/config/arcNetwork.js)
     }, this.provider);
   }
 

@@ -1,13 +1,14 @@
 import { kv } from "../../lib/server/kv.js";
 import { ethers } from "ethers";
 import { resolveCanonicalProfile } from "../../lib/server/profileKeys.js";
+import { ARC_DRPC_RPC } from "../../lib/arcNetwork.js";
 import {
   SWAP_POOL_INDEX_TO_SYMBOL,
   SWAP_POOL_TOKEN_DECIMALS,
   V2_SWAP_POOL_ADDRESS,
 } from "../../lib/swapPoolStatsConfig.js";
 
-const RPC_URL = process.env.ARC_RPC_URL || "https://arc-testnet.drpc.org";
+const RPC_URL = process.env.ARC_RPC_URL || ARC_DRPC_RPC;
 const SWAP_POOL_ADDRESS = V2_SWAP_POOL_ADDRESS;
 
 const POOL_ABI = [

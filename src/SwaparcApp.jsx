@@ -58,6 +58,13 @@ import {
   withTimeout,
   ethCallWithRpcFallback,
 } from "./utils/arcRpc.js";
+import {
+  ARC_CHAIN_NAME,
+  ARC_EXPLORER_API,
+  ARC_EXPLORER_BASE,
+  ARC_TOKENS,
+  LIQUIDITY_POOLS,
+} from "./config/arcNetwork.js";
 
 const ARC_CHAIN_ID_HEX = `0x${ARC_CHAIN_ID_DEC.toString(16)}`;
 const CIRCLE_APP_ID = import.meta.env.VITE_CIRCLE_APP_ID || "";
@@ -191,50 +198,9 @@ const TOKEN_INDICES = {
   CircBTC: 3,
 };
 
-const POOLS = [
-  {
-    id: "usdc-eurc",
-    name: "USDC / EURC",
-    tokens: ["USDC", "EURC"],
-    poolAddress: "0xd22e4fB80E21e8d2C91131eC2D6b0C000491934B",
-    lpToken: "0x454f21b7738A446f79ea4ff00e71b9e8E9E6FEE9",
-  },
-  {
-    id: "usdc-swprc",
-    name: "USDC / SWPRC",
-    tokens: ["USDC", "SWPRC"],
-    poolAddress: "0x613bc8A188a571e7Ffe3F884FabAB0F43ABB8282",
-    lpToken: "0x2E2C7B48B2422223aD9628DA159f304192c24d3B",
-  },
-  {
-    id: "eurc-swprc",
-    name: "EURC / SWPRC",
-    tokens: ["EURC", "SWPRC"],
-    poolAddress: "0x9463DE67E73B42B2cE5e45cab7e32184B9c24939",
-    lpToken: "0xb81816d4fBB3D33b56c3efc04675d1cDed0f68b1",
-  },
-  {
-    id: "usdc-circbtc",
-    name: "USDC / CircBTC",
-    tokens: ["USDC", "CircBTC"],
-    poolAddress: "0xa9DcE051b330E79150D0437921C63c498CC1bE91",
-    lpToken: "0x95BD0bB6a929f75872C1e1176c4B8Cb9B3e633a2",
-  },
-  {
-    id: "eurc-circbtc",
-    name: "EURC / CircBTC",
-    tokens: ["EURC", "CircBTC"],
-    poolAddress: "0xB725B7D06dCAeD7F13A9b7bEc63A98978079CeEE",
-    lpToken: "0x8a44c2Af504B1646a279b959d62FA915D13e0F18",
-  },
-  {
-    id: "swprc-circbtc",
-    name: "SWPRC / CircBTC",
-    tokens: ["SWPRC", "CircBTC"],
-    poolAddress: "0x49C7117FB670f387B5BA9e4Ea174Ae60cA384055",
-    lpToken: "0x089b4F57a841338cfb7EB0aF431F5b872AC31B1b",
-  },
-];
+/** Per-pair LP pools from config (per-network registry — see
+ *  src/config/arcNetwork.js). */
+const POOLS = LIQUIDITY_POOLS;
 
 const POOLS_TVL_SPARK_KEY = "swaparc_pools_tvl_spark_v1";
 const POOLS_LP_SPARK_KEY_PREFIX = "swaparc_pools_lp_spark_v1:";
@@ -406,32 +372,9 @@ function safeAvatarCssUrl(value) {
   return null;
 }
 
-const INITIAL_TOKENS = [
-  {
-    symbol: "USDC",
-    name: "USD Coin",
-    address: "0x3600000000000000000000000000000000000000",
-    decimals: 6,
-  },
-  {
-    symbol: "EURC",
-    name: "Euro Coin",
-    address: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
-    decimals: 6,
-  },
-  {
-    symbol: "SWPRC",
-    name: "SwapARC Token",
-    address: "0xBE7477BF91526FC9988C8f33e91B6db687119D45",
-    decimals: 6,
-  },
-  {
-    symbol: "CircBTC",
-    name: "Circle Bitcoin",
-    address: "0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF",
-    decimals: 8,
-  },
-];
+/** Token registry from config (env-overridable per network — see
+ *  src/config/arcNetwork.js). */
+const INITIAL_TOKENS = ARC_TOKENS;
 
 function tokenDecimalsForSymbol(symbol) {
   const t = INITIAL_TOKENS.find((x) => x.symbol === symbol);
@@ -1400,6 +1343,9 @@ export default function SwaparcApp() {
   const [expectedOutputNum, setExpectedOutputNum] = useState(null); // raw number for calculations
   const [expectedOutputRaw, setExpectedOutputRaw] = useState(null); // bigint wei for min_dy
   const [swapPoolTokenBalances, setSwapPoolTokenBalances] = useState({}); // { USDC, EURC, SWPRC, CircBTC }
+  // null = unknown; true = swap pool below bootstrap threshold (Swap tab shows
+  // the "liquidity bootstrapping" notice instead of a guaranteed-to-fail form)
+  const [swapPoolEmpty, setSwapPoolEmpty] = useState(null);
   const [highImpactConfirmed, setHighImpactConfirmed] = useState(false);
   const [showSlippagePanel, setShowSlippagePanel] = useState(false);
   const [swapBusy, setSwapBusy] = useState(false);
@@ -4259,6 +4205,46 @@ export default function SwaparcApp() {
     };
   }, [activeTab]);
 
+  /**
+   * Swap-pool bootstrap gate (mainnet LP-first launch): when the swap pool
+   * has (near-)zero liquidity the Swap tab shows a "liquidity bootstrapping"
+   * notice instead of a swap form that can only fail. Re-checked whenever the
+   * Swap tab is opened; a successful swap or manual re-entry refreshes it.
+   */
+  useEffect(() => {
+    if (activeTab !== "swap") return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const raw = await ethCallWithRpcFallback(
+          (prov) =>
+            new ethers.Contract(SWAP_POOL_ADDRESS, POOL_ABI, prov).getBalances(),
+          "swapTab.getBalances"
+        );
+        if (cancelled || !Array.isArray(raw) || raw.length === 0) return;
+        // USDC (token index 0, 6 decimals) is the anchor: without USDC-side
+        // depth every route is untradeable. Below $50 the pool is "empty".
+        const usdcBal = Number(ethers.formatUnits(raw[0], 6));
+        setSwapPoolEmpty(usdcBal < 50);
+        setSwapPoolTokenBalances((prev) => {
+          const next = { ...prev, USDC: usdcBal };
+          return next.USDC === prev.USDC ? prev : next;
+        });
+      } catch {
+        // Read failed — leave the gate in its previous state (never block
+        // swaps because an RPC read flaked).
+      }
+    };
+    check();
+    // While waiting for the owner to seed the pool, re-check every 60s so
+    // the swap form unlocks without a manual refresh.
+    const recheck = setInterval(check, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(recheck);
+    };
+  }, [activeTab]);
+
   useEffect(() => {
     if (activeTab !== "landing") return;
     const nodes = Array.from(document.querySelectorAll(".landingReveal"));
@@ -4859,7 +4845,7 @@ export default function SwaparcApp() {
     setTxLoading(true);
     try {
       const res = await fetch(
-        `https://testnet.arcscan.app/api?module=account&action=txlist&address=${SWAP_POOL_ADDRESS}&sort=desc`
+        `${ARC_EXPLORER_API}?module=account&action=txlist&address=${SWAP_POOL_ADDRESS}&sort=desc`
       );
       const data = await res.json();
 
@@ -4878,7 +4864,7 @@ export default function SwaparcApp() {
 
   async function fetchPoolTransactionsData() {
     const res = await fetch(
-      `https://testnet.arcscan.app/api?module=account&action=txlist&address=${SWAP_POOL_ADDRESS}&sort=desc`
+      `${ARC_EXPLORER_API}?module=account&action=txlist&address=${SWAP_POOL_ADDRESS}&sort=desc`
     );
     const data = await res.json();
     if (data.status !== "1") return [];
@@ -4887,7 +4873,7 @@ export default function SwaparcApp() {
 
   async function arcscanJson(params) {
     const qs = new URLSearchParams(params);
-    const res = await fetch(`https://testnet.arcscan.app/api?${qs.toString()}`);
+    const res = await fetch(`${ARC_EXPLORER_API}?${qs.toString()}`);
     return await res.json();
   }
 
@@ -5214,7 +5200,7 @@ export default function SwaparcApp() {
       const stealthNativeAfter = await provider.getBalance(stealthWallet.address);
       if (stealthNativeAfter < gasNeeded) {
         throw new Error(
-          "Stealth address still lacks native gas after top-up. If you use an injected wallet, it must be switched to ARC testnet (chain id 5042002) so the top-up lands on the same network as this token balance."
+          `Stealth address still lacks native gas after top-up. If you use an injected wallet, it must be switched to ${ARC_CHAIN_NAME} (chain id ${ARC_CHAIN_ID_DEC}) so the top-up lands on the same network as this token balance.`
         );
       }
 
@@ -5397,7 +5383,7 @@ export default function SwaparcApp() {
     setTxLoading(true);
     try {
       const res = await fetch(
-        `https://testnet.arcscan.app/api?module=account&action=txlist&address=${userAddress}&sort=desc`
+        `${ARC_EXPLORER_API}?module=account&action=txlist&address=${userAddress}&sort=desc`
       );
       const data = await res.json();
 
@@ -10271,14 +10257,14 @@ export default function SwaparcApp() {
 
     const arcChainParams = {
       chainId: ARC_CHAIN_ID_HEX,
-      chainName: "Arc Testnet",
+      chainName: ARC_CHAIN_NAME,
       nativeCurrency: {
         name: "ARC",
         symbol: "ARC",
         decimals: 18,
       },
       rpcUrls: walletRpcUrls,
-      blockExplorerUrls: ["https://testnet.arcscan.app"],
+      blockExplorerUrls: [ARC_EXPLORER_BASE],
     };
 
     try {
@@ -11175,7 +11161,7 @@ export default function SwaparcApp() {
       fromAmount: swapAmount,
       toToken: swapTo,
       toAmount: expectedHuman ? expectedHuman.toFixed(6) : "0",
-      txUrl: `https://testnet.arcscan.app/tx/${txHash}`,
+      txUrl: `${ARC_EXPLORER_BASE}/tx/${txHash}`,
       hash: txHash,
       timestamp: Date.now(),
       status: "success",
@@ -11419,7 +11405,7 @@ export default function SwaparcApp() {
         fromAmount: swapAmount,
         toToken: swapTo,
         toAmount: expectedHuman.toFixed(6),
-        txUrl: `https://testnet.arcscan.app/tx/${tx.hash}`,
+        txUrl: `${ARC_EXPLORER_BASE}/tx/${tx.hash}`,
         hash: tx.hash,
         timestamp: Date.now(),
         status: "pending",
@@ -11496,7 +11482,8 @@ export default function SwaparcApp() {
         /estimateGas|CALL_EXCEPTION/i.test(String(err?.message || err) + m)
       ) {
         m =
-          "Your wallet's Arc RPC is rate-limited. In your wallet's Arc Testnet network settings, change the RPC URL to https://arc-testnet.drpc.org, then retry.";
+        m =
+          `Your wallet's Arc RPC is rate-limited. In your wallet's ${ARC_CHAIN_NAME} network settings, change the RPC URL to ${ARC_DRPC_RPC}, then retry.`;
       }
       setQuote("Swap failed: " + m);
       setTxModal({
@@ -13673,6 +13660,31 @@ export default function SwaparcApp() {
                     </div>
                   </div>
 
+                  {swapPoolEmpty === true && (
+                    <div className="swapBootstrapNotice" role="status">
+                      <div className="swapBootstrapTitle">
+                        <span className="swapBootstrapDot" />
+                        Liquidity bootstrapping
+                      </div>
+                      <p className="swapBootstrapCopy">
+                        The swap pool is being seeded. Swaps unlock
+                        automatically once liquidity is in — no refresh needed.
+                        Be the first to provide liquidity in the{" "}
+                        <strong>Pools</strong> tab and earn LP rewards from day
+                        one.
+                      </p>
+                      <button
+                        type="button"
+                        className="swapBootstrapBtn"
+                        onClick={() => setActiveTab("pools")}
+                      >
+                        Open Pools
+                      </button>
+                    </div>
+                  )}
+
+                  {swapPoolEmpty !== true && (
+                  <>
                   <div className="swapRowClean">
                     <div className="swapBox">
                       <div className="swapAmountCol" style={{ display: "flex", flexDirection: "column", flex: 1, gap: 8 }}>
@@ -13877,7 +13889,8 @@ export default function SwaparcApp() {
                       <strong>Quote:</strong> {quote}
                     </p>
                   )}
-
+                  </>
+                  )}
                   </div>
                 </div>
               )}
@@ -13946,7 +13959,7 @@ export default function SwaparcApp() {
 
                               <div className="historyMeta">
                                 <a
-                                  href={`https://testnet.arcscan.app/tx/${tx.hash}`}
+                                  href={`${ARC_EXPLORER_BASE}/tx/${tx.hash}`}
                                   target="_blank"
                                   rel="noreferrer"
                                 >
@@ -14982,7 +14995,7 @@ export default function SwaparcApp() {
                                     {h.txHash && h.txHash !== "SUBMITTED" && (
                                       <a
                                         className="secondaryBtn billsPayBtn"
-                                        href={`https://testnet.arcscan.app/tx/${h.txHash}`}
+                                        href={`${ARC_EXPLORER_BASE}/tx/${h.txHash}`}
                                         target="_blank"
                                         rel="noreferrer"
                                       >
@@ -15901,7 +15914,7 @@ export default function SwaparcApp() {
                                     {h.txHash && h.txHash !== "SUBMITTED" && (
                                       <a
                                         className="secondaryBtn billsPayBtn"
-                                        href={`https://testnet.arcscan.app/tx/${h.txHash}`}
+                                        href={`${ARC_EXPLORER_BASE}/tx/${h.txHash}`}
                                         target="_blank"
                                         rel="noreferrer"
                                       >
@@ -16218,7 +16231,7 @@ export default function SwaparcApp() {
                                         {h.txHash ? (
                                           <a
                                             className="secondaryBtn billsPayBtn"
-                                            href={`https://testnet.arcscan.app/tx/${h.txHash}`}
+                                            href={`${ARC_EXPLORER_BASE}/tx/${h.txHash}`}
                                             target="_blank"
                                             rel="noreferrer"
                                           >
@@ -16416,7 +16429,7 @@ export default function SwaparcApp() {
               ) : null}
               {receiptModal.txHash && receiptModal.txHash !== "SUBMITTED" ? (
                 <a
-                  href={`https://testnet.arcscan.app/tx/${receiptModal.txHash}`}
+                  href={`${ARC_EXPLORER_BASE}/tx/${receiptModal.txHash}`}
                   target="_blank"
                   rel="noreferrer"
                   className="secondaryBtn"
@@ -16467,7 +16480,7 @@ export default function SwaparcApp() {
             <div className="txActions">
               {txModal.txHash && (
                 <a
-                  href={`https://testnet.arcscan.app/tx/${txModal.txHash}`}
+                  href={`${ARC_EXPLORER_BASE}/tx/${txModal.txHash}`}
                   target="_blank"
                   rel="noreferrer"
                   className="secondaryBtn"

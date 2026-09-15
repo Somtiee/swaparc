@@ -1,9 +1,9 @@
 import { kv } from "../../../lib/server/kv.js";
 import { ethers } from "ethers";
 import { assertOwnerAuth } from "../../security/walletAuth.js";
+import { ARC_PUBLIC_RPC } from "../../../lib/arcNetwork.js";
 
-const ARC_RPC_URL =
-  process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network";
+const ARC_RPC_URL = process.env.ARC_RPC_URL || ARC_PUBLIC_RPC;
 const USDC_ADDRESS = (
   process.env.PRIVPAY_USDC_ADDRESS ||
   process.env.ARCPAY_USDC_ADDRESS ||

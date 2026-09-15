@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import { kv } from "../../lib/server/kv.js";
+import { ARC_DRPC_RPC, ARC_PUBLIC_RPC } from "../../lib/arcNetwork.js";
 import { PrivacyPoolPoseidonMerkleMirror } from "../../scripts/privacyPoolPoseidonMerkle.mjs";
 import { assertIpRateLimit } from "../security/walletAuth.js";
 import { assertRelayPoolAllowed, getRelayAllowedPoolSet } from "../../lib/server/privpayRelayCore.js";
@@ -72,12 +73,12 @@ function providerUrls() {
   const out = [];
   const alchemy = String(process.env.VITE_ALCHEMY_ARC_RPC_URL || "").trim();
   if (alchemy) out.push(alchemy);
-  out.push("https://arc-testnet.drpc.org");
+  out.push(ARC_DRPC_RPC);
   const arc = String(process.env.ARC_RPC_URL || "").trim();
   if (arc) out.push(arc);
   const viteArc = String(process.env.VITE_ARC_RPC_URL || "").trim();
   if (viteArc) out.push(viteArc);
-  out.push("https://rpc.testnet.arc.network");
+  out.push(ARC_PUBLIC_RPC);
   return [...new Set(out)];
 }
 

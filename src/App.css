@@ -7708,3 +7708,65 @@ textarea.privpayInput {
     justify-content: center;
   }
 }
+
+/* ============ Swap tab: liquidity-bootstrapping notice (mainnet LP-first) ============ */
+
+.swapBootstrapNotice {
+  margin-top: 14px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  border: 1px solid rgba(124, 197, 255, 0.18);
+  background:
+    radial-gradient(320px 120px at 20% 0%, rgba(46, 110, 246, 0.10), transparent),
+    rgba(255, 255, 255, 0.03);
+  text-align: center;
+}
+
+.swapBootstrapTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 15px;
+  color: #eaf6ff;
+  letter-spacing: 0.3px;
+}
+
+.swapBootstrapDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px rgba(124, 197, 255, 0.8);
+  animation: testnetSunsetPulse 1.6s ease-in-out infinite;
+}
+
+.swapBootstrapCopy {
+  margin: 12px 0 0;
+  color: #9ebde2;
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 520px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.swapBootstrapCopy strong {
+  color: #cfe4ff;
+}
+
+.swapBootstrapBtn {
+  margin-top: 14px;
+  padding: 10px 22px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(90deg, #2ec4ff, #1b6ef6);
+  box-shadow: 0 10px 28px rgba(46, 110, 246, 0.28);
+  color: #ffffff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.swapBootstrapBtn:hover {
+  filter: brightness(1.08);
+}

@@ -28,6 +28,8 @@
     "deploy:pool": "node scripts/deployPrivacyPool.mjs",
     "deploy:recurring-automation": "node scripts/deployRecurringAutomation.mjs",
     "deploy:swap-pool": "node scripts/deploySwapPoolV2.mjs",
+    "deploy:lp-pools-circbtc": "node scripts/deployLpPoolsCircBtc.mjs",
+    "rewards:fund": "node scripts/fundLpRewards.mjs",
     "upgrade:swap-pool": "node scripts/upgradeSwapPoolV2.mjs",
     "seed:swap-pool": "node scripts/seedSwapPoolV2.mjs",
     "verify:swap-pool": "node scripts/verifySwapPoolV2.mjs",

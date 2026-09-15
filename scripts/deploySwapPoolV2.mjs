@@ -128,7 +128,7 @@ if (owner.toLowerCase() !== EXPECTED_OWNER.toLowerCase()) {
 }
 
 const deployment = {
-  network: "arc-testnet",
+  network: "arc", // label only; chainId below is the real network identity
   chainId: Number(network.chainId),
   deployedAt: new Date().toISOString(),
   deployer: wallet.address,
