@@ -4,31 +4,17 @@ import { useState } from "react";
  * Testnet → Mainnet interstitial.
  *
  * Shown on production builds while the Arc testnet chapter is closed and the
- * mainnet deployment is being prepared. Enabled via VITE_TESTNET_SUNSET=1 at
- * build time (see .env.example). A small escape hatch keeps the testnet app
- * reachable; the dismissal is remembered per browser.
+ * mainnet deployment is being prepared. Enabled by default on prod builds
+ * (opt out with VITE_TESTNET_SUNSET=0); dev builds opt in with
+ * VITE_TESTNET_SUNSET=1. The escape hatch into the testnet app is
+ * visit-scoped only — a (hard) refresh always returns to this page.
  */
-const DISMISS_KEY = "swaparc:testnetSunsetDismissed";
-
-function readDismissed() {
-  try {
-    return window.localStorage.getItem(DISMISS_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
 export default function TestnetSunsetScreen({ onContinue }) {
-  const [dismissed, setDismissed] = useState(readDismissed);
+  const [dismissed, setDismissed] = useState(false);
 
   if (dismissed) return null;
 
   const continueToApp = () => {
-    try {
-      window.localStorage.setItem(DISMISS_KEY, "1");
-    } catch {
-      /* private mode / storage blocked — session-only dismissal */
-    }
     setDismissed(true);
     if (typeof onContinue === "function") onContinue();
   };
@@ -41,11 +27,11 @@ export default function TestnetSunsetScreen({ onContinue }) {
       <section className="testnetSunsetCard">
         <p className="landingHeroEyebrow">SwapARC on Arc</p>
 
-        <h1 className="testnetSunsetTitle">Testnet, complete.</h1>
+        <h1 className="testnetSunsetTitle">TESTNET COMPLETE!!!.</h1>
 
         <p className="testnetSunsetCopy">
-          The testnet chapter is officially over. Every swap, every LP position,
-          and every milestone you hit has been recorded — your profile, stats,
+          The testnet chapter is officially over. Every swap, every LP position
+          and every milestone you hit has been recorded. Your profile, stats,
           and badges are stored and carried forward.
         </p>
 
@@ -65,21 +51,21 @@ export default function TestnetSunsetScreen({ onContinue }) {
         <div className="testnetSunsetStatusRow">
           <div className="testnetSunsetStatus">
             <span className="testnetSunsetStatusDot testnetSunsetStatusDotDone" />
-            Testnet progress — stored
+            Testnet progress: Stored
           </div>
           <div className="testnetSunsetStatus">
             <span className="testnetSunsetStatusDot testnetSunsetStatusDotDone" />
-            Badges — locked in
+            Badges: Locked in
           </div>
           <div className="testnetSunsetStatus">
             <span className="testnetSunsetStatusDot testnetSunsetStatusDotPulse" />
-            Mainnet — loading
+            Mainnet??? loading
           </div>
         </div>
 
         <p className="testnetSunsetMainnetCopy">
           Stay tuned for the real deal: <strong>SwapARC on mainnet</strong> is
-          next.
+          on the way.
         </p>
 
         <button

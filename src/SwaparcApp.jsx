@@ -67,7 +67,7 @@ const CIRCLE_APP_ID = import.meta.env.VITE_CIRCLE_APP_ID || "";
  * and the mainnet deployment is prepared. Baked at build time.
  * Production builds show it by default (opt out with VITE_TESTNET_SUNSET=0);
  * dev builds stay unaffected (opt in with VITE_TESTNET_SUNSET=1 to preview).
- * The screen offers an escape hatch back into the app.
+ * The escape hatch into the app is visit-scoped — a refresh returns here.
  */
 const TESTNET_SUNSET_ENABLED = import.meta.env.PROD
   ? import.meta.env.VITE_TESTNET_SUNSET !== "0"
