@@ -17,6 +17,7 @@
     "start:railway": "node scripts/railwayStart.mjs",
     "start:vps": "node scripts/vpsStart.mjs",
     "stats:count-swappers": "node scripts/countUniqueSwappers.js",
+    "snapshot:elite": "node scripts/snapshotEliteSwaparcers.mjs",
     "stats:backfill-swap-volume": "node scripts/backfillSwapVolumeFromChain.mjs",
     "stats:backfill-dump-swaps": "node scripts/backfillSwapVolumeFromChain.mjs --dump-only",
     "stats:backfill-quote-shards": "powershell -ExecutionPolicy Bypass -File scripts/launchVolumeQuoteShards.ps1",

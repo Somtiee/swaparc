@@ -8,6 +8,7 @@ import usdcLogo from "./assets/usdc.jpg";
 import eurcLogo from "./assets/eurc.jpg";
 import swprcLogo from "./assets/swprc.jpg";
 import circbtcLogo from "./assets/circbtc.png";
+import TestnetSunsetScreen from "./components/TestnetSunsetScreen.jsx";
 import "./App.css";
 import { getPrices } from "./priceFetcher";
 import { CircleSigner } from "./utils/CircleSigner";
@@ -60,6 +61,17 @@ import {
 
 const ARC_CHAIN_ID_HEX = `0x${ARC_CHAIN_ID_DEC.toString(16)}`;
 const CIRCLE_APP_ID = import.meta.env.VITE_CIRCLE_APP_ID || "";
+
+/**
+ * Testnet → Mainnet interstitial: shown while the testnet chapter is closed
+ * and the mainnet deployment is prepared. Baked at build time.
+ * Production builds show it by default (opt out with VITE_TESTNET_SUNSET=0);
+ * dev builds stay unaffected (opt in with VITE_TESTNET_SUNSET=1 to preview).
+ * The screen offers an escape hatch back into the app.
+ */
+const TESTNET_SUNSET_ENABLED = import.meta.env.PROD
+  ? import.meta.env.VITE_TESTNET_SUNSET !== "0"
+  : import.meta.env.VITE_TESTNET_SUNSET === "1";
 
 /** Weekly static landing stats (Sunday cron); TVL via RPC once/day on landing. */
 /** localStorage fallback TTL only when CDN fetch fails (offline). */
@@ -12037,6 +12049,7 @@ export default function SwaparcApp() {
 
   return (
     <div className="app-page hybrid-page">
+      {TESTNET_SUNSET_ENABLED && <TestnetSunsetScreen />}
       {circleExecPrompt && (
         <div
           style={{
